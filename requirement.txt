@@ -10,6 +10,7 @@ astor==0.8.1
 attrs==26.1.0
 bce-python-sdk==0.9.72
 beautifulsoup4==4.15.0
+blinker==1.9.0
 certifi==2026.6.17
 chardet==7.4.3
 charset-normalizer==3.4.9
@@ -21,6 +22,7 @@ Cython==3.2.8
 decorator==5.3.1
 filelock==3.29.7
 fire==0.7.1
+Flask==3.1.3
 fonttools==4.63.0
 frozenlist==1.8.0
 fsspec==2026.6.0
@@ -33,6 +35,7 @@ huggingface_hub==1.22.0
 idna==3.18
 ImageIO==2.37.3
 imagesize==2.0.0
+itsdangerous==2.2.0
 Jinja2==3.1.6
 lazy-loader==0.5
 lmdb==2.2.1
@@ -108,4 +111,5 @@ tzdata==2026.2
 ujson==5.13.0
 urllib3==2.7.0
 wcwidth==0.8.2
+Werkzeug==3.1.8
 yarl==1.24.2

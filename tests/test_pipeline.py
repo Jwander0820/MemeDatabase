@@ -6,13 +6,16 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.anime_memes.db import connect
+from src.anime_memes.images import build_thumbnails, download_all_attachments
 from src.anime_memes.ingest import ingest_fixed_export, ocr_review_entries
 from src.anime_memes.notion import export_notion_csv
 from src.anime_memes.ocr import extract_paddle_text, run_ocr
 from src.anime_memes.review import H, export_review_csv, import_review_corrections
 from src.anime_memes.tags import import_llm_suggestions, import_manual_tags
+from src.anime_memes.web import create_app
 
 
 def message(message_id, timestamp, content, author_id="u1", attachments=None):
@@ -211,6 +214,185 @@ class PipelineTest(unittest.TestCase):
                 entry = conn.execute("SELECT * FROM meme_entries WHERE key = 'meme_a1'").fetchone()
                 self.assertEqual(entry["anime_title"], "\u6e2c\u8a66\u4f5c\u54c1")
                 self.assertEqual(entry["status"], "ready")
+            finally:
+                conn.close()
+
+    def test_web_api_search_edit_tags_and_favorite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixed = root / "sample.fixed.json"
+            db_path = root / "memes.sqlite3"
+            fixed.write_text(
+                json.dumps(
+                    {
+                        "dateRange": {"after": None, "before": None},
+                        "exportedAt": "2026-07-02T00:00:00+08:00",
+                        "messages": [
+                            message(
+                                "m1",
+                                "2026-07-01T00:00:00+08:00",
+                                "Test Anime\nHero\nNeed coffee",
+                                attachments=[attachment("a1")],
+                            )
+                        ],
+                        "messageCount": 1,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            conn = connect(db_path)
+            try:
+                ingest_fixed_export(conn, fixed)
+            finally:
+                conn.close()
+
+            app = create_app(db_path=db_path, attachment_dir=root / "attachments", thumbnail_dir=root / "thumbs")
+            client = app.test_client()
+            response = client.get("/api/entries?q=coffee")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()["total"], 1)
+
+            patch_response = client.patch(
+                "/api/entries/meme_a1",
+                json={"anime_title": "Better Anime", "speaker": "Lead", "quote_text": "Fixed quote", "status": "ready"},
+            )
+            self.assertEqual(patch_response.status_code, 200)
+            tag_response = client.put("/api/entries/meme_a1/tags", json={"tags": "收藏, 咖啡"})
+            self.assertEqual(tag_response.status_code, 200)
+            fav_response = client.post("/api/entries/meme_a1/favorite")
+            self.assertEqual(fav_response.get_json()["favorite"], True)
+
+            filtered = client.get("/api/entries?favorite=1&tag=咖啡").get_json()
+            self.assertEqual(filtered["total"], 1)
+
+    def test_web_api_permanent_delete_removes_unshared_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixed = root / "sample.fixed.json"
+            db_path = root / "memes.sqlite3"
+            attachment_dir = root / "attachments"
+            thumbnail_dir = root / "thumbs"
+            attachment_dir.mkdir()
+            thumbnail_dir.mkdir()
+            original = attachment_dir / "a1.png"
+            thumbnail = thumbnail_dir / "a1.webp"
+            original.write_bytes(b"original image bytes")
+            thumbnail.write_bytes(b"thumbnail bytes")
+            fixed.write_text(
+                json.dumps(
+                    {
+                        "dateRange": {"after": None, "before": None},
+                        "exportedAt": "2026-07-02T00:00:00+08:00",
+                        "messages": [
+                            message(
+                                "m1",
+                                "2026-07-01T00:00:00+08:00",
+                                "Delete Anime\nCleaner\nRemove me",
+                                attachments=[attachment("a1")],
+                            )
+                        ],
+                        "messageCount": 1,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            conn = connect(db_path)
+            try:
+                ingest_fixed_export(conn, fixed)
+                conn.execute(
+                    """
+                    UPDATE attachments
+                    SET local_path = ?, thumbnail_path = ?, download_status = 'downloaded'
+                    WHERE id = 'a1'
+                    """,
+                    (str(original), str(thumbnail)),
+                )
+                conn.execute("INSERT OR IGNORE INTO tags(name, source) VALUES('manual-tag', 'manual')")
+                conn.execute(
+                    """
+                    INSERT INTO entry_tags(entry_key, tag_name, source, reason)
+                    VALUES('meme_a1', 'manual-tag', 'manual', 'test')
+                    """
+                )
+                conn.execute("INSERT INTO entry_favorites(entry_key) VALUES('meme_a1')")
+                conn.execute(
+                    "INSERT INTO review_items(entry_key, attachment_id, reason) VALUES('meme_a1', 'a1', 'entry review')"
+                )
+                conn.execute("INSERT INTO review_items(attachment_id, reason) VALUES('a1', 'attachment review')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            app = create_app(db_path=db_path, attachment_dir=attachment_dir, thumbnail_dir=thumbnail_dir)
+            client = app.test_client()
+            response = client.delete("/api/entries/meme_a1")
+            self.assertEqual(response.status_code, 200)
+            data = response.get_json()
+            self.assertTrue(data["removed_attachment"])
+            self.assertEqual(len(data["file_errors"]), 0)
+            self.assertFalse(original.exists())
+            self.assertFalse(thumbnail.exists())
+
+            conn = connect(db_path)
+            try:
+                self.assertEqual(count(conn, "meme_entries"), 0)
+                self.assertEqual(count(conn, "attachments"), 0)
+                self.assertEqual(count(conn, "entry_tags"), 0)
+                self.assertEqual(count(conn, "entry_favorites"), 0)
+                self.assertEqual(count(conn, "review_items"), 0)
+                self.assertEqual(count(conn, "discord_messages"), 1)
+            finally:
+                conn.close()
+
+    def test_download_and_thumbnail_helpers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
+            root = Path(tmp)
+            fixed = root / "sample.fixed.json"
+            db_path = root / "memes.sqlite3"
+            attachment_dir = root / "attachments"
+            thumbnail_dir = root / "thumbs"
+            source = root / "source.png"
+            Image.new("RGB", (640, 360), "white").save(source)
+            fixed.write_text(
+                json.dumps(
+                    {
+                        "dateRange": {"after": None, "before": None},
+                        "exportedAt": "2026-07-02T00:00:00+08:00",
+                        "messages": [
+                            message(
+                                "m1",
+                                "2026-07-01T00:00:00+08:00",
+                                "A\nB\nC",
+                                attachments=[attachment("a1", "image.png")],
+                            )
+                        ],
+                        "messageCount": 1,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            conn = connect(db_path)
+            try:
+                ingest_fixed_export(conn, fixed, attachment_dir=attachment_dir)
+
+                def fake_download(_url, output_path, timeout=30):
+                    Path(output_path).write_bytes(source.read_bytes())
+                    return "downloaded", None
+
+                with patch("src.anime_memes.images.download_attachment", fake_download):
+                    summary = download_all_attachments(conn, attachment_dir=attachment_dir, retry_failed=True)
+                self.assertEqual(summary["downloaded"], 1)
+                thumb_summary = build_thumbnails(conn, thumbnail_dir=thumbnail_dir)
+                self.assertEqual(thumb_summary["created"], 1)
+                row = conn.execute("SELECT local_path, thumbnail_path, image_width, image_height FROM attachments WHERE id='a1'").fetchone()
+                self.assertTrue(Path(row["local_path"]).exists())
+                self.assertTrue(Path(row["thumbnail_path"]).exists())
+                self.assertEqual((row["image_width"], row["image_height"]), (640, 360))
             finally:
                 conn.close()
 

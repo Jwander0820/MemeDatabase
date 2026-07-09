@@ -45,9 +45,13 @@ CREATE TABLE IF NOT EXISTS attachments (
     file_name TEXT,
     file_size_bytes INTEGER,
     local_path TEXT,
+    thumbnail_path TEXT,
+    image_width INTEGER,
+    image_height INTEGER,
     r2_url TEXT,
     download_status TEXT NOT NULL DEFAULT 'pending',
     download_error TEXT,
+    downloaded_at TEXT,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (message_id) REFERENCES discord_messages(id)
 );
@@ -103,6 +107,12 @@ CREATE TABLE IF NOT EXISTS review_items (
     FOREIGN KEY (entry_key) REFERENCES meme_entries(key),
     FOREIGN KEY (attachment_id) REFERENCES attachments(id)
 );
+
+CREATE TABLE IF NOT EXISTS entry_favorites (
+    entry_key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (entry_key) REFERENCES meme_entries(key)
+);
 """
 
 
@@ -117,4 +127,34 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    migrate_db(conn)
     conn.commit()
+
+
+def migrate_db(conn: sqlite3.Connection) -> None:
+    ensure_columns(
+        conn,
+        "attachments",
+        {
+            "thumbnail_path": "TEXT",
+            "image_width": "INTEGER",
+            "image_height": "INTEGER",
+            "downloaded_at": "TEXT",
+        },
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entry_favorites (
+            entry_key TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (entry_key) REFERENCES meme_entries(key)
+        )
+        """
+    )
+
+
+def ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, definition in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")

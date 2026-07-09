@@ -11,9 +11,11 @@ from .db import connect, init_db
 from .env import getenv, load_dotenv
 from .exporter import default_before, export_and_convert, overlap_after
 from .ingest import ingest_fixed_export, ocr_review_entries
+from .images import build_thumbnails, download_all_attachments
 from .notion import export_notion_csv
 from .review import export_review_csv, import_review_corrections
 from .tags import import_llm_suggestions, import_manual_tags
+from .web import run_web_app
 
 
 DEFAULT_DB = "data/anime_memes.sqlite3"
@@ -99,6 +101,29 @@ def build_parser() -> argparse.ArgumentParser:
     llm = sub.add_parser("import-llm-tags", help="Import local LLM tag JSONL suggestions")
     llm.add_argument("jsonl_path")
     llm.set_defaults(func=cmd_import_llm_tags)
+
+    download = sub.add_parser("download-attachments", help="Download original Discord attachments")
+    download.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
+    download.add_argument("--all", action="store_true", help="Download every attachment in the database")
+    download.add_argument("--force", action="store_true", help="Redownload files even if they already exist")
+    download.add_argument("--retry-failed", action="store_true", help="Retry rows previously marked as failed")
+    download.add_argument("--limit", type=int)
+    download.set_defaults(func=cmd_download_attachments)
+
+    thumbs = sub.add_parser("build-thumbnails", help="Build local thumbnails for downloaded images")
+    thumbs.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    thumbs.add_argument("--size", type=int, default=420)
+    thumbs.add_argument("--missing", action="store_true", help="Only build missing thumbnails")
+    thumbs.add_argument("--force", action="store_true")
+    thumbs.add_argument("--limit", type=int)
+    thumbs.set_defaults(func=cmd_build_thumbnails)
+
+    web = sub.add_parser("web", help="Run the local browser/editor UI")
+    web.add_argument("--host", default=getenv("ANIME_MEMES_WEB_HOST", "127.0.0.1"))
+    web.add_argument("--port", type=int, default=int(getenv("ANIME_MEMES_WEB_PORT", "8765")))
+    web.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
+    web.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    web.set_defaults(func=cmd_web)
 
     return parser
 
@@ -215,3 +240,40 @@ def cmd_import_llm_tags(args: argparse.Namespace) -> None:
     with closing(connect(args.db)) as conn:
         imported, errors = import_llm_suggestions(conn, args.jsonl_path)
     print(f"Imported local LLM tags: {imported}; errors: {errors}")
+
+
+def cmd_download_attachments(args: argparse.Namespace) -> None:
+    with closing(connect(args.db)) as conn:
+        summary = download_all_attachments(
+            conn,
+            attachment_dir=args.attachment_dir,
+            channel_id=getenv("DISCORD_CHANNEL_ID"),
+            discord_bot_token=getenv("DISCORD_BOT_TOKEN"),
+            force=args.force,
+            retry_failed=args.retry_failed,
+            limit=args.limit,
+        )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_build_thumbnails(args: argparse.Namespace) -> None:
+    with closing(connect(args.db)) as conn:
+        summary = build_thumbnails(
+            conn,
+            thumbnail_dir=args.thumbnail_dir,
+            size=args.size,
+            missing=args.missing,
+            force=args.force,
+            limit=args.limit,
+        )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_web(args: argparse.Namespace) -> None:
+    run_web_app(
+        db_path=args.db,
+        host=args.host,
+        port=args.port,
+        attachment_dir=args.attachment_dir,
+        thumbnail_dir=args.thumbnail_dir,
+    )

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>動畫迷因資料庫</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="rail" aria-label="搜尋與篩選">
+      <div class="brand">
+        <div class="brand-mark">AM</div>
+        <div>
+          <h1>動畫迷因資料庫</h1>
+          <p id="resultCount">載入中</p>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>搜尋</span>
+        <input id="searchInput" type="search" placeholder="台詞、作品、說話者、OCR">
+      </label>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>狀態</span>
+          <select id="statusFilter">
+            <option value="ready">ready</option>
+            <option value="ignored">ignored</option>
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>排序</span>
+          <select id="sortFilter">
+            <option value="updated">最近更新</option>
+            <option value="source_new">來源新到舊</option>
+            <option value="source_old">來源舊到新</option>
+            <option value="title">作品</option>
+            <option value="random">隨機瀏覽</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="toggles">
+        <label><input id="favoriteOnly" type="checkbox"> 收藏</label>
+        <label><input id="missingImage" type="checkbox"> 缺圖片</label>
+        <label><input id="noTags" type="checkbox"> 無標籤</label>
+      </div>
+
+      <section class="tag-panel">
+        <div class="panel-heading">
+          <span>標籤</span>
+          <button id="clearTag" type="button">清除</button>
+        </div>
+        <div id="tagList" class="tag-list"></div>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div id="grid" class="meme-grid" aria-live="polite"></div>
+      <div class="load-row">
+        <button id="loadMore" type="button">載入更多</button>
+      </div>
+    </section>
+  </main>
+
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-bar">
+      <button id="closeDrawer" type="button" aria-label="關閉">×</button>
+      <button id="favoriteButton" type="button">☆</button>
+    </div>
+    <div id="drawerBody" class="drawer-body"></div>
+  </aside>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
