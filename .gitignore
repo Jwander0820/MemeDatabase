@@ -152,8 +152,16 @@ cython_debug/
 .DS_Store
 Thumbs.db
 
-# Project-specific: Large Raw & Converted Discord Exports
+# Project-specific: local data, exports, and generated databases
+data/
+data/raw_exports/
+data/fixed_exports/
+data/attachments/
+data/*.sqlite3
+data/*.sqlite3-*
+exports/
+models/
 DiscordChatExporter_rawdata_sample/*.json
+DiscordChatExporter_rawdata_sample/data/*.json
 .agents/
 .venv
-

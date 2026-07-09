@@ -1,0 +1,4 @@
+paddleocr==3.7.0
+paddlepaddle-gpu==3.3.0
+opencc-python-reimplemented==0.1.7
+Pillow
