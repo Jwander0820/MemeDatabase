@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
 from .convert import convert_file
 from .db import connect, init_db
 from .env import getenv, load_dotenv
-from .exporter import default_before, export_and_convert, overlap_after
+from .exporter import default_before, export_and_convert, incremental_after, save_sync_state
 from .ingest import ingest_fixed_export, ocr_review_entries
 from .images import build_thumbnails, download_all_attachments
 from .notion import export_notion_csv
@@ -80,6 +82,23 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--token", default=getenv("DISCORD_BOT_TOKEN"))
     export.add_argument("--exe", default=getenv("DISCORD_CHAT_EXPORTER_EXE"))
     export.set_defaults(func=cmd_export_discord)
+
+    sync = sub.add_parser("sync-discord", help="Back up, incrementally export, ingest, and report special cases")
+    sync.add_argument("--after")
+    sync.add_argument("--before", default=default_before())
+    sync.add_argument("--raw-dir", default="data/raw_exports")
+    sync.add_argument("--fixed-dir", default="data/fixed_exports")
+    sync.add_argument("--backup-dir", default="data/backups")
+    sync.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID"))
+    sync.add_argument("--token", default=getenv("DISCORD_BOT_TOKEN"))
+    sync.add_argument("--exe", default=getenv("DISCORD_CHAT_EXPORTER_EXE"))
+    sync.add_argument("--skip-attachments", action="store_true")
+    sync.add_argument("--skip-thumbnails", action="store_true")
+    sync.set_defaults(func=cmd_sync_discord)
+
+    sync_status = sub.add_parser("sync-status", help="Show the durable Discord incremental cursor")
+    sync_status.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID"))
+    sync_status.set_defaults(func=cmd_sync_status)
 
     notion = sub.add_parser("export-notion", help="Export Notion-ready CSV")
     notion.add_argument("--output")
@@ -187,17 +206,8 @@ def cmd_export_discord(args: argparse.Namespace) -> None:
     after = args.after
     if args.incremental and not after:
         with closing(connect(args.db)) as conn:
-            row = conn.execute(
-                """
-                SELECT before_value
-                FROM export_runs
-                WHERE status = 'success' AND channel_id = ? AND before_value IS NOT NULL
-                ORDER BY created_at DESC, id DESC
-                LIMIT 1
-                """,
-                (args.channel_id,),
-            ).fetchone()
-        after = overlap_after(row["before_value"]) if row else None
+            init_db(conn)
+            after = incremental_after(conn, args.channel_id)
 
     raw_path, fixed_path = export_and_convert(
         exporter_exe=args.exe,
@@ -210,6 +220,186 @@ def cmd_export_discord(args: argparse.Namespace) -> None:
     )
     print(f"Raw export: {raw_path}")
     print(f"Fixed export: {fixed_path}")
+
+
+def cmd_sync_discord(args: argparse.Namespace) -> None:
+    if not args.token:
+        raise ValueError("DISCORD_BOT_TOKEN is required")
+    if not args.channel_id:
+        raise ValueError("DISCORD_CHANNEL_ID is required")
+    if not args.exe:
+        raise ValueError("DISCORD_CHAT_EXPORTER_EXE is required")
+
+    with closing(connect(args.db)) as conn:
+        init_db(conn)
+        before_count = int(conn.execute("SELECT COUNT(*) FROM discord_messages").fetchone()[0])
+        after = args.after or incremental_after(conn, args.channel_id)
+
+    raw_path, fixed_path = export_and_convert(
+        exporter_exe=args.exe,
+        token=args.token,
+        channel_id=args.channel_id,
+        raw_dir=args.raw_dir,
+        fixed_dir=args.fixed_dir,
+        after=after,
+        before=args.before,
+    )
+    exported = json.loads(Path(fixed_path).read_text(encoding="utf-8"))
+    messages = [item for item in exported.get("messages", []) if isinstance(item, dict)]
+    exported_ids = {str(item.get("id")) for item in messages}
+
+    db_path = Path(args.db)
+    backup_path = None
+    if db_path.exists():
+        backup_dir = Path(args.backup_dir)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_path = backup_dir / f"{db_path.stem}_before_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}{db_path.suffix}"
+        shutil.copy2(db_path, backup_path)
+
+    with closing(connect(args.db)) as conn:
+        prior = {
+            str(row["id"]): (row["timestamp"], row["timestamp_edited"], row["content"], row["is_pinned"])
+            for row in conn.execute("SELECT id, timestamp, timestamp_edited, content, is_pinned FROM discord_messages")
+        }
+        new_ids = [str(item.get("id")) for item in messages if str(item.get("id")) not in prior]
+        changed_ids = []
+        for item in messages:
+            message_id = str(item.get("id"))
+            signature = (item.get("timestamp"), item.get("timestampEdited"), item.get("content") or "", 1 if item.get("isPinned") else 0)
+            if message_id in prior and prior[message_id] != signature:
+                changed_ids.append(message_id)
+        summary = ingest_fixed_export(
+            conn,
+            fixed_path,
+            channel_id=args.channel_id,
+            raw_path=str(raw_path),
+            attachment_dir=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
+            tag_rules_path=getenv("ANIME_MEMES_TAG_RULES", "config/tags.rules.json"),
+            discord_bot_token=args.token,
+        )
+
+        deleted_candidates = []
+        if after and args.before:
+            for row in conn.execute("SELECT id, timestamp FROM discord_messages"):
+                timestamp = str(row["timestamp"])
+                if after <= timestamp[:10] < args.before and str(row["id"]) not in exported_ids:
+                    deleted_candidates.append(str(row["id"]))
+        new_attachment_ids = [
+            str(attachment.get("id"))
+            for item in messages if str(item.get("id")) in new_ids
+            for attachment in (item.get("attachments") or []) if isinstance(attachment, dict)
+        ]
+        special = {
+            "edited_message_ids": changed_ids,
+            "possibly_deleted_message_ids": deleted_candidates,
+            "unpaired_entry_keys": [
+                str(row["key"]) for row in conn.execute(
+                    "SELECT key FROM meme_entries WHERE attachment_id IN ({}) AND pairing_method = 'unpaired'".format(
+                        ",".join("?" for _ in new_attachment_ids)
+                    ),
+                    new_attachment_ids,
+                )
+            ] if new_attachment_ids else [],
+            "multi_attachment_message_ids": [
+                str(item.get("id")) for item in messages
+                if str(item.get("id")) in new_ids and len(item.get("attachments") or []) > 1
+            ],
+        }
+
+        attachment_summary = None
+        thumbnail_summary = None
+        if not args.skip_attachments:
+            attachment_summary = download_all_attachments(
+                conn,
+                attachment_dir=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
+                channel_id=args.channel_id,
+                discord_bot_token=args.token,
+            )
+        if not args.skip_thumbnails:
+            thumbnail_summary = build_thumbnails(
+                conn,
+                thumbnail_dir=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"),
+                missing=True,
+            )
+
+        ordered_messages = sorted(messages, key=lambda item: str(item.get("timestamp") or ""))
+        if ordered_messages:
+            last_message_timestamp = ordered_messages[-1].get("timestamp")
+            last_message_id = str(ordered_messages[-1].get("id"))
+        else:
+            latest = conn.execute(
+                "SELECT id, timestamp FROM discord_messages ORDER BY timestamp DESC, id DESC LIMIT 1"
+            ).fetchone()
+            last_message_timestamp = latest["timestamp"] if latest else None
+            last_message_id = str(latest["id"]) if latest else None
+        save_sync_state(
+            conn,
+            channel_id=args.channel_id,
+            export_run_id=int(summary["export_run_id"]),
+            after_value=after,
+            covered_through=args.before,
+            last_message_timestamp=last_message_timestamp,
+            last_message_id=last_message_id,
+        )
+        sync_state = dict(
+            conn.execute(
+                "SELECT * FROM discord_sync_state WHERE channel_id = ?",
+                (args.channel_id,),
+            ).fetchone()
+        )
+        next_after = incremental_after(conn, args.channel_id)
+
+    state = "initial_import" if before_count == 0 else "updated" if new_ids or changed_ids else "no_changes"
+    print(json.dumps({
+        "state": state,
+        "range": {"after": after, "before": args.before},
+        "backup": str(backup_path) if backup_path else None,
+        "raw_path": str(raw_path),
+        "fixed_path": str(fixed_path),
+        "cursor": {
+            "covered_through": sync_state["covered_through"],
+            "last_message_timestamp": sync_state["last_message_timestamp"],
+            "last_message_id": sync_state["last_message_id"],
+            "next_after": next_after,
+            "overlap_days": sync_state["overlap_days"],
+            "last_success_at": sync_state["last_success_at"],
+        },
+        "new_message_ids": new_ids,
+        "ingest": summary,
+        "attachments": attachment_summary,
+        "thumbnails": thumbnail_summary,
+        "special_cases": special,
+    }, ensure_ascii=False, indent=2))
+
+
+def cmd_sync_status(args: argparse.Namespace) -> None:
+    if not args.channel_id:
+        raise ValueError("DISCORD_CHANNEL_ID is required")
+    with closing(connect(args.db)) as conn:
+        init_db(conn)
+        row = conn.execute(
+            "SELECT * FROM discord_sync_state WHERE channel_id = ?",
+            (args.channel_id,),
+        ).fetchone()
+        if row is None:
+            print(json.dumps({
+                "channel_id": args.channel_id,
+                "initialized": False,
+                "next_after": incremental_after(conn, args.channel_id),
+            }, ensure_ascii=False, indent=2))
+            return
+        state = dict(row)
+        print(json.dumps({
+            "channel_id": args.channel_id,
+            "initialized": True,
+            "covered_through": state["covered_through"],
+            "last_message_timestamp": state["last_message_timestamp"],
+            "last_message_id": state["last_message_id"],
+            "next_after": incremental_after(conn, args.channel_id),
+            "overlap_days": state["overlap_days"],
+            "last_success_at": state["last_success_at"],
+            "last_export_run_id": state["last_export_run_id"],
+        }, ensure_ascii=False, indent=2))
 
 
 def cmd_export_notion(args: argparse.Namespace) -> None:

@@ -39,6 +39,9 @@ def ingest_fixed_export(
     data = json.loads(path.read_text(encoding="utf-8"))
     date_range = data.get("dateRange") or {}
     messages = [message for message in data.get("messages", []) if isinstance(message, dict)]
+    ordered_messages = sorted(messages, key=lambda item: str(item.get("timestamp") or ""))
+    first_message = ordered_messages[0] if ordered_messages else None
+    last_message = ordered_messages[-1] if ordered_messages else None
     export_run_id = create_export_run(
         conn,
         channel_id=channel_id,
@@ -48,9 +51,31 @@ def ingest_fixed_export(
         fixed_path=str(path),
         message_count=len(messages),
         exported_at=data.get("exportedAt"),
+        first_message=first_message,
+        last_message=last_message,
     )
 
+    existing_message_signatures = {
+        str(row["id"]): tuple(row[column] for column in ("timestamp", "timestamp_edited", "content", "is_pinned"))
+        for row in conn.execute(
+            "SELECT id, timestamp, timestamp_edited, content, is_pinned FROM discord_messages"
+        )
+    }
+    changed_message_ids: set[str] = set()
+    new_message_ids: set[str] = set()
     for message in messages:
+        message_id = str(message.get("id"))
+        signature = (
+            message.get("timestamp"),
+            message.get("timestampEdited"),
+            message.get("content") or "",
+            1 if message.get("isPinned") else 0,
+        )
+        previous = existing_message_signatures.get(message_id)
+        if previous is None:
+            new_message_ids.add(message_id)
+        elif previous != signature:
+            changed_message_ids.add(message_id)
         upsert_message(conn, message, export_run_id)
         for attachment in message.get("attachments") or []:
             if isinstance(attachment, dict):
@@ -58,6 +83,7 @@ def ingest_fixed_export(
 
     used_text_ids: set[str] = set()
     created_entries = 0
+    inserted_entries = 0
     review_count = 0
     tag_rules = load_rules(tag_rules_path)
 
@@ -112,20 +138,33 @@ def ingest_fixed_export(
                     else:
                         entry["status"] = "needs_review"
 
-            upsert_entry(conn, entry)
+            inserted = upsert_entry(conn, entry)
             created_entries += 1
-            for tag, reason in match_tags(entry, tag_rules):
-                add_entry_tag(conn, key, tag, "auto", 1.0, reason)
-            if entry["status"] == "needs_review":
-                review_count += 1
-                add_review_item(conn, entry, pairing.reason or "low confidence or incomplete data")
+            if inserted:
+                inserted_entries += 1
+                for tag, reason in match_tags(entry, tag_rules):
+                    add_entry_tag(conn, key, tag, "auto", 1.0, reason)
+                if entry["status"] == "needs_review":
+                    review_count += 1
+                    add_review_item(conn, entry, pairing.reason or "low confidence or incomplete data")
 
-    conn.execute("UPDATE export_runs SET status = 'success' WHERE id = ?", (export_run_id,))
+    conn.execute(
+        """
+        UPDATE export_runs
+        SET status = 'success', new_message_count = ?, changed_message_count = ?, entries_inserted = ?
+        WHERE id = ?
+        """,
+        (len(new_message_ids), len(changed_message_ids), inserted_entries, export_run_id),
+    )
     conn.commit()
     return {
         "messages": len(messages),
         "attachments": count_rows(conn, "attachments"),
         "entries_processed": created_entries,
+        "entries_inserted": inserted_entries,
+        "export_run_id": export_run_id,
+        "new_messages": len(new_message_ids),
+        "changed_messages": len(changed_message_ids),
         "review_items_added": review_count,
     }
 
@@ -140,16 +179,31 @@ def create_export_run(
     fixed_path: str,
     message_count: int,
     exported_at: str | None,
+    first_message: dict[str, Any] | None,
+    last_message: dict[str, Any] | None,
 ) -> int:
     cursor = conn.execute(
         """
         INSERT INTO export_runs(
             channel_id, after_value, before_value, raw_path, fixed_path,
-            message_count, status, exported_at
+            message_count, status, exported_at,
+            first_message_timestamp, first_message_id, last_message_timestamp, last_message_id
         )
-        VALUES(?, ?, ?, ?, ?, ?, 'running', ?)
+        VALUES(?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)
         """,
-        (channel_id, after_value, before_value, raw_path, fixed_path, message_count, exported_at),
+        (
+            channel_id,
+            after_value,
+            before_value,
+            raw_path,
+            fixed_path,
+            message_count,
+            exported_at,
+            (first_message or {}).get("timestamp"),
+            (first_message or {}).get("id"),
+            (last_message or {}).get("timestamp"),
+            (last_message or {}).get("id"),
+        ),
     )
     return int(cursor.lastrowid)
 
@@ -224,27 +278,15 @@ def upsert_attachment(
     )
 
 
-def upsert_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
-    conn.execute(
+def upsert_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> bool:
+    cursor = conn.execute(
         """
         INSERT INTO meme_entries(
             key, attachment_id, source_message_id, text_message_id, anime_title, speaker,
             quote_text, pairing_method, confidence, status, ocr_text, ocr_score, ocr_status
         )
         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-            source_message_id=excluded.source_message_id,
-            text_message_id=excluded.text_message_id,
-            anime_title=excluded.anime_title,
-            speaker=excluded.speaker,
-            quote_text=excluded.quote_text,
-            pairing_method=excluded.pairing_method,
-            confidence=excluded.confidence,
-            status=excluded.status,
-            ocr_text=excluded.ocr_text,
-            ocr_score=excluded.ocr_score,
-            ocr_status=excluded.ocr_status,
-            updated_at=CURRENT_TIMESTAMP
+        ON CONFLICT(key) DO NOTHING
         """,
         (
             entry["key"],
@@ -262,6 +304,7 @@ def upsert_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
             entry["ocr_status"],
         ),
     )
+    return cursor.rowcount > 0
 
 
 def maybe_download(

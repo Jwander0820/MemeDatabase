@@ -18,7 +18,27 @@ CREATE TABLE IF NOT EXISTS export_runs (
     status TEXT NOT NULL,
     error TEXT,
     exported_at TEXT,
+    first_message_timestamp TEXT,
+    first_message_id TEXT,
+    last_message_timestamp TEXT,
+    last_message_id TEXT,
+    new_message_count INTEGER NOT NULL DEFAULT 0,
+    changed_message_count INTEGER NOT NULL DEFAULT 0,
+    entries_inserted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS discord_sync_state (
+    channel_id TEXT PRIMARY KEY,
+    last_export_run_id INTEGER,
+    last_after_value TEXT,
+    covered_through TEXT,
+    last_message_timestamp TEXT,
+    last_message_id TEXT,
+    overlap_days INTEGER NOT NULL DEFAULT 1,
+    last_success_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (last_export_run_id) REFERENCES export_runs(id)
 );
 
 CREATE TABLE IF NOT EXISTS discord_messages (
@@ -132,6 +152,19 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 def migrate_db(conn: sqlite3.Connection) -> None:
+    ensure_columns(
+        conn,
+        "export_runs",
+        {
+            "first_message_timestamp": "TEXT",
+            "first_message_id": "TEXT",
+            "last_message_timestamp": "TEXT",
+            "last_message_id": "TEXT",
+            "new_message_count": "INTEGER NOT NULL DEFAULT 0",
+            "changed_message_count": "INTEGER NOT NULL DEFAULT 0",
+            "entries_inserted": "INTEGER NOT NULL DEFAULT 0",
+        },
+    )
     ensure_columns(
         conn,
         "attachments",

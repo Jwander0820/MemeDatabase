@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.anime_memes.db import connect
+from src.anime_memes.db import connect, init_db
+from src.anime_memes.exporter import incremental_after, save_sync_state
 from src.anime_memes.images import build_thumbnails, download_all_attachments
 from src.anime_memes.ingest import ingest_fixed_export, ocr_review_entries
 from src.anime_memes.notion import export_notion_csv
@@ -47,6 +48,41 @@ def attachment(attachment_id, file_name="image.png"):
 
 
 class PipelineTest(unittest.TestCase):
+    def test_durable_sync_cursor_advances_with_overlap_and_never_regresses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect(Path(tmp) / "memes.sqlite3")
+            try:
+                init_db(conn)
+                run_id = conn.execute(
+                    "INSERT INTO export_runs(channel_id, status) VALUES('channel-1', 'success')"
+                ).lastrowid
+                save_sync_state(
+                    conn,
+                    channel_id="channel-1",
+                    export_run_id=int(run_id),
+                    after_value="2026-07-10",
+                    covered_through="2026-07-12",
+                    last_message_timestamp="2026-07-11T20:00:00+08:00",
+                    last_message_id="m2",
+                )
+                self.assertEqual(incremental_after(conn, "channel-1"), "2026-07-11")
+
+                save_sync_state(
+                    conn,
+                    channel_id="channel-1",
+                    export_run_id=int(run_id),
+                    after_value="2026-07-01",
+                    covered_through="2026-07-05",
+                    last_message_timestamp=None,
+                    last_message_id=None,
+                )
+                state = conn.execute(
+                    "SELECT covered_through, last_message_timestamp, last_message_id FROM discord_sync_state WHERE channel_id='channel-1'"
+                ).fetchone()
+                self.assertEqual(tuple(state), ("2026-07-12", "2026-07-11T20:00:00+08:00", "m2"))
+            finally:
+                conn.close()
+
     def test_ingest_pairing_idempotency_and_exports(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -92,12 +128,53 @@ class PipelineTest(unittest.TestCase):
                 first = ingest_fixed_export(conn, fixed, tag_rules_path=rules)
                 second = ingest_fixed_export(conn, fixed, tag_rules_path=rules)
                 self.assertEqual(first["messages"], 5)
+                run = conn.execute(
+                    "SELECT first_message_timestamp, first_message_id, last_message_timestamp, last_message_id FROM export_runs WHERE id=?",
+                    (first["export_run_id"],),
+                ).fetchone()
+                self.assertEqual(
+                    tuple(run),
+                    ("2026-07-01T00:00:00+08:00", "m1", "2026-07-01T00:02:04+08:00", "m5"),
+                )
                 self.assertEqual(second["messages"], 5)
                 self.assertEqual(count(conn, "discord_messages"), 5)
                 self.assertEqual(count(conn, "attachments"), 3)
                 self.assertEqual(count(conn, "meme_entries"), 3)
                 self.assertEqual(count(conn, "review_items"), 0)
                 self.assertGreaterEqual(count(conn, "entry_tags"), 2)
+                methods = {
+                    row["key"]: row["pairing_method"]
+                    for row in conn.execute("SELECT key, pairing_method FROM meme_entries")
+                }
+                self.assertEqual(methods["meme_a1"], "same_message")
+                self.assertEqual(methods["meme_a2"], "nearby_previous")
+                self.assertEqual(methods["meme_a3"], "nearby_next")
+
+                conn.execute(
+                    "UPDATE meme_entries SET quote_text='人工修正', status='ignored', ocr_status='ok:paddleocr' WHERE key='meme_a1'"
+                )
+                third = ingest_fixed_export(conn, fixed, tag_rules_path=rules)
+                preserved = conn.execute(
+                    "SELECT quote_text, status, ocr_status FROM meme_entries WHERE key='meme_a1'"
+                ).fetchone()
+                self.assertEqual(tuple(preserved), ("人工修正", "ignored", "ok:paddleocr"))
+                self.assertEqual(third["new_messages"], 0)
+                self.assertEqual(third["changed_messages"], 0)
+
+                edited = json.loads(fixed.read_text(encoding="utf-8"))
+                edited["messages"][0]["content"] = "Discord 編輯後內容"
+                edited["messages"][0]["timestampEdited"] = "2026-07-02T01:00:00+08:00"
+                fixed.write_text(json.dumps(edited, ensure_ascii=False), encoding="utf-8")
+                fourth = ingest_fixed_export(conn, fixed, tag_rules_path=rules)
+                self.assertEqual(fourth["changed_messages"], 1)
+                self.assertEqual(
+                    conn.execute("SELECT content FROM discord_messages WHERE id='m1'").fetchone()[0],
+                    "Discord 編輯後內容",
+                )
+                preserved = conn.execute(
+                    "SELECT quote_text, status, ocr_status FROM meme_entries WHERE key='meme_a1'"
+                ).fetchone()
+                self.assertEqual(tuple(preserved), ("人工修正", "ignored", "ok:paddleocr"))
 
                 manual_csv.write_text("key,tags,notes\nmeme_a1,\"人工,嗆人\",ok\n", encoding="utf-8")
                 imported_manual = import_manual_tags(conn, manual_csv)

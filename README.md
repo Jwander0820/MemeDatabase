@@ -49,7 +49,23 @@ Web UI 預設顯示 `ready` 資料，可切換 `ignored` 或 `all`。點卡片�
 .venv\Scripts\python.exe -m src.anime_memes --help
 ```
 
-匯入 fixed JSON：
+一鍵增量同步 Discord（自動備份、重疊抓取、匯入、附件與縮圖，並回報特殊案例）：
+
+```bat
+src\commands\sync_discord.cmd
+```
+
+輸出狀態分為 `initial_import`、`updated`、`no_changes`。`special_cases` 會列出被編輯、疑似刪除、無法配對文字或單則多附件的訊息；這些案例不會自動刪除或覆蓋人工修正，需人工確認。
+
+每次成功同步都會將本次抓取範圍、第一／最後訊息時間與 ID、實際新增／變更筆數寫入 `export_runs`。每個 Discord 頻道目前成功覆蓋到的時間、最後訊息及下次重疊起點則保存在 `discord_sync_state`；游標只會在完整同步成功後前進，空資料區間也會留下成功紀錄。
+
+查看目前游標，不連線 Discord：
+
+```bat
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 sync-status
+```
+
+只匯入既有 fixed JSON：
 
 ```bat
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 ingest data\fixed_exports\latest.fixed.json
