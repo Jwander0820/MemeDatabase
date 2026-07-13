@@ -96,7 +96,9 @@ def incremental_after(conn: sqlite3.Connection, channel_id: str) -> str | None:
     if row:
         return overlap_after(row["before_value"])
 
-    row = conn.execute("SELECT MAX(timestamp) AS latest FROM discord_messages").fetchone()
+    row = conn.execute(
+        "SELECT MAX(timestamp) AS latest FROM discord_messages WHERE COALESCE(type, '') != 'Manual'"
+    ).fetchone()
     latest = row["latest"] if row else None
     if not latest:
         return None

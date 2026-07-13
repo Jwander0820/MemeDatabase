@@ -280,7 +280,7 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
 
         deleted_candidates = []
         if after and args.before:
-            for row in conn.execute("SELECT id, timestamp FROM discord_messages"):
+            for row in conn.execute("SELECT id, timestamp FROM discord_messages WHERE COALESCE(type, '') != 'Manual'"):
                 timestamp = str(row["timestamp"])
                 if after <= timestamp[:10] < args.before and str(row["id"]) not in exported_ids:
                     deleted_candidates.append(str(row["id"]))
@@ -328,7 +328,7 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
             last_message_id = str(ordered_messages[-1].get("id"))
         else:
             latest = conn.execute(
-                "SELECT id, timestamp FROM discord_messages ORDER BY timestamp DESC, id DESC LIMIT 1"
+                "SELECT id, timestamp FROM discord_messages WHERE COALESCE(type, '') != 'Manual' ORDER BY timestamp DESC, id DESC LIMIT 1"
             ).fetchone()
             last_message_timestamp = latest["timestamp"] if latest else None
             last_message_id = str(latest["id"]) if latest else None

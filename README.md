@@ -37,7 +37,7 @@
 http://127.0.0.1:8765
 ```
 
-Web UI 預設顯示 `ready` 資料，可切換 `ignored` 或 `all`。點卡片會開啟 detail drawer，可以修改作品名稱、說話者、圖片台詞、狀態、備註與人工標籤。
+Web UI 預設顯示 `ready` 資料，可切換 `ignored` 或 `all`。點卡片會開啟 detail drawer，可以修改作品名稱、說話者、圖片台詞、狀態、備註與人工標籤。側欄的「手動新增梗圖」可上傳 JPG、PNG、WebP 或 GIF（上限 50 MB），並直接寫入本地附件、縮圖與 SQLite；這類資料不會影響 Discord 增量同步游標。
 
 永久刪除會移除該筆 `meme_entries`、人工/自動標籤關聯、收藏、review 紀錄。如果該 attachment 沒有被其他 entry 共用，也會刪除 `attachments` 資料列，以及本地原圖和縮圖。這個操作不進回收區。
 

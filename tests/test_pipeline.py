@@ -5,6 +5,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -342,6 +343,85 @@ class PipelineTest(unittest.TestCase):
 
             filtered = client.get("/api/entries?favorite=1&tag=咖啡").get_json()
             self.assertEqual(filtered["total"], 1)
+
+    def test_web_api_manual_upload_creates_local_entry_and_thumbnail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
+            root = Path(tmp)
+            db_path = root / "memes.sqlite3"
+            attachment_dir = root / "attachments"
+            thumbnail_dir = root / "thumbs"
+            image_bytes = BytesIO()
+            Image.new("RGB", (640, 360), "#b3263a").save(image_bytes, "PNG")
+            image_bytes.seek(0)
+
+            app = create_app(
+                db_path=db_path,
+                attachment_dir=attachment_dir,
+                thumbnail_dir=thumbnail_dir,
+            )
+            client = app.test_client()
+            response = client.post(
+                "/api/entries/manual",
+                data={
+                    "image": (image_bytes, "manual meme.png"),
+                    "anime_title": "手動作品",
+                    "speaker": "手動角色",
+                    "quote_text": "手動新增台詞",
+                    "tags": "收藏, 手動",
+                    "status": "ready",
+                    "notes": "UI upload test",
+                },
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(response.status_code, 201)
+            item = response.get_json()
+            self.assertTrue(item["key"].startswith("meme_manual_"))
+            self.assertEqual(item["pairing_method"], "manual_upload")
+            self.assertEqual(item["anime_title"], "手動作品")
+            self.assertCountEqual(item["tags"], ["手動", "收藏"])
+            self.assertTrue(Path(item["local_path"]).exists())
+            self.assertTrue(Path(item["thumbnail_path"]).exists())
+            self.assertEqual((item["image_width"], item["image_height"]), (640, 360))
+
+            conn = connect(db_path)
+            try:
+                message = conn.execute(
+                    "SELECT type, export_run_id FROM discord_messages WHERE id = ?",
+                    (item["source_message_id"],),
+                ).fetchone()
+                self.assertEqual(tuple(message), ("Manual", None))
+                self.assertEqual(count(conn, "meme_entries"), 1)
+                self.assertEqual(count(conn, "attachments"), 1)
+            finally:
+                conn.close()
+
+            listed = client.get("/api/entries?status=ready&q=手動新增台詞").get_json()
+            self.assertEqual(listed["total"], 1)
+
+    def test_web_api_manual_upload_rejects_non_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "memes.sqlite3"
+            app = create_app(
+                db_path=db_path,
+                attachment_dir=root / "attachments",
+                thumbnail_dir=root / "thumbs",
+            )
+            response = app.test_client().post(
+                "/api/entries/manual",
+                data={"image": (BytesIO(b"not an image"), "fake.png")},
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("無法讀取圖片", response.get_json()["error"])
+            conn = connect(db_path)
+            try:
+                init_db(conn)
+                self.assertEqual(count(conn, "meme_entries"), 0)
+            finally:
+                conn.close()
 
     def test_web_api_permanent_delete_removes_unshared_media(self):
         with tempfile.TemporaryDirectory() as tmp:

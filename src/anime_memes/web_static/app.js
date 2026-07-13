@@ -26,6 +26,8 @@ const T = {
   deleteConfirm: "\u6c38\u4e45\u522a\u9664\u9019\u7b46\u8cc7\u6599\u8207\u672c\u5730\u5716\u7247\uff1f\u6b64\u64cd\u4f5c\u4e0d\u6703\u9032\u56de\u6536\u5340\u3002",
   deleteFailed: "\u522a\u9664\u5931\u6557",
   deleted: "\u5df2\u6c38\u4e45\u522a\u9664",
+  created: "\u5df2\u65b0\u589e\u5230\u8cc7\u6599\u5eab",
+  createFailed: "\u65b0\u589e\u5931\u6557\uff0c\u8acb\u6aa2\u67e5\u5716\u7247\u8207\u6b04\u4f4d",
 };
 
 const state = {
@@ -52,7 +54,17 @@ const drawer = document.querySelector("#drawer");
 const drawerBody = document.querySelector("#drawerBody");
 const closeDrawer = document.querySelector("#closeDrawer");
 const favoriteButton = document.querySelector("#favoriteButton");
+const openCreate = document.querySelector("#openCreate");
+const createDialog = document.querySelector("#createDialog");
+const createForm = document.querySelector("#createForm");
+const createImage = document.querySelector("#createImage");
+const createPreview = document.querySelector("#createPreview");
+const createError = document.querySelector("#createError");
+const closeCreate = document.querySelector("#closeCreate");
+const cancelCreate = document.querySelector("#cancelCreate");
+const saveCreate = document.querySelector("#saveCreate");
 const toast = document.querySelector("#toast");
+let createPreviewUrl = "";
 
 function params(resetPage = false) {
   if (resetPage) state.page = 1;
@@ -232,6 +244,73 @@ favoriteButton.addEventListener("click", async () => {
 });
 
 closeDrawer.addEventListener("click", closeDetail);
+
+openCreate.addEventListener("click", () => {
+  createError.textContent = "";
+  createDialog.showModal();
+});
+
+[closeCreate, cancelCreate].forEach((button) => {
+  button.addEventListener("click", () => createDialog.close());
+});
+
+createImage.addEventListener("change", () => {
+  if (createPreviewUrl) URL.revokeObjectURL(createPreviewUrl);
+  const file = createImage.files[0];
+  if (!file) {
+    createPreview.removeAttribute("src");
+    createPreview.closest(".upload-field").classList.remove("has-preview");
+    return;
+  }
+  createPreviewUrl = URL.createObjectURL(file);
+  createPreview.src = createPreviewUrl;
+  createPreview.closest(".upload-field").classList.add("has-preview");
+  createError.textContent = "";
+});
+
+createDialog.addEventListener("close", resetCreateForm);
+
+createForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  createError.textContent = "";
+  saveCreate.disabled = true;
+  try {
+    const response = await fetch("/api/entries/manual", {
+      method: "POST",
+      body: new FormData(createForm),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      createError.textContent = data.error || T.createFailed;
+      return;
+    }
+    createDialog.close();
+    searchInput.value = "";
+    statusFilter.value = data.status;
+    sortFilter.value = "updated";
+    favoriteOnly.checked = false;
+    missingImage.checked = false;
+    noTags.checked = false;
+    state.tag = "";
+    await loadMeta();
+    await loadEntries(true);
+    await openEntry(data.key);
+    showToast(T.created);
+  } catch (_error) {
+    createError.textContent = T.createFailed;
+  } finally {
+    saveCreate.disabled = false;
+  }
+});
+
+function resetCreateForm() {
+  createForm.reset();
+  createError.textContent = "";
+  if (createPreviewUrl) URL.revokeObjectURL(createPreviewUrl);
+  createPreviewUrl = "";
+  createPreview.removeAttribute("src");
+  createPreview.closest(".upload-field").classList.remove("has-preview");
+}
 
 function closeDetail() {
   drawer.classList.remove("open");

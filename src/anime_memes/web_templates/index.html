@@ -17,6 +17,11 @@
         </div>
       </div>
 
+      <button id="openCreate" class="create-button primary" type="button">
+        <span aria-hidden="true">＋</span>
+        手動新增梗圖
+      </button>
+
       <label class="field">
         <span>搜尋</span>
         <input id="searchInput" type="search" placeholder="台詞、作品、說話者、OCR">
@@ -73,6 +78,49 @@
     </div>
     <div id="drawerBody" class="drawer-body"></div>
   </aside>
+
+  <dialog id="createDialog" class="create-dialog" aria-labelledby="createTitle">
+    <form id="createForm" class="create-form" enctype="multipart/form-data">
+      <div class="create-header">
+        <div>
+          <p class="create-kicker">MANUAL ARCHIVE</p>
+          <h2 id="createTitle">手動新增梗圖</h2>
+          <p>圖片會存入本機館藏，之後可沿用 R2 與 Notion 匯出流程。</p>
+        </div>
+        <button id="closeCreate" class="icon-button" type="button" aria-label="關閉">×</button>
+      </div>
+
+      <label class="upload-field" for="createImage">
+        <input id="createImage" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required>
+        <img id="createPreview" alt="圖片預覽">
+        <span class="upload-copy">
+          <strong>選擇梗圖圖片</strong>
+          <small>JPG、PNG、WebP 或 GIF，最大 50 MB</small>
+        </span>
+      </label>
+
+      <div class="create-fields">
+        <label class="field"><span>作品名稱</span><input name="anime_title" autocomplete="off"></label>
+        <label class="field"><span>說話者</span><input name="speaker" autocomplete="off"></label>
+        <label class="field create-wide"><span>圖片台詞</span><textarea name="quote_text" placeholder="輸入圖片中的主要台詞"></textarea></label>
+        <label class="field create-wide"><span>標籤（逗號分隔）</span><input name="tags" placeholder="吐槽, 名場面"></label>
+        <label class="field"><span>狀態</span>
+          <select name="status">
+            <option value="ready">ready</option>
+            <option value="needs_review">needs_review</option>
+            <option value="ignored">ignored</option>
+          </select>
+        </label>
+        <label class="field create-wide"><span>備註</span><textarea name="notes" placeholder="選填，例如圖片來源或待確認事項"></textarea></label>
+      </div>
+
+      <div id="createError" class="form-error" role="alert" aria-live="polite"></div>
+      <div class="create-actions">
+        <button id="cancelCreate" type="button">取消</button>
+        <button id="saveCreate" class="primary" type="submit">新增至資料庫</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, abort, g, jsonify, render_template, request, send_file
+from PIL import Image, UnidentifiedImageError
+from werkzeug.utils import secure_filename
 
 from .db import init_db
 from .tags import add_entry_tag, split_tags
 
 
 ROOT = Path(__file__).resolve().parents[2]
+MANUAL_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_MANUAL_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 def run_web_app(
@@ -46,6 +52,7 @@ def create_app(
     app.config["DB_PATH"] = str(db_path)
     app.config["ATTACHMENT_DIR"] = str(attachment_dir)
     app.config["THUMBNAIL_DIR"] = str(thumbnail_dir)
+    app.config["MAX_CONTENT_LENGTH"] = MAX_MANUAL_UPLOAD_BYTES
 
     @app.before_request
     def before_request() -> None:
@@ -106,6 +113,119 @@ def create_app(
         if row is None:
             abort(404)
         return jsonify(serialize_entry(row, include_ocr=True))
+
+    @app.post("/api/entries/manual")
+    def api_create_manual_entry():
+        upload = request.files.get("image")
+        if upload is None or not upload.filename:
+            return jsonify({"error": "請選擇圖片檔案"}), 400
+
+        original_name = secure_filename(upload.filename) or "manual-image"
+        suffix = Path(original_name).suffix.lower()
+        if suffix not in MANUAL_IMAGE_SUFFIXES:
+            return jsonify({"error": "僅支援 JPG、PNG、WebP 或 GIF 圖片"}), 400
+
+        status = (request.form.get("status") or "ready").strip()
+        if status not in {"ready", "needs_review", "ignored"}:
+            return jsonify({"error": "狀態格式不正確"}), 400
+
+        token = uuid.uuid4().hex
+        message_id = f"manual_message_{token}"
+        attachment_id = f"manual_{token}"
+        key = f"meme_{attachment_id}"
+        attachment_root = configured_media_root(app, "ATTACHMENT_DIR")
+        thumbnail_root = configured_media_root(app, "THUMBNAIL_DIR")
+        attachment_root.mkdir(parents=True, exist_ok=True)
+        thumbnail_root.mkdir(parents=True, exist_ok=True)
+        local_path = attachment_root / f"{attachment_id}{suffix}"
+        thumbnail_path = thumbnail_root / f"{attachment_id}.webp"
+
+        try:
+            upload.save(local_path)
+            if not local_path.exists() or local_path.stat().st_size <= 0:
+                raise ValueError("圖片檔案是空的")
+            with Image.open(local_path) as image:
+                image.verify()
+            with Image.open(local_path) as image:
+                image_width, image_height = image.size
+                if suffix != ".gif":
+                    preview = image.convert("RGB")
+                    preview.thumbnail((420, 420), Image.Resampling.LANCZOS)
+                    preview.save(thumbnail_path, "WEBP", quality=78, method=6)
+        except (OSError, UnidentifiedImageError, ValueError) as exc:
+            local_path.unlink(missing_ok=True)
+            thumbnail_path.unlink(missing_ok=True)
+            return jsonify({"error": f"無法讀取圖片：{exc}"}), 400
+
+        anime_title = (request.form.get("anime_title") or "").strip()
+        speaker = (request.form.get("speaker") or "").strip()
+        quote_text = request.form.get("quote_text") or ""
+        notes = (request.form.get("notes") or "").strip()
+        tag_values = dedupe(split_tags(request.form.get("tags") or ""))
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        content = "\n".join(value for value in (anime_title, speaker, quote_text) if value)
+
+        try:
+            g.db.execute(
+                """
+                INSERT INTO discord_messages(
+                    id, type, timestamp, content, author_id, author_name, author_is_bot
+                ) VALUES(?, 'Manual', ?, ?, 'manual-ui', 'Manual UI', 0)
+                """,
+                (message_id, timestamp, content),
+            )
+            g.db.execute(
+                """
+                INSERT INTO attachments(
+                    id, message_id, file_name, file_size_bytes, local_path, thumbnail_path,
+                    image_width, image_height, download_status, downloaded_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'downloaded', ?)
+                """,
+                (
+                    attachment_id,
+                    message_id,
+                    original_name,
+                    local_path.stat().st_size,
+                    str(local_path),
+                    str(thumbnail_path) if thumbnail_path.exists() else None,
+                    image_width,
+                    image_height,
+                    timestamp,
+                ),
+            )
+            g.db.execute(
+                """
+                INSERT INTO meme_entries(
+                    key, attachment_id, source_message_id, text_message_id, anime_title,
+                    speaker, quote_text, pairing_method, confidence, status, ocr_status, notes
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, 'manual_upload', 1.0, ?, 'skipped', ?)
+                """,
+                (
+                    key,
+                    attachment_id,
+                    message_id,
+                    message_id,
+                    anime_title or None,
+                    speaker or None,
+                    quote_text,
+                    status,
+                    notes or None,
+                ),
+            )
+            for tag in tag_values:
+                add_entry_tag(g.db, key, tag, "manual", None, "manual upload")
+            g.db.commit()
+        except sqlite3.Error:
+            g.db.rollback()
+            local_path.unlink(missing_ok=True)
+            thumbnail_path.unlink(missing_ok=True)
+            raise
+
+        return jsonify(serialize_entry(fetch_entry_or_404(g.db, key), include_ocr=True)), 201
+
+    @app.errorhandler(413)
+    def upload_too_large(_exc):
+        return jsonify({"error": "圖片超過 50 MB 上限"}), 413
 
     @app.patch("/api/entries/<key>")
     def api_update_entry(key: str):
