@@ -373,6 +373,57 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.suggestions {
+  margin: 0 0 18px;
+  padding: 14px;
+  border: 1px solid #d9b56f;
+  border-radius: 10px;
+  background: #fff8e7;
+}
+
+.suggestions h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.suggestion-card {
+  padding: 10px 0;
+  border-top: 1px solid #ead8b5;
+}
+
+.suggestion-card:first-of-type {
+  border-top: 0;
+}
+
+.suggestion-heading,
+.suggestion-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.suggestion-heading span,
+.suggestion-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.suggestion-card p {
+  margin: 7px 0;
+  line-height: 1.5;
+}
+
+.suggestion-actions {
+  justify-content: flex-end;
+  margin-top: 9px;
+}
+
+.suggestion-actions button {
+  padding: 7px 12px;
+  border-radius: 6px;
+}
+
 .toast {
   position: fixed;
   left: 50%;

@@ -16,7 +16,8 @@ from src.anime_memes.ingest import ingest_fixed_export, ocr_review_entries
 from src.anime_memes.notion import export_notion_csv
 from src.anime_memes.ocr import extract_paddle_text, run_ocr
 from src.anime_memes.review import H, export_review_csv, import_review_corrections
-from src.anime_memes.tags import import_llm_suggestions, import_manual_tags
+from src.anime_memes.tagging import export_tagging_jobs, import_tagging_results
+from src.anime_memes.tags import import_llm_suggestions, import_manual_tags, load_taxonomy, validate_taxonomy
 from src.anime_memes.web import create_app
 
 
@@ -182,7 +183,7 @@ class PipelineTest(unittest.TestCase):
                 self.assertEqual(imported_manual, 2)
 
                 llm_jsonl.write_text(
-                    '{"key":"meme_a2","suggested_tags":["本地LLM"],"confidence":0.7,"reason":"test"}\n',
+                    '{"key":"meme_a2","suggested_tags":["嗆人"],"confidence":0.7,"reason":"test"}\n',
                     encoding="utf-8",
                 )
                 imported_llm, errors = import_llm_suggestions(conn, llm_jsonl)
@@ -196,6 +197,194 @@ class PipelineTest(unittest.TestCase):
                 rows = list(csv.DictReader(handle))
             self.assertEqual(len(rows), 3)
             self.assertEqual(rows[0]["Key"], "meme_a1")
+
+    def test_taxonomy_v2_validation_and_core_labels(self):
+        taxonomy = load_taxonomy()
+        self.assertEqual(taxonomy["version"], 2)
+        labels = {tag["label"] for tag in taxonomy["tags"]}
+        self.assertTrue({"嗆人", "加班", "熬夜", "變態", "梗圖"}.issubset(labels))
+
+        broken = json.loads(json.dumps(taxonomy, ensure_ascii=False))
+        broken["tags"][1]["id"] = broken["tags"][0]["id"]
+        with self.assertRaisesRegex(ValueError, "duplicate tag id"):
+            validate_taxonomy(broken)
+
+    def test_legacy_tag_schema_migrates_without_losing_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "legacy.sqlite3"
+            conn = connect(db_path)
+            try:
+                init_db(conn)
+                conn.executescript(
+                    """
+                    DROP TABLE tag_suggestions;
+                    DROP TABLE tagging_run_entries;
+                    DROP TABLE tagging_runs;
+                    DROP TABLE entry_tags;
+                    DROP TABLE tags;
+                    CREATE TABLE tags (
+                        name TEXT PRIMARY KEY,
+                        source TEXT NOT NULL DEFAULT 'manual',
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE entry_tags (
+                        entry_key TEXT NOT NULL,
+                        tag_name TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        confidence REAL,
+                        reason TEXT,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (entry_key, tag_name, source),
+                        FOREIGN KEY (entry_key) REFERENCES meme_entries(key),
+                        FOREIGN KEY (tag_name) REFERENCES tags(name)
+                    );
+                    INSERT INTO discord_messages(id, timestamp, content) VALUES('m1', '2026-07-13', '');
+                    INSERT INTO attachments(id, message_id, file_name) VALUES('a1', 'm1', 'x.png');
+                    INSERT INTO meme_entries(
+                        key, attachment_id, source_message_id, quote_text,
+                        pairing_method, confidence, status
+                    ) VALUES('meme_a1', 'a1', 'm1', '', 'test', 1, 'ready');
+                    INSERT INTO tags(name, source) VALUES('嗆人', 'auto');
+                    INSERT INTO entry_tags(entry_key, tag_name, source)
+                    VALUES('meme_a1', '嗆人', 'auto');
+                    """
+                )
+                conn.commit()
+                init_db(conn)
+                migrated = conn.execute(
+                    "SELECT tag_id, source_type FROM entry_tags WHERE entry_key='meme_a1'"
+                ).fetchone()
+                self.assertEqual(tuple(migrated), ("reaction_roast", "rule"))
+                self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+                self.assertEqual(count(conn, "entry_tags"), 1)
+            finally:
+                conn.close()
+
+    def test_agent_tagging_roundtrip_requires_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "memes.sqlite3"
+            image_path = root / "meme.png"
+            jobs_path = root / "jobs.jsonl"
+            results_path = root / "results.jsonl"
+            from PIL import Image
+            Image.new("RGB", (8, 8)).save(image_path)
+
+            conn = connect(db_path)
+            try:
+                init_db(conn)
+                conn.execute(
+                    "INSERT INTO discord_messages(id, timestamp, content) VALUES('m1', '2026-07-13T00:00:00+08:00', '')"
+                )
+                conn.execute(
+                    """
+                    INSERT INTO attachments(id, message_id, file_name, local_path, download_status)
+                    VALUES('a1', 'm1', 'meme.png', ?, 'downloaded')
+                    """,
+                    (str(image_path),),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO meme_entries(
+                        key, attachment_id, source_message_id, quote_text,
+                        pairing_method, confidence, status
+                    ) VALUES('meme_a1', 'a1', 'm1', '你說什麼', 'test', 1.0, 'ready')
+                    """
+                )
+                conn.commit()
+
+                exported = export_tagging_jobs(conn, jobs_path, actor_name="codex", limit=10)
+                self.assertEqual(exported["jobs"], 1)
+                job = json.loads(jobs_path.read_text(encoding="utf-8").strip())
+                self.assertEqual(job["key"], "meme_a1")
+                self.assertTrue(Path(job["image_path"]).is_absolute())
+
+                results_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "run_id": exported["run_id"],
+                            "key": "meme_a1",
+                            "image_summary": "角色正以憤怒表情回嘴",
+                            "suggestions": [
+                                {
+                                    "tag_id": "reaction_roast",
+                                    "confidence": 0.86,
+                                    "reason": "台詞和表情都呈現直接回擊",
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                imported = import_tagging_results(conn, results_path)
+                self.assertEqual(imported["created_suggestions"], 1)
+                self.assertEqual(count(conn, "entry_tags"), 0)
+                repeated = import_tagging_results(conn, results_path)
+                self.assertEqual(repeated["duplicates"], 1)
+            finally:
+                conn.close()
+
+            app = create_app(db_path=db_path)
+            client = app.test_client()
+            item = client.get("/api/entries/meme_a1").get_json()
+            self.assertEqual(item["tag_suggestions"][0]["label"], "嗆人")
+            suggestion_id = item["tag_suggestions"][0]["id"]
+            accepted = client.post(
+                f"/api/tag-suggestions/{suggestion_id}/decision",
+                json={"decision": "accepted", "reviewed_by": "tester"},
+            )
+            self.assertEqual(accepted.status_code, 200)
+            self.assertIn("嗆人", client.get("/api/entries/meme_a1").get_json()["tags"])
+            self.assertEqual(
+                client.post(
+                    f"/api/tag-suggestions/{suggestion_id}/decision",
+                    json={"decision": "rejected", "reviewed_by": "tester"},
+                ).status_code,
+                409,
+            )
+
+    def test_agent_tagging_rejects_unknown_taxonomy_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "memes.sqlite3"
+            results_path = root / "results.jsonl"
+            conn = connect(db_path)
+            try:
+                init_db(conn)
+                conn.execute(
+                    "INSERT INTO discord_messages(id, timestamp, content) VALUES('m1', '2026-07-13', '')"
+                )
+                conn.execute(
+                    "INSERT INTO attachments(id, message_id, file_name, local_path) VALUES('a1', 'm1', 'x.png', 'x.png')"
+                )
+                conn.execute(
+                    """
+                    INSERT INTO meme_entries(key, attachment_id, source_message_id, quote_text, pairing_method, confidence, status)
+                    VALUES('meme_a1', 'a1', 'm1', '', 'test', 1, 'ready')
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO tagging_runs(id, actor_type, actor_name, taxonomy_version, input_path, exported_count)
+                    VALUES('run-1', 'agent', 'codex', 2, 'jobs.jsonl', 1)
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO tagging_run_entries(run_id, entry_key, image_path) VALUES('run-1', 'meme_a1', 'x.png')"
+                )
+                conn.commit()
+                results_path.write_text(
+                    '{"schema_version":1,"run_id":"run-1","key":"meme_a1","image_summary":"test","suggestions":[{"tag_id":"made_up","confidence":0.9,"reason":"test"}]}\n',
+                    encoding="utf-8",
+                )
+                summary = import_tagging_results(conn, results_path)
+                self.assertEqual(len(summary["errors"]), 1)
+                self.assertEqual(count(conn, "tag_suggestions"), 0)
+            finally:
+                conn.close()
 
     def test_ocr_missing_dependency_is_non_fatal(self):
         text, status = run_ocr("missing.png", engine="paddle")
@@ -537,7 +726,7 @@ class PipelineTest(unittest.TestCase):
             try:
                 ingest_fixed_export(conn, fixed, attachment_dir=attachment_dir)
 
-                def fake_download(_url, output_path, timeout=30):
+                def fake_download(_url, output_path, timeout=30, *, force=False):
                     Path(output_path).write_bytes(source.read_bytes())
                     return "downloaded", None
 

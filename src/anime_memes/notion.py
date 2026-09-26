@@ -39,7 +39,7 @@ def export_notion_csv(conn: sqlite3.Connection, output_path: str | Path | None =
             e.confidence,
             m.timestamp,
             e.source_message_id,
-            GROUP_CONCAT(t.tag_name, ',') AS tags
+            GROUP_CONCAT(DISTINCT t.tag_name) AS tags
         FROM meme_entries e
         JOIN attachments a ON a.id = e.attachment_id
         JOIN discord_messages m ON m.id = e.source_message_id

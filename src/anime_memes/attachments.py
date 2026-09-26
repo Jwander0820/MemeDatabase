@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import http.client
+import os
 import shutil
 import sqlite3
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -25,11 +28,12 @@ def is_ocr_supported_file(file_name: str | None) -> bool:
     return suffix in IMAGE_SUFFIXES or suffix == ""
 
 
-def download_attachment(url: str, output_path: str | Path, timeout: int = 30) -> tuple[str, str | None]:
+def download_attachment(url: str, output_path: str | Path, timeout: int = 30, *, force: bool = False) -> tuple[str, str | None]:
     path = Path(output_path)
-    if path.exists() and path.stat().st_size > 0:
+    if path.exists() and path.stat().st_size > 0 and not force:
         return "cached", None
     path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = None
     try:
         request = urllib.request.Request(
             url,
@@ -39,11 +43,21 @@ def download_attachment(url: str, output_path: str | Path, timeout: int = 30) ->
             },
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            with path.open("wb") as handle:
+            with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".", suffix=".part", delete=False) as handle:
+                partial_path = Path(handle.name)
                 shutil.copyfileobj(response, handle)
+            length = response.headers.get("Content-Length")
+            if length is not None and partial_path.stat().st_size != int(length):
+                raise OSError("incomplete attachment download")
+            if partial_path.stat().st_size == 0:
+                raise OSError("empty attachment download")
+            os.replace(partial_path, path)
         return "downloaded", None
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException, ValueError) as exc:
         return "failed", str(exc)
+    finally:
+        if partial_path is not None:
+            partial_path.unlink(missing_ok=True)
 
 
 def download_attachment_with_discord_refresh(
@@ -55,9 +69,10 @@ def download_attachment_with_discord_refresh(
     attachment_id: str,
     bot_token: str | None,
     timeout: int = 30,
+    force: bool = False,
 ) -> tuple[str, str | None, str | None]:
     if url and is_probably_downloadable(url):
-        status, error = download_attachment(url, output_path, timeout=timeout)
+        status, error = download_attachment(url, output_path, timeout=timeout, force=force)
         if status != "failed" or "HTTP Error 403" not in (error or ""):
             return status, error, url
 
@@ -73,7 +88,7 @@ def download_attachment_with_discord_refresh(
     )
     if not refreshed_url:
         return "failed", "Discord API did not return matching attachment URL", url
-    status, error = download_attachment(refreshed_url, output_path, timeout=timeout)
+    status, error = download_attachment(refreshed_url, output_path, timeout=timeout, force=force)
     return status, error, refreshed_url
 
 

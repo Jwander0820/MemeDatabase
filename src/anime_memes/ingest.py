@@ -25,7 +25,7 @@ def ingest_fixed_export(
     channel_id: str = "",
     raw_path: str | None = None,
     attachment_dir: str | Path = "data/attachments",
-    tag_rules_path: str | Path = "config/tags.rules.json",
+    tag_rules_path: str | Path = "config/tags.taxonomy.json",
     download_attachments: bool = False,
     run_ocr: bool = False,
     ocr_engine: str = "paddle",

@@ -28,6 +28,12 @@ const T = {
   deleted: "\u5df2\u6c38\u4e45\u522a\u9664",
   created: "\u5df2\u65b0\u589e\u5230\u8cc7\u6599\u5eab",
   createFailed: "\u65b0\u589e\u5931\u6557\uff0c\u8acb\u6aa2\u67e5\u5716\u7247\u8207\u6b04\u4f4d",
+  suggestions: "AI\uff0fAgent \u5019\u9078\u6a19\u7c64",
+  accept: "\u63a5\u53d7",
+  reject: "\u62d2\u7d55",
+  decisionFailed: "\u5019\u9078\u6a19\u7c64\u5be9\u6838\u5931\u6557",
+  manualTags: "人工標籤（逗號分隔）",
+  decisionRefreshFailed: "審核已完成，清單更新失敗，請重新整理",
 };
 
 const state = {
@@ -157,13 +163,16 @@ async function openEntry(key) {
 
 function detailTemplate(item) {
   const image = item.image_url || item.thumbnail_url;
+  const suggestions = suggestionTemplate(item.tag_suggestions || []);
   return `
     ${image ? `<img class="drawer-image" src="${attr(image)}" alt="">` : `<div class="missing-image">${T.noPreview}</div>`}
+    <div class="card-tags" id="detailTags">${item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+    ${suggestions}
     <form class="edit-form" id="editForm">
       <label class="field"><span>${T.title}</span><input name="anime_title" value="${attr(item.anime_title || "")}"></label>
       <label class="field"><span>${T.speaker}</span><input name="speaker" value="${attr(item.speaker || "")}"></label>
       <label class="field"><span>${T.quote}</span><textarea name="quote_text">${escapeHtml(item.quote_text || "")}</textarea></label>
-      <label class="field"><span>${T.tags}</span><input name="tags" value="${attr(item.tags.join(", "))}"></label>
+      <label class="field"><span>${T.manualTags}</span><input name="tags" value="${attr((item.manual_tags || []).join(", "))}"></label>
       <label class="field"><span>${T.status}</span>
         <select name="status">
           <option value="ready" ${item.status === "ready" ? "selected" : ""}>ready</option>
@@ -191,8 +200,66 @@ function detailTemplate(item) {
   `;
 }
 
+function suggestionTemplate(suggestions) {
+  if (!suggestions.length) return "";
+  const items = suggestions.map((suggestion) => `
+    <article class="suggestion-card">
+      <div class="suggestion-heading">
+        <strong>${escapeHtml(suggestion.label)}</strong>
+        <span>${escapeHtml(suggestion.category)} \u00b7 ${Math.round(Number(suggestion.confidence) * 100)}%</span>
+      </div>
+      <p>${escapeHtml(suggestion.reason)}</p>
+      <small>${escapeHtml(suggestion.actor_name)}${suggestion.model_name ? ` \u00b7 ${escapeHtml(suggestion.model_name)}` : ""}</small>
+      <small>${escapeHtml(suggestion.created_at || "")}</small>
+      <div class="suggestion-actions">
+        <button type="button" data-suggestion-id="${suggestion.id}" data-decision="rejected">${T.reject}</button>
+        <button type="button" class="primary" data-suggestion-id="${suggestion.id}" data-decision="accepted">${T.accept}</button>
+      </div>
+    </article>
+  `).join("");
+  return `<section class="suggestions"><h3>${T.suggestions}</h3>${items}</section>`;
+}
+
 function bindDetailForm(item) {
   const form = document.querySelector("#editForm");
+  document.querySelectorAll("[data-suggestion-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const card = button.closest(".suggestion-card");
+      const actions = card.querySelectorAll("button");
+      actions.forEach((action) => { action.disabled = true; });
+      try {
+        const response = await fetch(`/api/tag-suggestions/${button.dataset.suggestionId}/decision`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({decision: button.dataset.decision, reviewed_by: "local_user"}),
+        });
+        if (!response.ok) throw new Error(T.decisionFailed);
+        const decision = await response.json();
+        showToast(decision.status === "accepted" ? "已接受候選標籤" : "已拒絕候選標籤");
+        // Update only the reviewed card: replacing the drawer would discard drafts.
+        if (card.isConnected && state.selected?.key === item.key) {
+          const section = card.closest(".suggestions");
+          const nextButton = section.querySelector("[data-suggestion-id]:not(:disabled)");
+          card.remove();
+          if (!section.querySelector(".suggestion-card")) section.remove();
+          item.tag_suggestions = item.tag_suggestions.filter((suggestion) => suggestion.id !== decision.id);
+          if (decision.status === "accepted") item.tags = [...new Set([...item.tags, decision.label])];
+          document.querySelector("#detailTags").innerHTML = item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+          (nextButton || form.anime_title).focus();
+        }
+      } catch {
+        showToast(T.decisionFailed);
+        return;
+      } finally {
+        actions.forEach((action) => { action.disabled = false; });
+      }
+      try {
+        await Promise.all([loadMeta(), loadEntries(true)]);
+      } catch {
+        showToast(T.decisionRefreshFailed);
+      }
+    });
+  });
   document.querySelector("#copyQuote").addEventListener("click", async () => {
     await navigator.clipboard.writeText(form.quote_text.value);
     showToast(T.copied);

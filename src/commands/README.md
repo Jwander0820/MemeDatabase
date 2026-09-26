@@ -8,3 +8,5 @@
 - `web.cmd`：啟動本地瀏覽與編輯 UI。
 - `download_attachments.cmd`：補下載 Discord 原始附件。
 - `build_thumbnails.cmd`：產生本地瀏覽用縮圖。
+- `export_tagging_jobs.cmd`：匯出可讀圖 Agent 的待標籤工作。
+- `import_tagging_results.cmd`：驗證並匯入 Agent 產生的候選標籤。

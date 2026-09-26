@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,8 @@ from flask import Flask, abort, g, jsonify, render_template, request, send_file
 from PIL import Image, UnidentifiedImageError
 from werkzeug.utils import secure_filename
 
-from .db import init_db
+from .db import connect, init_db
+from .tagging import decide_tag_suggestion, list_tag_suggestions
 from .tags import add_entry_tag, split_tags
 
 
@@ -54,12 +56,14 @@ def create_app(
     app.config["THUMBNAIL_DIR"] = str(thumbnail_dir)
     app.config["MAX_CONTENT_LENGTH"] = MAX_MANUAL_UPLOAD_BYTES
 
+    with closing(connect(db_path)) as conn:
+        init_db(conn)
+
     @app.before_request
     def before_request() -> None:
         conn = sqlite3.connect(app.config["DB_PATH"])
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        init_db(conn)
         g.db = conn
 
     @app.teardown_request
@@ -78,7 +82,7 @@ def create_app(
             dict(row)
             for row in g.db.execute(
                 """
-                SELECT tag_name AS name, COUNT(*) AS count
+                SELECT tag_name AS name, COUNT(DISTINCT entry_key) AS count
                 FROM entry_tags
                 GROUP BY tag_name
                 ORDER BY count DESC, tag_name
@@ -112,7 +116,9 @@ def create_app(
         row = fetch_entry(g.db, key)
         if row is None:
             abort(404)
-        return jsonify(serialize_entry(row, include_ocr=True))
+        item = serialize_entry(row, include_ocr=True)
+        item["tag_suggestions"] = list_tag_suggestions(g.db, key, status="pending")
+        return jsonify(item)
 
     @app.post("/api/entries/manual")
     def api_create_manual_entry():
@@ -276,6 +282,35 @@ def create_app(
         g.db.commit()
         return jsonify(serialize_entry(fetch_entry_or_404(g.db, key), include_ocr=True))
 
+    @app.get("/api/entries/<key>/tag-suggestions")
+    def api_tag_suggestions(key: str):
+        if fetch_entry(g.db, key) is None:
+            abort(404)
+        status = (request.args.get("status") or "pending").strip()
+        try:
+            suggestions = list_tag_suggestions(g.db, key, status=status)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"items": suggestions})
+
+    @app.post("/api/tag-suggestions/<int:suggestion_id>/decision")
+    def api_decide_tag_suggestion(suggestion_id: int):
+        data = request.get_json(silent=True) or {}
+        try:
+            suggestion = decide_tag_suggestion(
+                g.db,
+                suggestion_id,
+                decision=str(data.get("decision") or ""),
+                reviewed_by=str(data.get("reviewed_by") or "local_user"),
+            )
+        except LookupError:
+            abort(404)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        return jsonify(suggestion)
+
     @app.post("/api/entries/<key>/favorite")
     def api_favorite(key: str):
         if fetch_entry(g.db, key) is None:
@@ -303,6 +338,8 @@ def create_app(
         ).fetchone()
 
         g.db.execute("DELETE FROM entry_favorites WHERE entry_key = ?", (key,))
+        g.db.execute("DELETE FROM tag_suggestions WHERE entry_key = ?", (key,))
+        g.db.execute("DELETE FROM tagging_run_entries WHERE entry_key = ?", (key,))
         g.db.execute("DELETE FROM entry_tags WHERE entry_key = ?", (key,))
         g.db.execute("DELETE FROM review_items WHERE entry_key = ?", (key,))
         g.db.execute("DELETE FROM meme_entries WHERE key = ?", (key,))
@@ -427,7 +464,8 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
             a.image_height,
             m.timestamp AS source_timestamp,
             f.entry_key IS NOT NULL AS favorite,
-            GROUP_CONCAT(t.tag_name, ',') AS tags
+            GROUP_CONCAT(DISTINCT t.tag_name) AS tags,
+            GROUP_CONCAT(DISTINCT CASE WHEN t.source='manual' THEN t.tag_name END) AS manual_tags
         FROM meme_entries e
         JOIN attachments a ON a.id = e.attachment_id
         JOIN discord_messages m ON m.id = e.source_message_id
@@ -457,7 +495,8 @@ def fetch_entry(conn: sqlite3.Connection, key: str) -> sqlite3.Row | None:
             a.image_height,
             m.timestamp AS source_timestamp,
             f.entry_key IS NOT NULL AS favorite,
-            GROUP_CONCAT(t.tag_name, ',') AS tags
+            GROUP_CONCAT(DISTINCT t.tag_name) AS tags,
+            GROUP_CONCAT(DISTINCT CASE WHEN t.source='manual' THEN t.tag_name END) AS manual_tags
         FROM meme_entries e
         JOIN attachments a ON a.id = e.attachment_id
         JOIN discord_messages m ON m.id = e.source_message_id
@@ -485,6 +524,7 @@ def serialize_entry(row: sqlite3.Row, *, include_ocr: bool = False) -> dict[str,
     suffix = Path(item.get("file_name") or "").suffix.lower()
     browser_image = suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif", ""}
     item["tags"] = tags
+    item["manual_tags"] = [tag for tag in (item.get("manual_tags") or "").split(",") if tag]
     item["favorite"] = bool(item.get("favorite"))
     item["thumbnail_url"] = f"/media/thumbnails/{item['attachment_id']}" if file_exists(thumbnail_path) else None
     item["attachment_url"] = f"/media/attachments/{item['attachment_id']}" if file_exists(local_path) else item.get("discord_url")

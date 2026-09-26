@@ -46,7 +46,11 @@ def run_discord_export(
         command.extend(["--after", after])
     if before:
         command.extend(["--before", before])
-    subprocess.run(command, check=True)
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as exc:
+        # CalledProcessError includes the full argv, including the Discord token.
+        raise RuntimeError(f"Discord export failed (exit {exc.returncode}); see exporter error above") from None
     return output
 
 
@@ -82,6 +86,15 @@ def incremental_after(conn: sqlite3.Connection, channel_id: str) -> str | None:
         except ValueError:
             parsed = datetime.fromisoformat(f"{covered}T00:00:00")
         return (parsed - timedelta(days=int(state["overlap_days"] or 1))).date().isoformat()
+
+    # An initial import can persist messages before its media stage fails.
+    # Without a durable cursor, retry its original range rather than MAX(timestamp).
+    partial = conn.execute(
+        "SELECT after_value FROM export_runs WHERE channel_id=? AND status='partial' ORDER BY id DESC LIMIT 1",
+        (channel_id,),
+    ).fetchone()
+    if partial is not None:
+        return partial["after_value"]
 
     row = conn.execute(
         """

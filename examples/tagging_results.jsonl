@@ -1,0 +1,1 @@
+{"schema_version":1,"run_id":"00000000-0000-0000-0000-000000000000","key":"meme_example","image_summary":"角色以驚訝表情質問對方","suggestions":[{"tag_id":"reaction_shocked","confidence":0.88,"reason":"張大眼睛的表情與質問台詞共同呈現震驚反應"},{"tag_id":"intent_question","confidence":0.8,"reason":"台詞直接要求對方說明"}]}

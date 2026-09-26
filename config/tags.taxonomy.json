@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "locale": "zh-TW",
+  "policy": {
+    "max_tags_per_entry": 6,
+    "minimum_confidence": 0.65,
+    "allow_unknown_tags": false
+  },
+  "categories": [
+    {"id": "reaction", "label": "反應／情緒", "description": "角色呈現的主要反應或情緒", "max_per_entry": 2},
+    {"id": "situation", "label": "情境／主題", "description": "圖片適用的生活情境或主題", "max_per_entry": 2},
+    {"id": "intent", "label": "台詞用途／意圖", "description": "台詞可用於表達的溝通意圖", "max_per_entry": 2},
+    {"id": "visual", "label": "畫面表現", "description": "可直接從圖片辨識的視覺形式", "max_per_entry": 2},
+    {"id": "content", "label": "內容提示", "description": "可能需要注意的內容類型", "max_per_entry": 2},
+    {"id": "legacy", "label": "舊版保留", "description": "只為相容既有資料的標籤", "max_per_entry": 6}
+  ],
+  "tags": [
+    {"id": "reaction_roast", "label": "嗆人", "category": "reaction", "description": "帶有回嘴、辱罵或尖銳攻擊的反應", "aliases": ["嘴人", "毒舌"], "text_keywords": ["白癡", "沒資格", "笨蛋"], "visual_cues": ["憤怒表情", "指責姿勢"], "positive_examples": ["直接貶低或反擊對方"], "negative_examples": ["只有生氣但沒有針對對方"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_speechless", "label": "無言", "category": "reaction", "description": "對眼前狀況無話可說或放棄回應", "aliases": ["傻眼"], "text_keywords": ["無言", "算了"], "visual_cues": ["呆滯表情", "沉默凝視"], "positive_examples": ["角色明顯不知道該如何回應"], "negative_examples": ["單純沒有台詞"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_shocked", "label": "震驚", "category": "reaction", "description": "因意外資訊或事件而明顯驚訝", "aliases": ["驚訝"], "text_keywords": ["什麼", "真的假的"], "visual_cues": ["張大眼睛", "張嘴"], "positive_examples": ["角色對突發事件表現強烈驚訝"], "negative_examples": ["一般疑問"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_angry", "label": "生氣", "category": "reaction", "description": "角色明顯憤怒或不滿", "aliases": ["憤怒"], "text_keywords": ["可惡", "混蛋"], "visual_cues": ["怒視", "青筋"], "positive_examples": ["表情或台詞呈現明顯怒氣"], "negative_examples": ["冷靜吐槽"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_embarrassed", "label": "害羞", "category": "reaction", "description": "角色因尷尬或情感而羞赧", "aliases": ["臉紅"], "text_keywords": ["害羞"], "visual_cues": ["臉紅", "避開視線"], "positive_examples": ["角色明顯臉紅或羞於表達"], "negative_examples": ["單純紅色光影"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_crying", "label": "哭泣", "category": "reaction", "description": "角色正在哭或強忍眼淚", "aliases": ["流淚"], "text_keywords": ["嗚嗚"], "visual_cues": ["眼淚", "哭臉"], "positive_examples": ["畫面可見眼淚或明顯哭泣"], "negative_examples": ["汗滴效果"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_happy", "label": "開心", "category": "reaction", "description": "角色呈現喜悅或滿足", "aliases": ["高興"], "text_keywords": ["太好了"], "visual_cues": ["笑容", "雀躍姿勢"], "positive_examples": ["角色明顯因事件而喜悅"], "negative_examples": ["禮貌微笑"], "enabled": true, "model_selectable": true},
+    {"id": "reaction_breakdown", "label": "崩潰", "category": "reaction", "description": "情緒或精神上接近失控", "aliases": ["抓狂"], "text_keywords": ["受不了", "完蛋了"], "visual_cues": ["失控姿勢", "強烈陰影"], "positive_examples": ["角色因壓力明顯失控"], "negative_examples": ["一般生氣"], "enabled": true, "model_selectable": true},
+    {"id": "situation_overtime", "label": "加班", "category": "situation", "description": "超出正常工時仍在工作", "aliases": [], "text_keywords": ["加班", "工作", "上班", "社畜"], "visual_cues": ["深夜辦公", "疲憊工作"], "positive_examples": ["台詞或畫面明確指向超時工作"], "negative_examples": ["一般工作場景"], "enabled": true, "model_selectable": true},
+    {"id": "situation_stay_up_late", "label": "熬夜", "category": "situation", "description": "深夜未睡或睡眠不足", "aliases": [], "text_keywords": ["熬夜", "睡覺", "睡眠", "晚睡", "通宵"], "visual_cues": ["黑眼圈", "深夜環境"], "positive_examples": ["明確描述或呈現熬夜"], "negative_examples": ["一般疲倦"], "enabled": true, "model_selectable": true},
+    {"id": "situation_romance", "label": "戀愛", "category": "situation", "description": "戀愛、告白或曖昧情境", "aliases": ["愛情"], "text_keywords": ["喜歡", "告白", "戀愛"], "visual_cues": ["愛心", "親密互動"], "positive_examples": ["情境明確圍繞戀愛關係"], "negative_examples": ["一般朋友對話"], "enabled": true, "model_selectable": true},
+    {"id": "situation_school", "label": "課業", "category": "situation", "description": "上課、考試或讀書相關情境", "aliases": ["讀書"], "text_keywords": ["考試", "作業", "上課"], "visual_cues": ["教室", "課本"], "positive_examples": ["台詞或畫面明確涉及課業"], "negative_examples": ["只有穿制服"], "enabled": true, "model_selectable": true},
+    {"id": "situation_work", "label": "工作", "category": "situation", "description": "一般職場或執行工作任務", "aliases": ["職場"], "text_keywords": ["工作", "公司"], "visual_cues": ["辦公環境", "工作制服"], "positive_examples": ["情境明確涉及工作"], "negative_examples": ["加班應優先使用加班"], "enabled": true, "model_selectable": true},
+    {"id": "situation_social_death", "label": "社死", "category": "situation", "description": "在他人面前極度尷尬或公開出糗", "aliases": ["公開處刑"], "text_keywords": ["丟臉", "好尷尬"], "visual_cues": ["群眾注視", "羞恥反應"], "positive_examples": ["角色在公眾場合明顯出糗"], "negative_examples": ["私下害羞"], "enabled": true, "model_selectable": true},
+    {"id": "intent_comment", "label": "吐槽", "category": "intent", "description": "指出荒謬之處或以評論製造笑點", "aliases": [], "text_keywords": ["到底", "怎麼可能"], "visual_cues": ["冷靜評論", "反差表情"], "positive_examples": ["台詞針對荒謬狀況作評論"], "negative_examples": ["直接辱罵對方"], "enabled": true, "model_selectable": true},
+    {"id": "intent_reject", "label": "拒絕", "category": "intent", "description": "明確否定請求或提議", "aliases": ["不要"], "text_keywords": ["不要", "不行", "拒絕"], "visual_cues": ["搖頭", "推開"], "positive_examples": ["清楚表示不接受"], "negative_examples": ["單純不同意觀點"], "enabled": true, "model_selectable": true},
+    {"id": "intent_question", "label": "質問", "category": "intent", "description": "帶壓力地追問或要求解釋", "aliases": ["追問"], "text_keywords": ["為什麼", "你說什麼"], "visual_cues": ["逼近對方", "嚴肅注視"], "positive_examples": ["台詞明顯要求對方交代"], "negative_examples": ["一般詢問"], "enabled": true, "model_selectable": true},
+    {"id": "intent_agree", "label": "贊同", "category": "intent", "description": "支持或同意對方", "aliases": ["同意"], "text_keywords": ["沒錯", "同意"], "visual_cues": ["點頭", "肯定姿勢"], "positive_examples": ["明確表達支持"], "negative_examples": ["中性陳述"], "enabled": true, "model_selectable": true},
+    {"id": "intent_comfort", "label": "安慰", "category": "intent", "description": "降低他人難過或焦慮", "aliases": [], "text_keywords": ["沒事", "別擔心"], "visual_cues": ["輕拍", "溫和表情"], "positive_examples": ["台詞或行動明確在安撫對方"], "negative_examples": ["一般鼓勵"], "enabled": true, "model_selectable": true},
+    {"id": "intent_mock", "label": "嘲諷", "category": "intent", "description": "以挖苦或反話取笑對方", "aliases": ["諷刺"], "text_keywords": ["真厲害呢", "笑死"], "visual_cues": ["冷笑", "輕蔑表情"], "positive_examples": ["語意明顯不是字面稱讚"], "negative_examples": ["真誠稱讚"], "enabled": true, "model_selectable": true},
+    {"id": "visual_close_up", "label": "表情特寫", "category": "visual", "description": "畫面主要聚焦單一角色臉部表情", "aliases": [], "text_keywords": [], "visual_cues": ["臉部佔畫面大部分"], "positive_examples": ["主要資訊來自臉部表情"], "negative_examples": ["半身或全身構圖"], "enabled": true, "model_selectable": true},
+    {"id": "visual_multi_person", "label": "多人對話", "category": "visual", "description": "畫面中有多名角色參與互動或對話", "aliases": [], "text_keywords": [], "visual_cues": ["兩名以上角色"], "positive_examples": ["多名角色共同構成對話場景"], "negative_examples": ["背景路人不算主要角色"], "enabled": true, "model_selectable": true},
+    {"id": "visual_text_heavy", "label": "文字密集", "category": "visual", "description": "圖片內文字量明顯較多", "aliases": [], "text_keywords": [], "visual_cues": ["多行字幕或大量文字區塊"], "positive_examples": ["理解圖片需閱讀多行文字"], "negative_examples": ["一般一至兩行字幕"], "enabled": true, "model_selectable": true},
+    {"id": "visual_exaggerated_expression", "label": "誇張表情", "category": "visual", "description": "表情以強烈變形或漫畫效果呈現", "aliases": [], "text_keywords": [], "visual_cues": ["五官變形", "強烈漫畫符號"], "positive_examples": ["表情明顯超出自然程度"], "negative_examples": ["一般驚訝表情"], "enabled": true, "model_selectable": true},
+    {"id": "content_sexual_innuendo", "label": "色情暗示", "category": "content", "description": "包含性相關暗示但不一定露骨", "aliases": ["性暗示"], "text_keywords": ["色情", "變態"], "visual_cues": ["性暗示姿勢或構圖"], "positive_examples": ["台詞或畫面具有清楚性暗示"], "negative_examples": ["一般戀愛互動"], "enabled": true, "model_selectable": true},
+    {"id": "content_violence", "label": "暴力", "category": "content", "description": "包含攻擊、傷害或暴力威脅", "aliases": [], "text_keywords": ["殺", "揍"], "visual_cues": ["武器攻擊", "受傷"], "positive_examples": ["畫面或台詞明確涉及暴力"], "negative_examples": ["誇張但無傷害的動作"], "enabled": true, "model_selectable": true},
+    {"id": "content_profanity", "label": "髒話", "category": "content", "description": "包含明確粗俗或侮辱性用語", "aliases": ["粗口"], "text_keywords": ["幹", "靠北"], "visual_cues": [], "positive_examples": ["台詞含明確髒話"], "negative_examples": ["普通負面詞語"], "enabled": true, "model_selectable": true},
+    {"id": "content_perverted", "label": "變態", "category": "content", "description": "既有資料使用的變態語意標籤", "aliases": [], "text_keywords": ["變態", "色情", "色", "癡漢"], "visual_cues": [], "positive_examples": ["角色或台詞直接指稱變態行為"], "negative_examples": ["一般性暗示"], "enabled": true, "model_selectable": false},
+    {"id": "legacy_meme", "label": "梗圖", "category": "legacy", "description": "既有通用標籤；所有資料皆為梗圖，停止新增", "aliases": [], "text_keywords": ["梗", "笑死", "迷因", "笑"], "visual_cues": [], "positive_examples": [], "negative_examples": [], "enabled": false, "model_selectable": false}
+  ]
+}

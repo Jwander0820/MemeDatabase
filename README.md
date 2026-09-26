@@ -8,7 +8,7 @@
 - 下載 Discord 附件到 `data/attachments/`
 - 產生 Web UI 用縮圖到 `data/thumbnails/`
 - PaddleOCR / EasyOCR 輔助辨識，GIF / MP4 / MOV / WEBM / M4V 不做 OCR
-- 規則標籤、人工標籤、本地 LLM 建議標籤匯入
+- taxonomy v2 規則標籤、人工標籤、Agent／本地 LLM 候選標籤與人工審核
 - Notion 匯入用 CSV 匯出
 - 本地 Flask Web UI：搜尋、篩選、瀏覽、編輯欄位、編輯人工標籤、收藏、狀態切換、永久刪除
 
@@ -55,7 +55,11 @@ Web UI 預設顯示 `ready` 資料，可切換 `ignored` 或 `all`。點卡片�
 src\commands\sync_discord.cmd
 ```
 
-輸出狀態分為 `initial_import`、`updated`、`no_changes`。`special_cases` 會列出被編輯、疑似刪除、無法配對文字或單則多附件的訊息；這些案例不會自動刪除或覆蓋人工修正，需人工確認。
+輸出狀態分為 `initial_import`、`updated`、`no_changes`、`partial`。`special_cases` 會列出被編輯、疑似刪除、無法配對文字或單則多附件的訊息；這些案例不會自動刪除或覆蓋人工修正，需人工確認。
+
+同步會在資料庫初始化前使用 SQLite backup API 備份，包含已提交的 WAL 資料。附件或縮圖失敗時輸出 `partial`、exit code 2，已匯入內容保留，但成功游標不前進；修復問題後重跑相同命令，會重試先前失敗的附件。明確使用 `--skip-attachments`／`--skip-thumbnails` 時，該階段不列入完成判斷。
+
+若匯出程式回報 `Authentication token is invalid`，請在本機 `.env` 更新有效的 `DISCORD_BOT_TOKEN` 後重試。此時還沒有取得新訊息，不能視為「沒有新資料」。不要把 token 貼到對話或版本控制；CLI 錯誤訊息會遮蔽 token。
 
 每次成功同步都會將本次抓取範圍、第一／最後訊息時間與 ID、實際新增／變更筆數寫入 `export_runs`。每個 Discord 頻道目前成功覆蓋到的時間、最後訊息及下次重疊起點則保存在 `discord_sync_state`；游標只會在完整同步成功後前進，空資料區間也會留下成功紀錄。
 
@@ -101,6 +105,24 @@ OCR review：
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 import-review-corrections exports\review\needs_review.csv --mark-ready
 ```
 
+匯出未標籤圖片給 Codex／Antigravity 等可讀圖 Agent：
+
+```bat
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 export-tagging-jobs --actor codex --untagged --limit 10 --output exports\tagging\jobs.jsonl
+```
+
+Agent 逐張讀圖並建立 `results.jsonl` 後，匯入待審核候選：
+
+```bat
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 import-tagging-results exports\tagging\results.jsonl
+```
+
+候選不會直接成為正式標籤；請在 Web UI 項目明細接受或拒絕。完整格式與安全規則見 [`docs/agent-image-tagging-guide.md`](docs/agent-image-tagging-guide.md)。
+
+圖片匯出會實際解碼，損壞圖片計入 `skipped_invalid`。人工標籤欄位只編輯人工來源；規則及已接受的候選標籤顯示於圖片下方。接受／拒絕候選會保留尚未儲存的欄位內容。taxonomy 在 Web App 啟動時同步，修改設定後須重啟服務。
+
+舊 `import-llm-tags` 已 deprecated，請改用上述工作匯出／結果匯入流程。舊入口仍會驗證名稱、數量、信心度與理由；錯誤行不會留下部分候選，有錯誤時 exit code 為 2。
+
 匯出 Notion CSV：
 
 ```bat
@@ -114,8 +136,9 @@ OCR review：
 - `src/anime_memes/web_templates/`：Web UI HTML
 - `src/anime_memes/web_static/`：Web UI CSS / JS
 - `src/commands/`：Windows `.cmd` wrapper，主要給 LLM 或必要時人工快速呼叫
-- `config/`：規則設定
-- `examples/`：本地 LLM 介面範例
+- `config/tags.taxonomy.json`：版本化標籤定義、規則與模型選取限制
+- `docs/`：視覺標籤規格、Agent 操作手冊與工作紀錄
+- `examples/`：Agent／本地 LLM JSONL 介面範例
 - `tests/`：單元測試
 
 ## 測試

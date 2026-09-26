@@ -8,7 +8,7 @@
 2. fixed JSON 匯入 SQLite
 3. 下載完整附件並建立縮圖
 4. OCR 輔助校驗低信心案例
-5. 規則 / 人工 / 本地 LLM 標籤整理
+5. Taxonomy 規則 / 人工 / Agent 候選標籤整理與審核
 6. Web UI 本地瀏覽、搜尋、編輯與清理
 7. 匯出 Notion CSV
 
@@ -39,7 +39,8 @@ src/anime_memes/
   matching.py     文字與附件配對規則
   ocr.py          PaddleOCR / EasyOCR wrapper
   text.py         OpenCC 簡轉繁與文字處理
-  tags.py         規則標籤、人工標籤、本地 LLM 標籤匯入
+  tags.py         taxonomy、規則標籤、人工標籤與舊格式相容
+  tagging.py      Agent 工作匯出、候選匯入與審核
   review.py       needs-review CSV 匯出與人工修正匯入
   notion.py       Notion-ready CSV 匯出
 
@@ -67,6 +68,8 @@ http://127.0.0.1:8765
 - `GET /api/entries/<key>`
 - `PATCH /api/entries/<key>`
 - `PUT /api/entries/<key>/tags`
+- `GET /api/entries/<key>/tag-suggestions`
+- `POST /api/tag-suggestions/<id>/decision`
 - `POST /api/entries/<key>/favorite`
 - `DELETE /api/entries/<key>/favorite`
 - `DELETE /api/entries/<key>`
@@ -109,6 +112,15 @@ OCR review：
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 import-review-corrections exports\review\needs_review.csv --mark-ready
 ```
 
+Agent 圖片標籤工作：
+
+```bat
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 export-tagging-jobs --actor codex --untagged --limit 10 --output exports\tagging\jobs.jsonl
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 import-tagging-results exports\tagging\results.jsonl
+```
+
+操作前必須閱讀 `docs/agent-image-tagging-guide.md`。Agent 只能輸出結果 JSONL，不得直接修改 SQLite。
+
 測試：
 
 ```bat
@@ -120,4 +132,4 @@ OCR review：
 
 - R2 同步可使用 `attachments.r2_url` 欄位補上。
 - GitHub Pages 只適合未來唯讀展示版；本地編輯仍需要 Flask 或其他後端。
-- 本地 LLM 標籤走 JSONL 檔案介面，不直接覆蓋人工標籤。
+- Agent／本地 LLM 標籤走受控 JSONL 候選介面，人工接受後才成為正式標籤。

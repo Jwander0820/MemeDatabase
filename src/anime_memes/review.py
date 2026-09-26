@@ -83,7 +83,7 @@ def export_review_csv(conn: sqlite3.Connection, output_path: str | Path | None =
             e.source_message_id,
             COALESCE(e.text_message_id, '') AS text_message_id,
             e.pairing_method,
-            COALESCE(GROUP_CONCAT(t.tag_name, ','), '') AS tags,
+            COALESCE(GROUP_CONCAT(DISTINCT t.tag_name), '') AS tags,
             e.status,
             COALESCE(e.notes, '') AS notes
         FROM meme_entries e

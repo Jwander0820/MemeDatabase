@@ -2,20 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from contextlib import closing
-from datetime import datetime
 from pathlib import Path
 
 from .convert import convert_file
-from .db import connect, init_db
+from .db import backup_database, connect, init_db
 from .env import getenv, load_dotenv
 from .exporter import default_before, export_and_convert, incremental_after, save_sync_state
 from .ingest import ingest_fixed_export, ocr_review_entries
 from .images import build_thumbnails, download_all_attachments
 from .notion import export_notion_csv
 from .review import export_review_csv, import_review_corrections
+from .tagging import export_tagging_jobs, import_tagging_results
 from .tags import import_llm_suggestions, import_manual_tags
 from .web import run_web_app
 
@@ -30,7 +29,11 @@ def main(argv: list[str] | None = None) -> None:
     try:
         args.func(args)
     except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        message = str(exc)
+        for secret in (getattr(args, "token", None), getenv("DISCORD_BOT_TOKEN")):
+            if secret:
+                message = message.replace(secret, "[REDACTED]")
+        print(f"Error: {message}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
@@ -52,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID", ""))
     ingest.add_argument("--raw-path")
     ingest.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
-    ingest.add_argument("--tag-rules", default=getenv("ANIME_MEMES_TAG_RULES", "config/tags.rules.json"))
+    ingest.add_argument("--tag-rules", default=getenv("ANIME_MEMES_TAG_RULES", "config/tags.taxonomy.json"))
     ingest.add_argument("--download-attachments", action="store_true")
     ingest.add_argument("--ocr", action="store_true")
     ingest.add_argument("--ocr-engine", default="paddle", choices=["paddle", "easyocr", "none"])
@@ -117,9 +120,26 @@ def build_parser() -> argparse.ArgumentParser:
     manual.add_argument("csv_path")
     manual.set_defaults(func=cmd_import_manual_tags)
 
-    llm = sub.add_parser("import-llm-tags", help="Import local LLM tag JSONL suggestions")
+    llm = sub.add_parser("import-llm-tags", help="Deprecated: import legacy suggestions; prefer import-tagging-results")
     llm.add_argument("jsonl_path")
     llm.set_defaults(func=cmd_import_llm_tags)
+
+    tagging_export = sub.add_parser("export-tagging-jobs", help="Export image-tagging jobs for an Agent")
+    tagging_export.add_argument("--actor", required=True, help="Agent name, for example codex or antigravity")
+    tagging_export.add_argument("--model")
+    tagging_export.add_argument("--status", default="ready", choices=["ready", "needs_review", "ignored", "all"])
+    tagging_export.add_argument("--limit", type=int, default=50)
+    tagging_export.add_argument("--output", required=True)
+    tagging_export.add_argument("--taxonomy", default="config/tags.taxonomy.json")
+    tagging_scope = tagging_export.add_mutually_exclusive_group()
+    tagging_scope.add_argument("--untagged", dest="untagged", action="store_true", default=True)
+    tagging_scope.add_argument("--include-tagged", dest="untagged", action="store_false")
+    tagging_export.set_defaults(func=cmd_export_tagging_jobs)
+
+    tagging_import = sub.add_parser("import-tagging-results", help="Validate and import Agent tag suggestions")
+    tagging_import.add_argument("results_path")
+    tagging_import.add_argument("--taxonomy", default="config/tags.taxonomy.json")
+    tagging_import.set_defaults(func=cmd_import_tagging_results)
 
     download = sub.add_parser("download-attachments", help="Download original Discord attachments")
     download.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
@@ -230,6 +250,7 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
     if not args.exe:
         raise ValueError("DISCORD_CHAT_EXPORTER_EXE is required")
 
+    backup_path = backup_database(args.db, args.backup_dir)
     with closing(connect(args.db)) as conn:
         init_db(conn)
         before_count = int(conn.execute("SELECT COUNT(*) FROM discord_messages").fetchone()[0])
@@ -247,14 +268,6 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
     exported = json.loads(Path(fixed_path).read_text(encoding="utf-8"))
     messages = [item for item in exported.get("messages", []) if isinstance(item, dict)]
     exported_ids = {str(item.get("id")) for item in messages}
-
-    db_path = Path(args.db)
-    backup_path = None
-    if db_path.exists():
-        backup_dir = Path(args.backup_dir)
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        backup_path = backup_dir / f"{db_path.stem}_before_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}{db_path.suffix}"
-        shutil.copy2(db_path, backup_path)
 
     with closing(connect(args.db)) as conn:
         prior = {
@@ -274,9 +287,14 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
             channel_id=args.channel_id,
             raw_path=str(raw_path),
             attachment_dir=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
-            tag_rules_path=getenv("ANIME_MEMES_TAG_RULES", "config/tags.rules.json"),
+            tag_rules_path=getenv("ANIME_MEMES_TAG_RULES", "config/tags.taxonomy.json"),
             discord_bot_token=args.token,
         )
+        conn.execute(
+            "UPDATE export_runs SET status='partial', error=?, after_value=?, before_value=? WHERE id=?",
+            ("Media processing has not completed", after, args.before, int(summary["export_run_id"])),
+        )
+        conn.commit()
 
         deleted_candidates = []
         if after and args.before:
@@ -314,6 +332,7 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
                 attachment_dir=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
                 channel_id=args.channel_id,
                 discord_bot_token=args.token,
+                retry_failed=True,
             )
         if not args.skip_thumbnails:
             thumbnail_summary = build_thumbnails(
@@ -332,24 +351,37 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
             ).fetchone()
             last_message_timestamp = latest["timestamp"] if latest else None
             last_message_id = str(latest["id"]) if latest else None
-        save_sync_state(
-            conn,
-            channel_id=args.channel_id,
-            export_run_id=int(summary["export_run_id"]),
-            after_value=after,
-            covered_through=args.before,
-            last_message_timestamp=last_message_timestamp,
-            last_message_id=last_message_id,
+        incomplete = bool(
+            (attachment_summary or {}).get("failed", 0)
+            or (thumbnail_summary or {}).get("failed", 0)
         )
-        sync_state = dict(
+        if incomplete:
             conn.execute(
-                "SELECT * FROM discord_sync_state WHERE channel_id = ?",
-                (args.channel_id,),
-            ).fetchone()
-        )
+                "UPDATE export_runs SET status='partial', error=?, after_value=?, before_value=? WHERE id=?",
+                ("Media processing failed; retry sync to finish", after, args.before, int(summary["export_run_id"])),
+            )
+            conn.commit()
+        else:
+            conn.execute(
+                "UPDATE export_runs SET status='success', error=NULL WHERE id=?",
+                (int(summary["export_run_id"]),),
+            )
+            save_sync_state(
+                conn,
+                channel_id=args.channel_id,
+                export_run_id=int(summary["export_run_id"]),
+                after_value=after,
+                covered_through=args.before,
+                last_message_timestamp=last_message_timestamp,
+                last_message_id=last_message_id,
+            )
+        row = conn.execute(
+            "SELECT * FROM discord_sync_state WHERE channel_id = ?", (args.channel_id,),
+        ).fetchone()
+        sync_state = dict(row) if row else None
         next_after = incremental_after(conn, args.channel_id)
 
-    state = "initial_import" if before_count == 0 else "updated" if new_ids or changed_ids else "no_changes"
+    state = "partial" if incomplete else "initial_import" if before_count == 0 else "updated" if new_ids or changed_ids else "no_changes"
     print(json.dumps({
         "state": state,
         "range": {"after": after, "before": args.before},
@@ -363,13 +395,15 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
             "next_after": next_after,
             "overlap_days": sync_state["overlap_days"],
             "last_success_at": sync_state["last_success_at"],
-        },
+        } if sync_state else None,
         "new_message_ids": new_ids,
         "ingest": summary,
         "attachments": attachment_summary,
         "thumbnails": thumbnail_summary,
         "special_cases": special,
     }, ensure_ascii=False, indent=2))
+    if incomplete:
+        raise SystemExit(2)
 
 
 def cmd_sync_status(args: argparse.Namespace) -> None:
@@ -428,8 +462,36 @@ def cmd_import_manual_tags(args: argparse.Namespace) -> None:
 
 def cmd_import_llm_tags(args: argparse.Namespace) -> None:
     with closing(connect(args.db)) as conn:
+        init_db(conn)
         imported, errors = import_llm_suggestions(conn, args.jsonl_path)
-    print(f"Imported local LLM tags: {imported}; errors: {errors}")
+    print(f"Imported pending local LLM suggestions: {imported}; errors: {errors}")
+    if errors:
+        raise SystemExit(2)
+
+
+def cmd_export_tagging_jobs(args: argparse.Namespace) -> None:
+    with closing(connect(args.db)) as conn:
+        init_db(conn)
+        summary = export_tagging_jobs(
+            conn,
+            args.output,
+            actor_name=args.actor,
+            model_name=args.model,
+            limit=args.limit,
+            status=args.status,
+            untagged=args.untagged,
+            taxonomy_path=args.taxonomy,
+        )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_import_tagging_results(args: argparse.Namespace) -> None:
+    with closing(connect(args.db)) as conn:
+        init_db(conn)
+        summary = import_tagging_results(conn, args.results_path, taxonomy_path=args.taxonomy)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if summary["errors"]:
+        raise SystemExit(2)
 
 
 def cmd_download_attachments(args: argparse.Namespace) -> None:

@@ -41,13 +41,14 @@ def download_all_attachments(
 ) -> dict[str, int]:
     init_db(conn)
     sql = """
-        SELECT id, message_id, discord_url, file_name, download_status
-        FROM attachments
+        SELECT a.id, a.message_id, a.discord_url, a.file_name, a.download_status
+        FROM attachments a JOIN discord_messages m ON m.id=a.message_id
+        WHERE COALESCE(m.type, '') != 'Manual'
     """
     params: list[Any] = []
     if not retry_failed:
-        sql += " WHERE download_status != 'failed'"
-    sql += " ORDER BY id"
+        sql += " AND a.download_status != 'failed'"
+    sql += " ORDER BY a.id"
     if limit is not None:
         sql += " LIMIT ?"
         params.append(limit)
@@ -103,9 +104,10 @@ def download_all_attachments(
                 message_id=row["message_id"],
                 attachment_id=attachment_id,
                 bot_token=discord_bot_token,
+                force=force,
             )
         else:
-            status, error = download_attachment(row["discord_url"], path)
+            status, error = download_attachment(row["discord_url"], path, force=force)
             refreshed_url = row["discord_url"]
 
         if status in {"downloaded", "cached"}:
