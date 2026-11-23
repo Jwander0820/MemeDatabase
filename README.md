@@ -12,6 +12,20 @@
 - Notion 匯入用 CSV 匯出
 - 本地 Flask Web UI：搜尋、篩選、瀏覽、編輯欄位、編輯人工標籤、收藏、狀態切換、永久刪除
 
+目前使用 **SQLite＋Flask**，搜尋為作品、說話者、台詞與 OCR 的文字包含比對，標籤另外篩選。
+
+## 發展方向與文件
+
+目標為「本機管理與整理、公開端唯讀搜尋、R2 直接取圖」，並提供受控的 Agent 搜尋接口。梗圖名稱、替代搜尋詞、相關度排序、公開部署及 MCP 都仍屬規劃，尚未因規格建立而實作；目前服務沒有完整公開存取控制，不應直接公開管理接口。
+
+| 入口 | 內容 |
+|---|---|
+| [文件索引](docs/README.md) | 現行規格、操作手冊與歷史文件的閱讀入口 |
+| [整體規格](docs/personal-meme-platform-spec.md) | UI、API、部署、資源限制及分階段驗收 |
+| [DB 與搜尋規格](docs/database-search-spec.md) | 新欄位、替代詞、搜尋規則與資料遷移 |
+| [Agent 標籤操作手冊](docs/agent-image-tagging-guide.md) | 已有的圖片標籤匯出、匯入與審核流程 |
+| [歷史區](docs/archive/README.md) | 階段設計、工作紀錄、維護與背景研究 |
+
 ## 重要資料位置
 
 - 主資料庫：`data/anime_memes.sqlite3`
@@ -137,7 +151,8 @@ Agent 逐張讀圖並建立 `results.jsonl` 後，匯入待審核候選：
 - `src/anime_memes/web_static/`：Web UI CSS / JS
 - `src/commands/`：Windows `.cmd` wrapper，主要給 LLM 或必要時人工快速呼叫
 - `config/tags.taxonomy.json`：版本化標籤定義、規則與模型選取限制
-- `docs/`：視覺標籤規格、Agent 操作手冊與工作紀錄
+- `docs/`：現行規格、Agent 操作手冊與文件索引
+- `docs/archive/`：歷史階段規格、工作紀錄與背景研究
 - `examples/`：Agent／本地 LLM JSONL 介面範例
 - `tests/`：單元測試
 
