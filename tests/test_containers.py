@@ -82,7 +82,9 @@ class ContainerTest(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertIn("immutable", headers["Cache-Control"])
                 with Image.open(BytesIO(body)) as im:
-                    self.assertLessEqual(max(im.size), 420)
+                    # 公開縮圖由本地原圖（800x600）產生 480P，不可超過 640x480。
+                    self.assertLessEqual(im.width, 640)
+                    self.assertLessEqual(im.height, 480)
                 self.assertIn("/assets/gallery.js", http("/")[2].decode())
                 for path in ["/assets/gallery.js", "/assets/gallery.css", "/assets/catalog.css"]:
                     self.assertEqual(http(path)[0], 200)
