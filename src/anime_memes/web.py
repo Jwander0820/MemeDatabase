@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from flask import Flask, abort, g, jsonify, request, send_file
+from flask import Flask, abort, g, jsonify, request, send_file, send_from_directory
 
 from . import management
 from .queries import query_entries, fetch_entry, metadata
@@ -18,13 +18,14 @@ from .tagging import decide_tag_suggestion, list_tag_suggestions
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_MANUAL_UPLOAD_BYTES = 50 * 1024 * 1024
+LOCAL_BROWSE_VERSION = "local"
 
 
 def run_web_app(
     *,
     db_path: str | Path,
     host: str = "127.0.0.1",
-    port: int = 8765,
+    port: int = 3638,
     attachment_dir: str | Path = "data/attachments",
     thumbnail_dir: str | Path = "data/thumbnails",
 ) -> None:
@@ -134,6 +135,47 @@ def create_app(
     @app.get("/api/meta")
     def api_meta():
         return jsonify(metadata(g.db))
+
+    # ---- 簡潔瀏覽：沿用公開頁前端，資料來源改為本機完整館藏（僅「可用」）----
+    public_ui_dir = Path(__file__).with_name("public_ui")
+
+    @app.get("/browse")
+    def browse():
+        return send_file(public_ui_dir / "index.html")
+
+    @app.get("/assets/<path:name>")
+    def browse_assets(name: str):
+        if name == "catalog.css":
+            return send_from_directory(static_dir, name)
+        return send_from_directory(public_ui_dir, name)
+
+    @app.get("/api/v1/meta")
+    def browse_meta():
+        tags = [dict(r) for r in g.db.execute("""SELECT t.tag_name AS name, COUNT(DISTINCT t.entry_key) AS count
+            FROM entry_tags t JOIN meme_entries e ON e.key=t.entry_key WHERE e.status='ready'
+            GROUP BY t.tag_name ORDER BY count DESC, t.tag_name""")]
+        return jsonify({"version": LOCAL_BROWSE_VERSION, "mode": "local", "admin_url": "/",
+                        "browse_url": "/browse", "tags": tags})
+
+    @app.get("/api/v1/entries")
+    def browse_entries():
+        page = max(int(request.args.get("page", "1") or "1"), 1)
+        page_size = min(max(int(request.args.get("page_size", "24") or "24"), 1), 60)
+        q = (request.args.get("q") or "").strip()
+        sort = request.args.get("sort") or ("relevance" if q else "updated")
+        if sort not in {"relevance", "updated", "title"}:
+            raise ValueError("不支援的排序")
+        args = {"status": "ready", "q": q, "tag": request.args.get("tag") or "", "sort": sort}
+        entries, total = query_entries(g.db, args, page, page_size)
+        return jsonify({"items": [browse_item(serialize_entry(row)) for row in entries],
+                        "page": page, "page_size": page_size, "total": total, "version": LOCAL_BROWSE_VERSION})
+
+    @app.get("/api/v1/entries/<key>")
+    def browse_entry(key: str):
+        row = fetch_entry(g.db, key)
+        if row is None or row["status"] != "ready":
+            abort(404)
+        return jsonify({"item": browse_item(serialize_entry(row)), "version": LOCAL_BROWSE_VERSION})
 
     @app.get("/api/entries")
     def api_entries():
@@ -283,6 +325,24 @@ def fetch_entry_or_404(conn: sqlite3.Connection, key: str) -> sqlite3.Row:
     if row is None:
         abort(404)
     return row
+
+
+def browse_item(item: dict[str, Any]) -> dict[str, Any]:
+    """轉成公開前端使用的欄位；大圖只用本機原圖，不外連 Discord CDN。"""
+    image = item.get("image_url")
+    return {
+        "id": item["key"],
+        "resolved_title": item["resolved_title"],
+        "display_title": item.get("display_title"),
+        "anime_title": item.get("anime_title"),
+        "speaker": item.get("speaker"),
+        "quote_text": item.get("quote_text"),
+        "tags": item["tags"],
+        "search_aliases": item.get("search_aliases", []),
+        "thumbnail_url": item.get("thumbnail_url") or (image if image and image.startswith("/media/") else None),
+        "original_url": image if image and image.startswith("/media/") else None,
+        "updated_at": item.get("updated_at"),
+    }
 
 
 def serialize_entry(row: sqlite3.Row, *, include_ocr: bool = False) -> dict[str, Any]:

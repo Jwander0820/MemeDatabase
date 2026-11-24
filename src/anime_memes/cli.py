@@ -169,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     web = sub.add_parser("web", help="Run the local browser/editor UI")
     web.add_argument("--host", default=getenv("ANIME_MEMES_WEB_HOST", "127.0.0.1"))
-    web.add_argument("--port", type=int, default=int(getenv("ANIME_MEMES_WEB_PORT", "8765")))
+    web.add_argument("--port", type=int, default=int(getenv("ANIME_MEMES_WEB_PORT", "3638")))
     web.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
     web.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
     web.set_defaults(func=cmd_web)

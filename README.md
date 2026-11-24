@@ -60,7 +60,7 @@ python -m venv .venv
 
 OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。清單是直接依賴，尚非完整 lockfile。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
 
-本機 Docker 的[私人管理頁](http://localhost:8765)與[公開搜尋頁](http://localhost:8875)使用獨立入口。首次啟動、隔離資料與換版驗收見[本機操作說明](docs/backend-refactor.md#dockernginx-本機啟動)。
+本機 Docker 的[私人管理頁](http://localhost:3636)（`/browse` 為本機簡潔瀏覽）與[模擬公開頁](http://localhost:3637)使用獨立入口；不走 Docker 的 `web` 指令預設在 3638。首次啟動、隔離資料與換版驗收見[本機操作說明](docs/backend-refactor.md#dockernginx-本機啟動)。
 
 ## 啟動 Web UI
 
@@ -71,7 +71,7 @@ OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，
 預設網址：
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:3638
 ```
 
 Web UI 預設顯示 `ready` 資料，可切換 `ignored` 或 `all`。點卡片會開啟 detail drawer，可以修改作品名稱、說話者、圖片台詞、狀態、備註與人工標籤。側欄的「手動新增梗圖」可上傳 JPG、PNG、WebP 或 GIF（上限 50 MB），並直接寫入本地附件、縮圖與 SQLite；這類資料不會影響 Discord 增量同步游標。

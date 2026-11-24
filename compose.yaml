@@ -30,7 +30,7 @@ services:
     build: {context: ., dockerfile: deploy/Dockerfile.nginx, target: public}
     depends_on:
       public-api: {condition: service_healthy}
-    ports: ["127.0.0.1:${PUBLIC_PORT:-8875}:8080"]
+    ports: ["127.0.0.1:${PUBLIC_PORT:-3637}:8080"]
     environment:
       SEARCH_RATE: ${SEARCH_RATE:-2r/s}
       SEARCH_BURST: ${SEARCH_BURST:-10}
@@ -75,7 +75,7 @@ services:
     build: {context: ., dockerfile: deploy/Dockerfile.nginx, target: private}
     depends_on:
       private-api: {condition: service_healthy}
-    ports: ["127.0.0.1:${PRIVATE_PORT:-8765}:8080"]
+    ports: ["127.0.0.1:${PRIVATE_PORT:-3636}:8080"]
     volumes:
       - ./deploy/nginx-private.conf.template:/etc/nginx/templates/default.conf.template:ro
     mem_limit: 64m
@@ -91,7 +91,7 @@ services:
     environment:
       ANIME_MEMES_DB: /data/anime_memes.sqlite3
       ANIME_MEMES_MCP_TOKEN: ${ANIME_MEMES_MCP_TOKEN:-}
-      ANIME_MEMES_PRIVATE_URL: ${PRIVATE_URL:-http://127.0.0.1:8765}
+      ANIME_MEMES_PRIVATE_URL: ${PRIVATE_URL:-http://127.0.0.1:3636}
       ANIME_MEMES_MCP_BIND: 0.0.0.0
     volumes:
       - ${PRIVATE_DATA_ROOT:-./data}:/data:ro

@@ -410,6 +410,31 @@ createImage.addEventListener("change", () => {
 
 createDialog.addEventListener("close", resetCreateForm);
 
+// 點框外（backdrop）關閉：按下與放開都在框外才算，避免框內拖曳選字時誤關。
+// 以座標判斷是否在框外，點到框內捲軸時不會誤關。
+function closeOnBackdrop(dialog, canClose = () => true) {
+  const outsideBox = (event) => {
+    if (event.target !== dialog) return false;
+    const box = dialog.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  let pressedOutside = false;
+  dialog.addEventListener("pointerdown", (event) => { pressedOutside = outsideBox(event); });
+  dialog.addEventListener("click", (event) => {
+    if (pressedOutside && outsideBox(event) && canClose()) dialog.close();
+    pressedOutside = false;
+  });
+}
+
+// 新增表單已選圖或已輸入內容時不因點框外而關閉，避免草稿遺失；仍可用取消或 × 關閉。
+function createFormIsBlank() {
+  if (createImage.files.length) return false;
+  return ["anime_title", "speaker", "quote_text", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
+}
+
+closeOnBackdrop(createDialog, createFormIsBlank);
+closeOnBackdrop(document.querySelector("#publicationDialog"));
+
 createForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   createError.textContent = "";

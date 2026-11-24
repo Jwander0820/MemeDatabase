@@ -13,6 +13,8 @@ let detailRequest = 0;
 let timer;
 let retryFromStart = true;
 let activeTag = "";
+// 本機簡潔瀏覽：由本機後端的 meta 宣告；公開 API 不回傳 mode，公開站不會出現管理入口。
+let localMode = false;
 let knownTags = [];
 const tagRow = byId("tags");
 const empty = byId("empty");
@@ -60,6 +62,15 @@ function card(item) {
   return link;
 }
 
+function applyMode(meta) {
+  if (meta.mode !== "local") return;
+  localMode = true;
+  const admin = byId("adminLink");
+  admin.href = meta.admin_url || "/";
+  admin.hidden = false;
+  byId("home").href = meta.browse_url || location.pathname;
+}
+
 function renderTags() {
   const tags = knownTags.slice();
   if (activeTag && !tags.some(item => item.name === activeTag)) tags.push({name: activeTag});
@@ -102,6 +113,7 @@ async function search(reset) {
       const meta = await readApi("meta", new URLSearchParams({version: data.version}));
       if (request !== listRequest) return;
       knownTags = meta.tags;
+      applyMode(meta);
       renderTags();
       tagsVersion = data.version;
     }
@@ -166,14 +178,26 @@ function renderDetail(item, request) {
   image.alt = item.resolved_title;
   image.referrerPolicy = "no-referrer";
   const caption = element("figcaption");
-  const note = element("span", item.original_url ? "目前顯示縮圖" : "僅提供縮圖");
+  const direct = localMode && item.original_url;
+  const note = element("span", direct ? "原圖" : item.original_url ? "目前顯示縮圖" : "僅提供縮圖");
   caption.append(note);
   image.onerror = () => {
     if (request !== detailRequest) return;
     note.textContent = "縮圖無法載入，請稍後再試。";
   };
-  image.src = item.thumbnail_url;
-  if (item.original_url) {
+  if (direct) {
+    // 本機不需節省流量：直接顯示原圖，失敗才退回縮圖。
+    image.onerror = () => {
+      if (request !== detailRequest) return;
+      image.onerror = null;
+      note.textContent = "原圖無法載入，顯示縮圖。";
+      image.src = item.thumbnail_url;
+    };
+    image.src = item.original_url;
+  } else {
+    image.src = item.thumbnail_url;
+  }
+  if (item.original_url && !direct) {
     const loadOriginal = button("載入大圖", () => {
       loadOriginal.disabled = true;
       note.textContent = "大圖載入中…";
@@ -255,7 +279,7 @@ function renderDetail(item, request) {
 
 async function showRoute(useLatest = false) {
   const request = ++detailRequest;
-  const match = /^#\/m\/([a-f0-9]{32})$/.exec(location.hash);
+  const match = /^#\/m\/([A-Za-z0-9_.-]{1,128})$/.exec(location.hash);
   if (!match) {
     if (dialog.open) dialog.close();
     return;
@@ -268,7 +292,7 @@ async function showRoute(useLatest = false) {
   const params = new URLSearchParams();
   if (!useLatest && version) params.set("version", version);
   try {
-    const data = await readApi("entries/" + match[1], params);
+    const data = await readApi("entries/" + encodeURIComponent(match[1]), params);
     if (request !== detailRequest) return;
     feedback.textContent = "";
     renderDetail(data.item, request);
@@ -279,6 +303,19 @@ async function showRoute(useLatest = false) {
   }
 }
 
+// 點框外（backdrop）關閉：按下與放開都在框外才算，避免框內拖曳選字時誤關。
+// 以座標判斷是否在框外，點到框內捲軸時不會誤關。
+const outsideBox = event => {
+  if (event.target !== dialog) return false;
+  const box = dialog.getBoundingClientRect();
+  return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+};
+let pressedOutside = false;
+dialog.addEventListener("pointerdown", event => { pressedOutside = outsideBox(event); });
+dialog.addEventListener("click", event => {
+  if (pressedOutside && outsideBox(event)) dialog.close();
+  pressedOutside = false;
+});
 dialog.addEventListener("close", () => {
   if (dialog.open) return;
   ++detailRequest;

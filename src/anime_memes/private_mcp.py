@@ -52,7 +52,7 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
     token = token or os.environ.get("ANIME_MEMES_MCP_TOKEN", "")
     if len(token) < 32 or not token.isascii() or any(c.isspace() for c in token):
         raise ValueError("啟用 MCP 必須設定至少 32 字元且無空白的 ASCII token")
-    media_base = media_base or os.environ.get("ANIME_MEMES_PRIVATE_URL", "http://127.0.0.1:8765")
+    media_base = media_base or os.environ.get("ANIME_MEMES_PRIVATE_URL", "http://127.0.0.1:3636")
     parsed = urlsplit(media_base)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("私人媒體網址格式錯誤")

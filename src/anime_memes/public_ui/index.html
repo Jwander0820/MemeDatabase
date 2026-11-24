@@ -47,7 +47,7 @@
   </svg>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="/" aria-label="迷因資料庫首頁">
+      <a class="brand" id="home" href="/" aria-label="迷因資料庫首頁">
         <span class="brand-mark" aria-hidden="true">迷</span>
         <div class="brand-text"><h1>迷因資料庫</h1></div>
       </a>
@@ -63,6 +63,7 @@
         </label>
         <button class="primary search-submit">搜尋</button>
       </form>
+      <a id="adminLink" class="admin-link" href="/" hidden>管理</a>
       <button id="themeToggle" class="icon-button ghost theme-toggle" type="button" aria-label="切換深淺色模式"><svg class="icon i-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon i-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
     </div>
     <nav class="tag-strip" aria-label="依標籤篩選">

@@ -134,9 +134,9 @@ docker compose -p animememes-frontend-qa --profile private up -d --build --wait
 docker compose -p animememes-frontend-qa --profile public up -d --build --wait
 ```
 
-1. 開啟[私人管理頁](http://localhost:8765)，手動新增測試圖，填入作品「刃牙」、角色「烈海王」、台詞「復！活！」及標籤「復活」。在詳情勾選「納入公開館藏」並儲存。原圖網址可留空以測試僅發布縮圖。
+1. 開啟[私人管理頁](http://localhost:3636)，手動新增測試圖，填入作品「刃牙」、角色「烈海王」、台詞「復！活！」及標籤「復活」。在詳情勾選「納入公開館藏」並儲存。原圖網址可留空以測試僅發布縮圖。
 2. 在「發布管理」按檢查。逐筆問題可點管理 key 開啟修正。匯出後確認版本與筆數，再按「啟用此版」。選取零筆時，啟用後公開搜尋會變空。
-3. 啟動公開 profile，開啟[公開搜尋頁](http://localhost:8875)。搜尋「復活」、套用標籤、開啟詳情、下載縮圖，將頁面連結貼到新分頁驗證。原圖為選填的外站資源，剪貼簿或下載受限時可開啟原圖或下載本站縮圖。
+3. 啟動公開 profile，開啟[公開搜尋頁](http://localhost:3637)。搜尋「復活」、套用標籤、開啟詳情、下載縮圖，將頁面連結貼到新分頁驗證。原圖為選填的外站資源，剪貼簿或下載受限時可開啟原圖或下載本站縮圖。
 4. 在私人頁取消選取後再檢查、匯出，此時重新搜尋仍可找到該圖。啟用新版，再按公開頁「搜尋」，確認結果更新。後續換版可直接在頁面操作。
 5. 結束測試可執行 `docker compose -p animememes-frontend-qa --profile public --profile private down`。測試館藏保留於上述主機目錄。
 
@@ -146,9 +146,9 @@ Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 �
 |---|---|
 | PRIVATE_DATA_ROOT | ./data，私人完整資料掛載 |
 | RELEASE_ROOT | ./data/releases，發布資料掛載 |
-| PRIVATE_PORT／PUBLIC_PORT | 8765／8875，主機 loopback port |
+| PRIVATE_PORT／PUBLIC_PORT | 3636／3637，主機 loopback port（`web` 指令直接執行時預設 3638） |
 | SEARCH_RATE／SEARCH_BURST | 2r/s／10 |
-| PRIVATE_URL | http://127.0.0.1:8765，MCP 回傳給呼叫端的媒體基址 |
+| PRIVATE_URL | http://127.0.0.1:3636，MCP 回傳給呼叫端的媒體基址 |
 | ANIME_MEMES_MCP_TOKEN | 無預設，至少 32 ASCII 字元、無空白 |
 
 Compose 預設公開後端上限 192 MB、Nginx 64 MB、私人後端 384 MB、MCP 192 MB；這些是可調整的限制，並非測得容量保證。各 Python 程序單程序 4 Waitress threads，Nginx 1 worker；Docker 日誌 5 MB × 3 份，含健康檢查與 unless-stopped。不開管理面板；沒有直接對外 TLS 配置，VPS 的 HTTPS／Tunnel 留待部署階段。
