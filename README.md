@@ -16,9 +16,9 @@
 
 ## 發展方向與文件
 
-已選定公開版採前後端分離：Nginx 供應前端與縮圖、轉送唯讀搜尋 API；SQLite 與縮圖保存在 VPS 持久化目錄並唯讀掛載。第一版直接查 SQLite，不加全庫 dict，透過版本快照切換更新資料。本機版保留完整管理 UI 與選用 OCR。這些部署／發布機制尚待實作，現況對照見整體規格第 15 節。
+後端已拆出本機管理、公開唯讀搜尋、發布工具與私人選用 MCP。公開版由 Nginx 供應縮圖與轉送 API，SQLite／媒體以容器外目錄掛載；公開資料可驗證後切換版本。這輪提供 API／CLI 與容器配置，公開搜尋頁及發布管理 UI 留下一階段，尚未部署 VPS。
 
-目標為「本機管理與整理、公開端唯讀搜尋、R2 直接取圖」，並提供受控的 Agent 搜尋接口。公開部署及 MCP 仍待實作；目前服務沒有完整公開存取控制，不應直接公開管理接口。本次後端與 DB 遷移範圍見 [搜尋後端實作紀錄](docs/backend-search-implementation.md)。
+操作與 API 契約見 [雙版本後端與發布操作](docs/backend-refactor.md)。公開版不提供 Agent 專用接口或 MCP；私人管理版保留既有 UI，另可啟用唯讀 MCP。公開與私人入口不可混用，私人管理端預設只綁 localhost。
 
 | 入口 | 內容 |
 |---|---|
@@ -31,7 +31,8 @@
 ## 重要資料位置
 
 - 主資料庫：`data/anime_memes.sqlite3`
-- V1 備份：`data/anime_memes_v1.sqlite3`
+- 資料庫備份：`data/backups/`（清理曾保留 3 份；後續 migration 另新增備份，不自動淘汰）
+- 歷史檢查紀錄：`data/archive/`
 - 原始資料保存：`data/original_data/`
 - 完整附件：`data/attachments/`
 - 縮圖：`data/thumbnails/`
@@ -41,28 +42,25 @@
 
 `data/`、`exports/`、`models/`、`.env`、`.venv/` 都應維持不提交到 Git。
 
+2026-11-24 已整理 data：原圖與縮圖全數保留，raw／fixed 增量匯出保留最新 3 組；初始完整原始資料另行保留，不按增量批次刪除。舊備份、測試樣本、零長度日誌與臨時依賴驗證環境已清除。本次為一次性整理，尚未加入自動保留政策；舊 export_runs 的歷史路徑可能指向已清理檔案，最近成功同步來源仍保留。本機繼續使用完整 `.venv`，`exports/` 未清理。
+
 ## 安裝依賴
 
-統一使用 `requirements.txt`，舊的 `requirement.txt` 已移除。基礎清單只保留目前程式直接使用的 Flask、Werkzeug、OpenCC、Pillow，沿用既有版本；不再把整個開發環境的 GPU 與間接依賴全部列入。
-
-非 OCR 功能使用獨立虛擬環境：
+統一使用複數 requirements 命名；既有 `.venv` 保留完整本機環境。全新本機管理環境安裝：
 
 ```bat
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements-admin.txt
 ```
 
-只有本機需要執行 PaddleOCR 時才安裝：
+- `requirements.txt`：公開服務基礎（Flask、Werkzeug、Waitress、OpenCC），不含 Pillow／OCR／MCP。
+- `requirements-admin.txt`：基礎＋Pillow，供完整管理與發布。
+- `requirements-ocr.txt`：管理＋既有 PaddleOCR GPU，僅本機資料準備時選裝，需相容 Python／CUDA。
+- `requirements-mcp.txt`：基礎＋官方 MCP SDK，私人 MCP 選裝。
 
-```bat
-.venv\Scripts\python.exe -m pip install -r requirements-ocr.txt
-```
+OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。清單是直接依賴，尚非完整 lockfile。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
 
-OCR 清單包含基礎清單及既有 GPU 引擎設定，需要相容的 Python／CUDA 環境；它不是跨平台 CPU 安裝方案。EasyOCR 目前僅有程式入口，未納入這兩份安裝清單。
-
-部署建置只安裝 `requirements.txt`，不要安裝 `requirements-ocr.txt`，也不要將 `.venv/`、`models/` 或整個本機環境複製進映像。現有環境已安裝的 OCR 套件不會因清單變短而自動移除；請以全新環境／映像驗證精簡效果。Pillow 目前仍供 Web 上傳與圖片驗證使用，待唯讀服務拆分後再評估移除。
-
-依賴清單拆分已完成；獨立公開唯讀啟動入口、正式 WSGI 服務與 Docker 建置仍待實作，不能把目前管理 Web 直接公開。本清單是直接依賴清單，不是含所有間接套件的完整 lockfile。
+本機 Docker 可用 `docker compose --profile private up -d --build`；公開 API 使用 `--profile public`，須先匯出與啟用發布資料。公開 `/` 為 404，這輪尚未交付公開前端。完整指令、環境變數與私人 MCP 設定見後端操作文件。
 
 ## 啟動 Web UI
 

@@ -2,6 +2,8 @@
 
 日期：2026-11-23。此文件描述目前本地後端，公開站、R2、token 與 MCP 尚未實作。
 
+2026-11-24 後續重構已完成公開 API、發布流程、容器與私人 MCP，最新狀態與命令請讀 [雙版本後端與發布操作](backend-refactor.md)。下列搜尋與主庫遷移紀錄保留當時背景。
+
 ## 資料庫
 
 SQLite migration 新增 nullable display_title 及 entry_search_aliases，重跑不清空資料。替代詞以 entry_key、alias_normalized 唯一，刪除 entry 時連帶刪除。新增 entry_tags(tag_name, entry_key) 索引供標籤篩選使用；文字搜尋仍需掃描，未宣稱全文索引加速。

@@ -4,6 +4,7 @@
 
 | 文件 | 用途 | 狀態 |
 |---|---|---|
+| [雙版本後端與發布操作](backend-refactor.md) | 管理／公開服務、發布 API／CLI、版本切換、Docker／Nginx、私人 MCP | 本輪重構交付與操作入口 |
 | [搜尋後端實作紀錄](backend-search-implementation.md) | 已實作 schema、API、搜尋行為與遷移驗證 | 本地後端已實作，UI／公開部署待完成 |
 | [整體規格](personal-meme-platform-spec.md) | 產品目標、雙版本、前後端分離、Nginx／Docker、發布與熱更新；第 15 節列實作差距 | 現行目標，部分完成 |
 | [DB 與搜尋規格](database-search-spec.md) | 欄位、替代詞、搜尋契約、索引與 migration | 本地核心已實作，UI／發布待完成 |

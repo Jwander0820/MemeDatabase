@@ -19,14 +19,14 @@ V1 不上傳 R2、不直接呼叫 Notion API、不使用雲端 LLM 標籤。
 - 不要提交 `.env` 或任何 Discord bot token。
 - 不要提交 `data/`、`exports/`、`models/`、`.venv/`。
 - `data/anime_memes.sqlite3` 是目前主資料庫。
-- `data/anime_memes_v1.sqlite3` 是 V1 備份。
+- `data/backups/` 保存近期備份；舊 V1 備份已於 2026-11-24 整理清除。清理紀錄保存在 `data/archive/`，完整初始來源不可當增量匯出直接淘汰。
 - Discord CDN URL 可能過期；長期保存以 `data/attachments/` 本地附件為準。
 - OCR 是輔助校驗，不覆蓋 Discord 文字或人工修正。
 - GIF / MP4 / MOV / WEBM / M4V 不做 OCR，也不產一般圖片縮圖。
 
 ## 程式架構
 
-依賴統一使用 `requirements.txt`（非 OCR 基礎）與 `requirements-ocr.txt`（本機選用，包含基礎清單）。不得將 OCR／CUDA／模型套件加入部署基礎清單，也不要再建立單數 `requirement.txt` 或用整個開發環境的 pip freeze 覆蓋基礎清單。現有 Web 仍有管理功能，依賴拆分不代表公開唯讀服務已完成。
+依賴使用 `requirements.txt`（公開基礎）、`requirements-admin.txt`（圖片管理與發布）、`requirements-ocr.txt`（本機選用 OCR）、`requirements-mcp.txt`（私人選用 MCP）。不得將 OCR／CUDA／模型套件加入部署基礎清單，也不要再建立單數 `requirement.txt` 或用整個開發環境的 pip freeze 覆蓋基礎清單。公開 runtime 不得 import web／management／publishing 等管理模組；後端與發布操作見 `docs/backend-refactor.md`。
 
 ```text
 src/anime_memes/

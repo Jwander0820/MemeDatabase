@@ -1,0 +1,99 @@
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "3"
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  public-api:
+    <<: *common
+    profiles: [public]
+    build: {context: ., target: public}
+    environment:
+      ANIME_MEMES_RELEASE_ROOT: /releases
+    volumes:
+      - ${RELEASE_ROOT:-./data/releases}:/releases:ro
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 192m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  public-nginx:
+    <<: *common
+    profiles: [public]
+    build: {context: ., dockerfile: deploy/Dockerfile.nginx, target: public}
+    depends_on:
+      public-api: {condition: service_healthy}
+    ports: ["127.0.0.1:${PUBLIC_PORT:-8875}:8080"]
+    environment:
+      SEARCH_RATE: ${SEARCH_RATE:-2r/s}
+      SEARCH_BURST: ${SEARCH_BURST:-10}
+      NGINX_ENVSUBST_FILTER: SEARCH_
+      NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: ""
+    volumes:
+      - ${RELEASE_ROOT:-./data/releases}/media:/srv/media:ro
+    mem_limit: 64m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  private-api:
+    <<: *common
+    profiles: [private]
+    build: {context: ., target: private}
+    environment:
+      ANIME_MEMES_DB: /data/anime_memes.sqlite3
+      ANIME_MEMES_ATTACHMENT_DIR: /data/attachments
+      ANIME_MEMES_THUMBNAIL_DIR: /data/thumbnails
+      ANIME_MEMES_RELEASE_ROOT: /releases
+    volumes:
+      - ${PRIVATE_DATA_ROOT:-./data}:/data
+      - ${RELEASE_ROOT:-./data/releases}:/releases
+    mem_limit: 384m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  private-nginx:
+    <<: *common
+    profiles: [private]
+    build: {context: ., dockerfile: deploy/Dockerfile.nginx, target: private}
+    depends_on:
+      private-api: {condition: service_healthy}
+    ports: ["127.0.0.1:${PRIVATE_PORT:-8765}:8080"]
+    volumes:
+      - ./deploy/nginx-private.conf.template:/etc/nginx/templates/default.conf.template:ro
+    mem_limit: 64m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  private-mcp:
+    <<: *common
+    profiles: [mcp]
+    build: {context: ., target: mcp}
+    environment:
+      ANIME_MEMES_DB: /data/anime_memes.sqlite3
+      ANIME_MEMES_MCP_TOKEN: ${ANIME_MEMES_MCP_TOKEN:-}
+      ANIME_MEMES_PRIVATE_URL: ${PRIVATE_URL:-http://127.0.0.1:8765}
+      ANIME_MEMES_MCP_BIND: 0.0.0.0
+    volumes:
+      - ${PRIVATE_DATA_ROOT:-./data}:/data:ro
+    ports: ["127.0.0.1:8766:8766"]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 192m
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1',8766),timeout=3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

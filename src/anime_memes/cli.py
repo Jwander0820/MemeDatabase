@@ -164,7 +164,37 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
     web.set_defaults(func=cmd_web)
 
+    publication = sub.add_parser("publication", help="Manage local publication selection and export")
+    actions = publication.add_subparsers(dest="publication_action", required=True)
+    choose = actions.add_parser("select")
+    choose.add_argument("key")
+    choose.add_argument("--selected", choices=["yes", "no"])
+    choose.add_argument("--original-url")
+    actions.add_parser("check")
+    export_public = actions.add_parser("export")
+    export_public.add_argument("--root", default=getenv("ANIME_MEMES_RELEASE_ROOT", "data/releases"))
+    publication.set_defaults(func=cmd_publication)
     return parser
+
+
+def cmd_publication(args):
+    from .publishing import update_selection, check_database, export_release
+    if args.publication_action == "select":
+        data = {}
+        if args.selected is not None:
+            data["publish_selected"] = args.selected == "yes"
+        if args.original_url is not None:
+            data["public_original_url"] = args.original_url
+        with closing(connect(args.db)) as conn:
+            init_db(conn)
+            result = update_selection(conn, args.key, data)
+    elif args.publication_action == "check":
+        result = check_database(args.db)
+    else:
+        result = export_release(args.db, args.root)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result.get("valid") is False or result.get("exported") is False:
+        raise SystemExit(2)
 
 
 def cmd_init_db(args: argparse.Namespace) -> None:

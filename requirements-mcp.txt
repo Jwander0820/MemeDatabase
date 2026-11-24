@@ -1,0 +1,3 @@
+# 私人選用 MCP；公開映像不安裝。
+-r requirements.txt
+mcp==2.3.0
