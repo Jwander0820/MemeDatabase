@@ -40,7 +40,12 @@ def create_public_app(release_root=None):
 
     @app.after_request
     def headers(response):
-        response.headers["Cache-Control"] = "no-store"
+        # 發布版本是不可變快照：指定 version 的成功回應永遠不變，可讓瀏覽器與 CDN 長期快取，
+        # 減少回源到 VPS；未指定版本的請求（用來取得目前版本）與錯誤回應一律不快取。
+        if request.args.get("version") and response.status_code == 200 and request.path.startswith("/api/v1/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 

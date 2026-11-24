@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -24,7 +25,9 @@ CREATE INDEX idx_public_updated ON entries(updated_at DESC,id);
 """
 FIELDS = ("id", "display_title", "speaker", "anime_title", "quote_text", "thumbnail_url", "original_url", "updated_at",
           "thumbnail_width", "thumbnail_height")
-ALLOWED_ARGS = {"q", "tag", "sort", "page", "page_size", "version"}
+ALLOWED_ARGS = {"q", "tag", "sort", "page", "page_size", "version", "ids"}
+# 訪客收藏清單一次查詢的上限（收藏存在訪客瀏覽器，以公開 ID 查最新資料）。
+MAX_IDS = 200
 
 
 def open_readonly(path: Path) -> sqlite3.Connection:
@@ -75,6 +78,15 @@ def search(conn: sqlite3.Connection, args) -> dict:
     if args.get("tag"):
         where.append("EXISTS(SELECT 1 FROM entry_tags t WHERE t.entry_id=e.id AND t.tag=?)")
         params.append(args["tag"])
+    if "ids" in args:
+        ids = [value for value in str(args.get("ids") or "").split(",") if value]
+        if len(ids) > MAX_IDS or any(not re.fullmatch(r"[0-9a-f]{32}", value) for value in ids):
+            raise ValueError(f"ids 必須是最多 {MAX_IDS} 個以逗號分隔的公開 ID")
+        if ids:
+            where.append(f"e.id IN ({','.join('?' * len(ids))})")
+            params.extend(ids)
+        else:
+            where.append("0")  # 空的收藏清單：不回傳任何結果
     sort = args.get("sort") or ("relevance" if q else "updated")
     orders = {"updated": "e.updated_at DESC,e.id", "title": "e.anime_title COLLATE NOCASE,e.id",
               "relevance": (score_sql + " DESC,e.updated_at DESC,e.id") if q else "e.updated_at DESC,e.id"}

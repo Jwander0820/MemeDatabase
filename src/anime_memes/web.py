@@ -189,7 +189,9 @@ def create_app(
         sort = request.args.get("sort") or ("relevance" if q else "updated")
         if sort not in {"relevance", "updated", "title"}:
             raise ValueError("不支援的排序")
-        args = {"status": "ready", "q": q, "tag": request.args.get("tag") or "", "sort": sort}
+        args = {"status": "ready", "q": q, "tag": request.args.get("tag") or "", "sort": sort,
+                # 本機簡潔瀏覽的收藏與管理頁共用（entry_favorites）。
+                "favorite": request.args.get("favorite") or ""}
         entries, total = query_entries(g.db, args, page, page_size)
         return jsonify({"items": [browse_item(serialize_entry(row)) for row in entries],
                         "page": page, "page_size": page_size, "total": total, "version": LOCAL_BROWSE_VERSION})
@@ -371,6 +373,7 @@ def browse_item(item: dict[str, Any]) -> dict[str, Any]:
         "thumbnail_url": item.get("thumbnail_url") or (image if image and image.startswith("/media/") else None),
         "original_url": image if image and image.startswith("/media/") else None,
         "updated_at": item.get("updated_at"),
+        "favorite": bool(item.get("favorite")),
         # 原圖寬高與縮圖等比例，前端只用來預留版面比例。
         "thumbnail_width": item.get("image_width"),
         "thumbnail_height": item.get("image_height"),

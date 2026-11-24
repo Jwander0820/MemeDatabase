@@ -18,6 +18,69 @@ let localMode = false;
 let knownTags = [];
 const tagRow = byId("tags");
 const empty = byId("empty");
+
+// ---------- 收藏 ----------
+// 公開站：訪客沒有帳號，收藏存在自己瀏覽器的 localStorage（清除瀏覽器資料就會消失）。
+// 本機簡潔瀏覽：與管理頁共用同一份收藏（後端 entry_favorites）。
+const FAVORITES_KEY = "meme-db-favorites";
+const MAX_FAVORITE_QUERY = 200;
+let favoritesOnly = false;
+let favoriteIds = [];
+try {
+  const saved = JSON.parse(globalThis.localStorage?.getItem(FAVORITES_KEY) || "[]");
+  if (Array.isArray(saved)) favoriteIds = saved.filter(id => typeof id === "string");
+} catch {}
+// 同一張圖可能同時出現在卡片與詳情，切換後要一起更新。
+const favoriteButtons = new Map();
+
+function isFavorite(item) {
+  return localMode ? Boolean(item.favorite) : favoriteIds.includes(item.id);
+}
+
+async function toggleFavorite(item) {
+  if (localMode) {
+    const response = await fetch("/api/entries/" + encodeURIComponent(item.id) + "/favorite",
+      {method: item.favorite ? "DELETE" : "POST"});
+    if (!response.ok) throw new Error("收藏更新失敗，請重試");
+    item.favorite = (await response.json()).favorite;
+  } else {
+    // 最新收藏放最前面。
+    favoriteIds = isFavorite(item) ? favoriteIds.filter(id => id !== item.id) : [item.id, ...favoriteIds];
+    try { globalThis.localStorage?.setItem(FAVORITES_KEY, JSON.stringify(favoriteIds)); } catch {}
+  }
+  (favoriteButtons.get(item.id) || []).forEach(sync => sync());
+  return isFavorite(item);
+}
+
+function favoriteButton(item, {compact = false} = {}) {
+  const node = element("button");
+  node.type = "button";
+  node.className = compact ? "card-fav" : "fav-toggle";
+  const sync = () => {
+    const on = isFavorite(item);
+    node.textContent = compact ? (on ? "★" : "☆") : (on ? "★ 已收藏" : "☆ 收藏");
+    node.ariaPressed = String(on);
+    node.title = on ? "取消收藏" : "加入收藏";
+    if (compact) node.ariaLabel = node.title;
+  };
+  node.onclick = async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    node.disabled = true;
+    try {
+      await toggleFavorite(item);
+    } catch (error) {
+      statusLine.textContent = error.message;
+    } finally {
+      node.disabled = false;
+    }
+  };
+  const list = favoriteButtons.get(item.id) || [];
+  list.push(sync);
+  favoriteButtons.set(item.id, list);
+  sync();
+  return node;
+}
 // 瀑布流排列；沒有 MemeMasonry（例如單元測試）時退回直接附加。
 const masonry = window.MemeMasonry?.create(results);
 // 卡片分散在各欄裡，已顯示張數另外計算。
@@ -42,8 +105,11 @@ async function readApi(path, params) {
 }
 
 function card(item) {
+  // 卡片本體是連結；星號按鈕放在連結外面（連結裡不可再放按鈕）。
+  const node = element("article");
+  node.className = "card";
   const link = element("a");
-  link.className = "card";
+  link.className = "card-link";
   link.href = "#/m/" + item.id;
   const image = element("img");
   image.src = item.thumbnail_url;
@@ -67,7 +133,8 @@ function card(item) {
     body.append(tags);
   }
   link.append(image, body);
-  return link;
+  node.append(link, favoriteButton(item, {compact: true}));
+  return node;
 }
 
 function applyMode(meta) {
@@ -95,7 +162,17 @@ function renderTags() {
     };
     return node;
   };
-  tagRow.replaceChildren(chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
+  // 「★ 收藏」是獨立的篩選，可以再搭配標籤或搜尋。
+  const favorites = element("button", "★ 收藏");
+  favorites.type = "button";
+  favorites.className = "chip chip-fav";
+  favorites.ariaPressed = String(favoritesOnly);
+  favorites.onclick = () => {
+    favoritesOnly = !favoritesOnly;
+    renderTags();
+    search(true);
+  };
+  tagRow.replaceChildren(favorites, chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
 }
 
 async function search(reset) {
@@ -113,6 +190,10 @@ async function search(reset) {
   const params = new URLSearchParams({page: page + 1});
   for (const [name, value] of [["q", byId("query").value.trim()], ["tag", activeTag], ["sort", byId("sort").value]]) {
     if (value) params.set(name, value);
+  }
+  if (favoritesOnly) {
+    if (localMode) params.set("favorite", "1");
+    else params.set("ids", favoriteIds.slice(0, MAX_FAVORITE_QUERY).join(","));
   }
   if (version) params.set("version", version);
   more.hidden = true;
@@ -137,6 +218,13 @@ async function search(reset) {
     shown += cards.length;
     statusLine.textContent = data.total ? `已顯示 ${shown}／${data.total} 張` : "查無結果";
     empty.hidden = data.total !== 0;
+    byId("emptyTitle").textContent = favoritesOnly ? "還沒有收藏的梗圖" : "找不到符合的梗圖";
+    byId("emptyHint").textContent = favoritesOnly ? "點卡片右上角的星號，常用的圖就會出現在這裡。" : "換個關鍵字，或試試其他標籤。";
+    // 收藏的圖若已下架就查不到；只在沒有其他篩選時才能準確判斷少了幾張。
+    if (favoritesOnly && !localMode && !activeTag && !byId("query").value.trim()) {
+      const asked = Math.min(favoriteIds.length, MAX_FAVORITE_QUERY);
+      if (asked > data.total) statusLine.textContent += `（另有 ${asked - data.total} 張收藏已下架）`;
+    }
     more.textContent = "載入更多";
     more.hidden = shown >= data.total;
     retryFromStart = false;
@@ -296,6 +384,7 @@ function renderDetail(item, request) {
     if (!showingLarge && item.original_url) return "已複製縮圖；按「載入原始圖片」後可複製原始圖片";
     return usedThumb ? "原始圖片受來源限制，已改為複製縮圖" : "";
   }, "已複製圖片，可直接貼上", true);
+  actions.append(favoriteButton(item));
   action("複製頁面連結", () => navigator.clipboard.writeText(location.href), "已複製頁面連結");
   action("複製圖片連結", () => navigator.clipboard.writeText(url), "已複製圖片連結");
   if (item.original_url) {

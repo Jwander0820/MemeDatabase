@@ -70,6 +70,14 @@ class LocalBrowseTest(unittest.TestCase):
         # 測試資料用的分類外標籤，兩筆（不分狀態）都在使用。
         self.assertEqual((tags["測試標籤"]["in_taxonomy"], tags["測試標籤"]["count"]), (False, 2))
 
+    def test_browse_favorites_share_admin_favorites(self):
+        with closing(connect(self.db)) as conn:
+            conn.execute("INSERT INTO entry_favorites(entry_key) VALUES('meme_0')")
+            conn.commit()
+        data = self.client.get("/api/v1/entries?favorite=1").get_json()
+        self.assertEqual([(i["id"], i["favorite"]) for i in data["items"]], [("meme_0", True)])
+        self.assertIs(self.client.get("/api/v1/entries/meme_0").get_json()["item"]["favorite"], True)
+
     def test_browse_page_and_assets(self):
         page = self.client.get("/browse")
         self.assertEqual(page.status_code, 200)
