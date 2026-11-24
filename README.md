@@ -172,6 +172,18 @@ Agent 逐張讀圖並建立 `results.jsonl` 後，匯入待審核候選：
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 export-notion
 ```
 
+## 批次發布
+
+用 `publication bulk` 批次選取要發布的項目（也可用 `POST /api/publication/bulk`）。發布必須透過此指令或 API，不要直接改資料庫，因為每個發布項目都需要 public ID。
+
+```bat
+rem 先預覽，再發布所有 ready 項目
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 publication bulk --selected yes --dry-run
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 publication bulk --selected yes
+```
+
+可用 `--keys`／`--keys-file` 指定項目，或用 `--status`、`--tag`、`--q`、`--favorite`、`--no-tags`、`--published` 篩選；單次上限 5000 筆。
+
 ## 圖片尺寸與 R2
 
 - 原圖：只存在本機（`data/attachments`），不公開。
@@ -185,7 +197,22 @@ src\commands\build_media.cmd --kind all --missing
 
 `--kind` 選擇縮圖、大圖或兩者；縮圖一律處理全部附件，720P 大圖預設只處理發布選取的項目，`--all-entries` 改為全部；`--missing` 只補缺少的檔案；`--force` 強制重新產生。
 
-設定好 `ANIME_MEMES_R2_*`（見 `.env.example`）後，`publication export` 會自動為已選取、且未手動填寫公開原圖網址的項目產生 720P 並上傳 R2（以內容雜湊命名，已存在則略過）；任一上傳失敗則不產生新版本。手動網址優先，其次 R2，皆無則僅發布縮圖。未設定 R2 時行為不變。
+設定好 `MEMES_R2_*`（見 `.env.example`）後，`publication export` 會自動為已選取、且未手動填寫公開原圖網址的項目產生 720P 並上傳 R2（以內容雜湊命名，已存在則略過）；任一上傳失敗則不產生新版本。手動網址優先，其次 R2，皆無則僅發布縮圖。未設定 R2 時行為不變。
+
+## 徹底撤回
+
+取消公開並啟用新版後，被撤回的圖仍可能留在舊版本（可用 `?version=` 指定）、舊縮圖與 R2 上。在管理頁「發布管理 → 徹底清除舊版本與已撤回的圖片」先預覽再確認，或使用：
+
+```bat
+.venv\Scripts\python.exe -m src.anime_memes publication purge --dry-run
+.venv\Scripts\python.exe -m src.anime_memes publication purge
+```
+
+- 只保留目前啟用版本（`--keep-recent N` 可多留最近 N 個）；刪除後無法退回舊版本。
+- 縮圖只刪不再被保留版本使用的檔案。
+- R2 只刪本程式上傳並記錄在資料庫、位於設定前綴底下、沒有被保留版本引用、也沒有仍勾選公開的項目使用的物件；不會列出或刪除 bucket 裡的其他檔案。內容相同而共用物件的圖，只要有一張仍需要就保留。
+- Cloudflare 自訂網域有快取時，刪除的 R2 物件仍可能從邊緣快取提供，需依輸出的網址到後台清除快取；修改 R2 CORS 規則後同樣要清除快取才會生效。
+- VPS 上的發布目錄是另一份副本，清理本機不會影響 VPS，需在 VPS 另外處理。
 
 ## 專案結構
 

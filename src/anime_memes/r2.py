@@ -148,6 +148,20 @@ class R2Store:
             cache_control: str = IMMUTABLE_CACHE) -> None:
         self._request("PUT", key, data, {"content-type": content_type, "cache-control": cache_control})
 
+    def owns(self, key: str) -> bool:
+        """物件鍵是否落在本專案設定的前綴底下；清理只處理這些鍵，避免動到共用 bucket 的其他檔案。"""
+        return bool(self.config.prefix) and key.startswith(self.config.prefix)
+
+    def delete(self, key: str) -> None:
+        """刪除物件；物件本來就不存在也視為成功（S3 的 DELETE 具冪等性）。"""
+        if not self.owns(key):
+            raise ValueError("只能刪除本專案前綴底下的物件")
+        try:
+            self._request("DELETE", key)
+        except R2Error as exc:
+            if getattr(exc, "status", None) != 404:
+                raise
+
     def upload_if_missing(self, key: str, data: bytes, **kwargs) -> bool:
         """物件不存在才上傳；回傳是否實際上傳。"""
         if self.exists(key):

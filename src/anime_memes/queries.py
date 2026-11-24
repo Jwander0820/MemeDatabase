@@ -32,6 +32,10 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         params.append(tag)
     if truthy(args.get("favorite")):
         where.append("f.entry_key IS NOT NULL")
+    published = str(args.get("published") or "").strip()
+    if published in {"0", "1"}:
+        where.append("e.publish_selected = ?")
+        params.append(int(published))
     if truthy(args.get("no_tags")):
         where.append("NOT EXISTS (SELECT 1 FROM entry_tags nt WHERE nt.entry_key = e.key)")
     if truthy(args.get("missing_image")):

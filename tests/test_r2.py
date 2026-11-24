@@ -111,6 +111,20 @@ class StoreTest(unittest.TestCase):
                       headers["authorization"])
         self.assertEqual(put.data, b"DATA")
 
+    def test_delete_is_signed_idempotent_and_limited_to_prefix(self):
+        opener = FakeOpener(None, http_error(404))
+        store = self.store(opener)
+        store.delete("memes/a.webp")
+        store.delete("memes/gone.webp")  # 已不存在也視為成功
+        request = opener.requests[0]
+        self.assertEqual(request.get_method(), "DELETE")
+        self.assertIn("Signature=", dict(request.header_items())["Authorization"])
+        self.assertTrue(store.owns("memes/a.webp"))
+        self.assertFalse(store.owns("other/a.webp"))
+        with self.assertRaises(ValueError):
+            store.delete("other/a.webp")
+        self.assertEqual(len(opener.requests), 2, "前綴以外的物件不可送出刪除請求")
+
     def test_existing_object_is_not_uploaded(self):
         opener = FakeOpener(None)
         self.assertFalse(self.store(opener).upload_if_missing("memes/a.webp", b"DATA"))

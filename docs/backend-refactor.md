@@ -43,6 +43,7 @@
 |---|---|
 | GET /api/entries/{key}/publication | 查公開選擇、公開 ID、原圖網址 |
 | PATCH 同路徑 | 僅接受 publish_selected 布林值與 public_original_url 字串／null；省略保留、空值清除網址 |
+| POST /api/publication/bulk | 批次設定發布選取：`{"publish_selected":bool,"keys":[...]}` 或 `{"publish_selected":bool,"filter":{...}}`，可加 `dry_run`；單次上限 5000 筆 |
 | POST /api/publication/check | 一致快照檢查，逐項 errors／warnings |
 | POST /api/publication/export | 無參數或空物件；匯出至服務設定目錄，禁止指定任意路徑 |
 
@@ -63,7 +64,14 @@
 .venv\Scripts\python.exe -m src.anime_memes --db data/anime_memes.sqlite3 publication export --root data/releases
 ```
 
-取消公開用 `--selected no`，清空原圖網址用 `--original-url ''`。取消選擇或刪除本機項目後，需再次匯出並啟用新版才會從公開搜尋移除；歷史版本與長快取媒體不會因此立即失效，緊急撤回須另停用入口並清理舊版本／CDN。check／export 不合格 exit code 2；其他執行錯誤非零。API 的輸出根目錄由 create_app 的 release_root 或私人 runtime 的 ANIME_MEMES_RELEASE_ROOT 設定；CLI 明確使用 --root。
+批次發布用 `publication bulk`（key 清單用 `--keys`／`--keys-file`，或用 `--status`／`--tag`／`--q`／`--favorite`／`--no-tags`／`--published` 篩選；未指定時為所有 ready 項目）。每個發布項目都需要 public ID，因此發布必須透過此指令或 API，不可直接改資料庫。先預覽再發布全部 ready 項目：
+
+```powershell
+.venv\Scripts\python.exe -m src.anime_memes --db data/anime_memes.sqlite3 publication bulk --selected yes --dry-run
+.venv\Scripts\python.exe -m src.anime_memes --db data/anime_memes.sqlite3 publication bulk --selected yes
+```
+
+取消公開用 `--selected no`，清空原圖網址用 `--original-url ''`。取消選擇或刪除本機項目後，需再次匯出並啟用新版才會從公開搜尋移除；歷史版本與長快取媒體不會因此立即失效；需徹底移除時執行 `publication purge`（或管理頁「徹底清除」），刪除未保留的舊版本、只被它們使用的縮圖與不再需要的 R2 大圖，並依輸出網址清除 Cloudflare 快取。緊急情況仍可先停用公開入口。check／export 不合格 exit code 2；其他執行錯誤非零。API 的輸出根目錄由 create_app 的 release_root 或私人 runtime 的 MEMES_RELEASE_ROOT 設定；CLI 明確使用 --root。
 
 匯出先用 SQLite backup API 取得一致管理快照，再將選定欄位輸入全新公開庫。公開縮圖優先由本地原圖以 480P 預設（長邊 ≤854、短邊 ≤480、WebP quality 78）重新產生，無可用原圖時退回既有縮圖；不放大，重建像素去掉 EXIF／ICC。原始縮圖與原圖不被覆蓋。
 

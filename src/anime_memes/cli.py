@@ -180,7 +180,41 @@ def build_parser() -> argparse.ArgumentParser:
     choose.add_argument("key")
     choose.add_argument("--selected", choices=["yes", "no"])
     choose.add_argument("--original-url")
-    actions.add_parser("check")
+    purge = actions.add_parser(
+        "purge",
+        help="Remove old releases, unused thumbnails and unneeded R2 images",
+        description=(
+            "徹底撤回：刪除未保留的舊版本、只被它們使用的縮圖，以及不再需要的 R2 大圖。"
+            "只保留目前啟用版本（可用 --keep-recent 多留幾個）。R2 只刪本程式上傳且在設定前綴底下的物件。"
+            "刪除後 Cloudflare 邊緣快取可能仍保留副本，請依輸出的網址清除快取。建議先加 --dry-run 預覽。"
+        ),
+    )
+    purge.add_argument("--root", default=getenv("MEMES_RELEASE_ROOT", "data/releases"))
+    purge.add_argument("--keep-recent", type=int, default=0, help="除了啟用版本外，再保留最近幾個版本（預設 0）")
+    purge.add_argument("--dry-run", action="store_true", help="只預覽，不刪除")
+    bulk = actions.add_parser(
+        "bulk",
+        help="Bulk publish/unpublish entries",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "批次設定發布選取。目標二擇一：--keys/--keys-file 指定 key，或用篩選條件。\n"
+            "未指定 key 也未指定任何篩選時，等同篩選 {status: <--status>}，\n"
+            "因此 `publication bulk --selected yes` 代表「所有 ready 項目」。\n"
+            "發布需要 public ID，請務必透過此指令或 API，不要直接改資料庫。\n"
+            "建議先加 --dry-run 預覽。"
+        ),
+    )
+    bulk.add_argument("--selected", choices=["yes", "no"], required=True, help="yes=發布 no=取消發布")
+    bulk.add_argument("--keys", nargs="+", metavar="KEY", help="指定 entry key（可多個）")
+    bulk.add_argument("--keys-file", metavar="PATH", help="每行一個 key；空行與 # 開頭的行會略過")
+    bulk.add_argument("--status", choices=["ready", "needs_review", "ignored", "all"], default="ready",
+                      help="篩選狀態（預設 ready）")
+    bulk.add_argument("--tag", help="篩選標籤")
+    bulk.add_argument("--q", help="篩選搜尋字串")
+    bulk.add_argument("--favorite", action="store_true", help="只含收藏")
+    bulk.add_argument("--no-tags", action="store_true", help="只含沒有標籤者")
+    bulk.add_argument("--published", choices=["yes", "no"], help="依目前是否已選取發布篩選")
+    bulk.add_argument("--dry-run", action="store_true", help="只預覽，不寫入")
     export_public = actions.add_parser("export")
     export_public.add_argument("--root", default=getenv("MEMES_RELEASE_ROOT", "data/releases"))
     publication.set_defaults(func=cmd_publication)
@@ -198,8 +232,43 @@ def cmd_publication(args):
         with closing(connect(args.db)) as conn:
             init_db(conn)
             result = update_selection(conn, args.key, data)
+    elif args.publication_action == "bulk":
+        from .publishing import bulk_update_selection
+        keys = None
+        filters = None
+        if args.keys or args.keys_file:
+            keys = list(args.keys or [])
+            if args.keys_file:
+                for line in Path(args.keys_file).read_text(encoding="utf-8-sig").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        keys.append(line)
+            if args.tag or args.q or args.favorite or args.no_tags or args.published:
+                raise SystemExit("--keys/--keys-file 不能與篩選選項同時使用")
+        else:
+            filters = {"status": args.status}
+            if args.tag:
+                filters["tag"] = args.tag
+            if args.q:
+                filters["q"] = args.q
+            if args.favorite:
+                filters["favorite"] = "1"
+            if args.no_tags:
+                filters["no_tags"] = "1"
+            if args.published:
+                filters["published"] = "1" if args.published == "yes" else "0"
+        with closing(connect(args.db)) as conn:
+            init_db(conn)
+            try:
+                result = bulk_update_selection(conn, selected=args.selected == "yes", keys=keys,
+                                               filters=filters, dry_run=args.dry_run)
+            except ValueError as exc:
+                raise SystemExit(f"錯誤：{exc}")
     elif args.publication_action == "check":
         result = check_database(args.db)
+    elif args.publication_action == "purge":
+        from .publishing import purge_releases
+        result = purge_releases(args.db, args.root, keep_recent=args.keep_recent, dry_run=args.dry_run)
     else:
         result = export_release(args.db, args.root)
     print(json.dumps(result, ensure_ascii=False, indent=2))

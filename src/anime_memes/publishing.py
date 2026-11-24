@@ -48,6 +48,72 @@ def update_selection(conn, key, data):
     return selection(conn, key)
 
 
+BULK_FILTER_KEYS = {"q", "tag", "status", "favorite", "missing_image", "no_tags", "published"}
+MAX_BULK_KEYS = 5000
+
+
+def bulk_update_selection(conn, *, selected, keys=None, filters=None, dry_run=False):
+    """批次設定 publish_selected；發布的項目一律確保有 public_id。"""
+    from .queries import query_entries
+    if not isinstance(selected, bool):
+        raise ValueError("publish_selected 必須為布林值")
+    if not isinstance(dry_run, bool):
+        raise ValueError("dry_run 必須為布林值")
+    if (keys is None) == (filters is None):
+        raise ValueError("必須且只能指定 keys 或 filter 其中之一")
+    if keys is not None:
+        if not isinstance(keys, (list, tuple)) or not keys:
+            raise ValueError("keys 必須為非空陣列")
+        if any(not isinstance(k, str) or not k for k in keys):
+            raise ValueError("keys 的每個項目必須為非空字串")
+        keys = list(dict.fromkeys(keys))
+        if len(keys) > MAX_BULK_KEYS:
+            raise ValueError(f"一次最多處理 {MAX_BULK_KEYS} 筆，請分批或縮小範圍")
+        existing = {r[0] for r in conn.execute(
+            f"SELECT key FROM meme_entries WHERE key IN ({','.join('?' * len(keys))})", keys)}
+        found = [k for k in keys if k in existing]
+        missing = [k for k in keys if k not in existing]
+    else:
+        if not isinstance(filters, dict):
+            raise ValueError("filter 必須為物件")
+        unknown = set(filters) - BULK_FILTER_KEYS
+        if unknown:
+            raise ValueError(f"不支援的篩選欄位：{', '.join(sorted(map(str, unknown)))}")
+        if any(v is not None and not isinstance(v, (str, bool)) for v in filters.values()):
+            raise ValueError("篩選值必須為字串、布林值或 null")
+        args = {k: v for k, v in filters.items() if v is not None}
+        _, total = query_entries(conn, args, 1, 1)
+        if total > MAX_BULK_KEYS:
+            raise ValueError(f"符合 {total} 筆，超過單次上限 {MAX_BULK_KEYS}，請縮小篩選條件")
+        rows, _ = query_entries(conn, args, 1, max(total, 1))
+        found = list(dict.fromkeys(r["key"] for r in rows))
+        missing = []
+    current = {}
+    for i in range(0, len(found), 500):
+        chunk = found[i:i + 500]
+        current.update(conn.execute(
+            f"SELECT key,publish_selected FROM meme_entries WHERE key IN ({','.join('?' * len(chunk))})", chunk))
+    # 影片不公開：批次「設為公開」時自動略過，避免整批匯出因為影片而失敗。
+    skipped_videos = []
+    if selected and found:
+        videos = set()
+        for i in range(0, len(found), 500):
+            chunk = found[i:i + 500]
+            videos.update(r[0] for r in conn.execute(
+                f"""SELECT e.key, a.file_name, a.local_path FROM meme_entries e JOIN attachments a ON a.id=e.attachment_id
+                    WHERE e.key IN ({','.join('?' * len(chunk))})""", chunk) if is_video(r[1], r[2]))
+        skipped_videos = [k for k in found if k in videos]
+        found = [k for k in found if k not in videos]
+    changed = sum(1 for k in found if bool(current.get(k)) != selected)
+    if not dry_run and found:
+        with conn:
+            conn.executemany(
+                "UPDATE meme_entries SET publish_selected=?, public_id=COALESCE(public_id, ?) WHERE key=?",
+                [(int(selected), uuid.uuid4().hex, k) for k in found])
+    return {"publish_selected": selected, "matched": len(found), "changed": changed,
+            "missing": missing, "dry_run": dry_run, "sample": found[:20], "skipped_videos": skipped_videos}
+
+
 def selection(conn, key):
     row = conn.execute("""SELECT e.publish_selected,e.public_id,a.public_original_url,a.r2_url
         FROM meme_entries e JOIN attachments a ON a.id=e.attachment_id WHERE e.key=?""", (key,)).fetchone()
@@ -210,6 +276,94 @@ def export_lock(root):
         yield
     finally:
         path.unlink(missing_ok=True)
+
+
+def purge_releases(db_path, root, *, store=_DEFAULT_STORE, keep_recent=0, dry_run=False):
+    """徹底撤回：刪除未保留的舊版本、只被它們用到的縮圖，以及不再需要的 R2 大圖。
+
+    保留目前啟用版本，加上最近 keep_recent 個可通過驗證的版本。R2 只刪本程式上傳且有記錄
+    （attachments.r2_key）、位於設定前綴底下，而且沒有被保留版本引用、也沒有仍勾選公開的項目使用的物件；
+    絕不列出或刪除 bucket 裡的其他檔案。dry_run 只回報計畫，不做任何變更。
+    """
+    from .releases import current_version
+    root = Path(root).resolve()
+    if not isinstance(keep_recent, int) or isinstance(keep_recent, bool) or not 0 <= keep_recent <= 20:
+        raise ValueError("keep_recent 必須是 0 到 20 的整數")
+    if not isinstance(dry_run, bool):
+        raise ValueError("dry_run 必須為布林值")
+    if store is _DEFAULT_STORE:
+        store = store_from_env()
+    with export_lock(root):
+        active = current_version(root)
+        versions_dir = root / "versions"
+        candidates = sorted(
+            (p for p in versions_dir.iterdir() if p.is_dir() and not p.is_symlink() and not p.name.startswith(".")),
+            key=lambda p: p.stat().st_mtime_ns, reverse=True) if versions_dir.exists() else []
+        kept, manifests = [active], {active: validate(root, active)}
+        for folder in candidates:
+            if len(kept) > keep_recent or folder.name == active:
+                continue
+            try:
+                manifests[folder.name] = validate(root, folder.name)
+                kept.append(folder.name)
+            except (ValueError, OSError):
+                continue  # 無法驗證（例如舊結構版本）的版本不保留
+        removed_versions = [p.name for p in candidates if p.name not in kept]
+
+        used_media = set().union(*(m["media"] for m in manifests.values()))
+        media_dir = root / "media"
+        removed_media = sorted(p.name for p in media_dir.glob("*.webp")
+                               if not p.is_symlink() and p.name not in used_media) if media_dir.exists() else []
+
+        kept_urls = set()
+        for version in kept:
+            with closing(open_readonly(versions_dir / version / "public.sqlite3")) as conn:
+                kept_urls.update(r[0] for r in conn.execute("SELECT original_url FROM entries WHERE original_url IS NOT NULL"))
+
+        r2_plan, r2_skipped = [], []
+        with closing(connect(db_path)) as conn:
+            rows = conn.execute("""SELECT a.id, a.r2_key, a.r2_url,
+                    EXISTS(SELECT 1 FROM meme_entries e WHERE e.attachment_id=a.id AND e.publish_selected=1) AS selected
+                FROM attachments a WHERE a.r2_key IS NOT NULL AND a.r2_key != ''""").fetchall()
+            # 內容相同的圖會共用同一個物件鍵；只要有任一附件仍需要，就不刪。
+            needed_keys = {r["r2_key"] for r in rows if r["selected"] or r["r2_url"] in kept_urls}
+            for r in rows:
+                if r["selected"] or r["r2_url"] in kept_urls or r["r2_key"] in needed_keys:
+                    continue
+                if store is None or not store.owns(r["r2_key"]):
+                    r2_skipped.append(r["r2_url"])
+                    continue
+                r2_plan.append({"attachment_id": r["id"], "key": r["r2_key"], "url": r["r2_url"]})
+
+            result = {"active": active, "kept_versions": kept, "removed_versions": removed_versions,
+                      "removed_media": len(removed_media), "r2_deleted": [p["url"] for p in r2_plan],
+                      "r2_skipped": r2_skipped, "errors": [], "dry_run": dry_run}
+            if dry_run:
+                return result
+
+            for name in removed_versions:
+                try:
+                    shutil.rmtree(versions_dir / name)
+                except OSError as exc:
+                    result["errors"].append(f"版本 {name} 刪除失敗：{type(exc).__name__}")
+            for name in removed_media:
+                try:
+                    (media_dir / name).unlink()
+                except OSError as exc:
+                    result["errors"].append(f"縮圖 {name} 刪除失敗：{type(exc).__name__}")
+            deleted = []
+            for item in r2_plan:
+                try:
+                    store.delete(item["key"])
+                except (R2Error, ValueError) as exc:
+                    result["errors"].append(f"R2 {item['key']} 刪除失敗：{exc}")
+                    continue
+                deleted.append(item)
+                conn.execute("UPDATE attachments SET r2_key=NULL, r2_url=NULL WHERE id=? AND r2_key=?",
+                             (item["attachment_id"], item["key"]))
+                conn.commit()
+            result["r2_deleted"] = sorted({item["url"] for item in deleted})
+            return result
 
 
 def export_release(db_path, root, *, store=_DEFAULT_STORE):

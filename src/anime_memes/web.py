@@ -107,6 +107,21 @@ def create_app(
             abort(404)
         return jsonify(result)
 
+    @app.post("/api/publication/bulk")
+    def publication_bulk():
+        from .publishing import bulk_update_selection
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            raise ValueError("請求內容必須為 JSON 物件")
+        unknown = set(data) - {"publish_selected", "keys", "filter", "dry_run"}
+        if unknown:
+            raise ValueError(f"不支援的欄位：{', '.join(sorted(unknown))}")
+        if "publish_selected" not in data:
+            raise ValueError("缺少 publish_selected")
+        return jsonify(bulk_update_selection(
+            g.db, selected=data["publish_selected"], keys=data.get("keys"),
+            filters=data.get("filter"), dry_run=data.get("dry_run", False)))
+
     @app.post("/api/publication/check")
     def publication_check():
         from .publishing import check_database
@@ -131,6 +146,15 @@ def create_app(
         except (OSError, sqlite3.Error, KeyError, TypeError, AttributeError):
             return jsonify(error="無法驗證或寫入發布包，請確認檔案完整及目錄權限"), 422
         return jsonify(version=manifest["version"], count=manifest["count"])
+
+    @app.post("/api/publication/purge")
+    def publication_purge():
+        from .publishing import purge_releases
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or set(data) - {"dry_run", "keep_recent"}:
+            raise ValueError("清除只接受 dry_run 與 keep_recent")
+        return jsonify(purge_releases(app.config["DB_PATH"], app.config["RELEASE_ROOT"],
+                                      dry_run=data.get("dry_run", True), keep_recent=data.get("keep_recent", 0)))
 
     @app.get("/api/meta")
     def api_meta():
