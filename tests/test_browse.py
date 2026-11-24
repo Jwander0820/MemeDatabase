@@ -48,6 +48,28 @@ class LocalBrowseTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v1/entries/meme_0").get_json()["item"]["id"], "meme_0")
         self.assertEqual(self.client.get("/api/v1/entries/meme_1").status_code, 404)
 
+    def test_admin_published_filter_and_flag(self):
+        from src.anime_memes.publishing import update_selection
+        with closing(connect(self.db)) as conn:
+            update_selection(conn, "meme_0", {"publish_selected": True})
+            conn.commit()
+        def keys(query):
+            data = self.client.get("/api/entries?status=all&" + query).get_json()
+            return {item["key"]: item["publish_selected"] for item in data["items"]}
+        self.assertEqual(keys("published=1"), {"meme_0": 1})
+        self.assertEqual(keys("published=0"), {"meme_1": 0})
+        self.assertEqual(set(keys("")), {"meme_0", "meme_1"})
+
+    def test_tag_catalog_lists_taxonomy_aliases_and_outside_tags(self):
+        data = self.client.get("/api/tags/catalog").get_json()
+        self.assertIn("反應／情緒", [c["label"] for c in data["categories"]])
+        self.assertEqual(data["max_tags_per_entry"], 6)
+        tags = {t["name"]: t for t in data["tags"]}
+        self.assertIn("毒舌", tags["嗆人"]["aliases"])
+        self.assertTrue(tags["嗆人"]["in_taxonomy"])
+        # 測試資料用的分類外標籤，兩筆（不分狀態）都在使用。
+        self.assertEqual((tags["測試標籤"]["in_taxonomy"], tags["測試標籤"]["count"]), (False, 2))
+
     def test_browse_page_and_assets(self):
         page = self.client.get("/browse")
         self.assertEqual(page.status_code, 200)

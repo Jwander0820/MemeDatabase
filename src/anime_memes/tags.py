@@ -25,6 +25,29 @@ def load_taxonomy(path: str | Path = DEFAULT_TAXONOMY_PATH) -> dict[str, Any]:
     return data
 
 
+def tag_catalog(conn: sqlite3.Connection, taxonomy_path: str | Path = DEFAULT_TAXONOMY_PATH) -> dict[str, Any]:
+    """管理頁標籤輸入用的清單：分類內的啟用標籤（含別名）加上仍在使用的分類外標籤與使用次數。"""
+    taxonomy = load_taxonomy(taxonomy_path)
+    counts = {row[0]: row[1] for row in conn.execute(
+        "SELECT tag_name, COUNT(DISTINCT entry_key) FROM entry_tags GROUP BY tag_name")}
+    tags, seen = [], set()
+    for tag in taxonomy["tags"]:
+        if not tag.get("enabled"):
+            continue
+        seen.add(tag["label"])
+        tags.append({"name": tag["label"], "category": tag["category"], "description": tag.get("description", ""),
+                     "aliases": list(tag.get("aliases", [])), "count": counts.get(tag["label"], 0), "in_taxonomy": True})
+    for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+        if name not in seen:
+            tags.append({"name": name, "category": "legacy", "description": "", "aliases": [],
+                         "count": count, "in_taxonomy": False})
+    return {
+        "categories": [{"id": c["id"], "label": c["label"]} for c in taxonomy["categories"]],
+        "tags": tags,
+        "max_tags_per_entry": int(taxonomy.get("policy", {}).get("max_tags_per_entry", 6)),
+    }
+
+
 def validate_taxonomy(data: Any) -> None:
     if not isinstance(data, dict) or data.get("version") != 2:
         raise ValueError("taxonomy version must be 2")

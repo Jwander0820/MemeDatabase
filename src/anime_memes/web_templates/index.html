@@ -22,6 +22,10 @@
           button.setAttribute("aria-pressed", String(dark));
           button.title = dark ? "切換為淺色模式" : "切換為深色模式";
           button.setAttribute("aria-label", button.title);
+          // 手動切換後讓手機瀏覽器網址列顏色一起改變。
+          document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
+            meta.content = dark ? "#0f0f11" : "#f3f2ee";
+          });
         };
         button.addEventListener("click", () => {
           root.dataset.theme = isDark() ? "light" : "dark";
@@ -102,6 +106,8 @@
         <label class="check-chip"><input id="favoriteOnly" type="checkbox"><span>★ 收藏</span></label>
         <label class="check-chip"><input id="missingImage" type="checkbox"><span>缺圖片</span></label>
         <label class="check-chip"><input id="noTags" type="checkbox"><span>無標籤</span></label>
+        <label class="check-chip"><input id="publishedOnly" type="checkbox"><span>已公開</span></label>
+        <label class="check-chip"><input id="unpublishedOnly" type="checkbox"><span>未公開</span></label>
       </fieldset>
 
       <section class="tag-panel">
@@ -117,16 +123,25 @@
       <header class="content-head">
         <h2>館藏</h2>
         <p id="resultCount" role="status">載入中</p>
+        <button id="selectMode" class="view-switch" type="button" aria-pressed="false">多選</button>
         <a class="view-switch" href="/browse">簡潔瀏覽</a>
       </header>
       <div id="grid" class="meme-grid" aria-live="polite"></div>
       <div class="load-row">
         <button id="loadMore" type="button">載入更多</button>
       </div>
+      <div id="bulkBar" class="bulk-bar" role="region" aria-label="批次操作" hidden>
+        <strong id="bulkCount" role="status">已選 0 張</strong>
+        <button id="bulkSelectAll" class="ghost" type="button">全選目前篩選結果</button>
+        <button id="bulkClear" class="ghost" type="button">清除選取</button>
+        <span class="spacer"></span>
+        <button id="bulkUnpublish" type="button">取消公開</button>
+        <button id="bulkPublish" class="primary" type="button">設為公開</button>
+      </div>
     </section>
   </main>
 
-  <aside id="drawer" class="drawer" aria-hidden="true" aria-label="梗圖詳情">
+  <aside id="drawer" class="drawer" role="dialog" aria-hidden="true" aria-label="梗圖詳情">
     <div class="drawer-bar">
       <button id="closeDrawer" class="icon-button ghost" type="button" aria-label="關閉">×</button>
       <strong class="drawer-title">梗圖詳情</strong>
@@ -161,7 +176,7 @@
         <label class="field"><span>作品名稱</span><input name="anime_title" autocomplete="off"></label>
         <label class="field"><span>說話者</span><input name="speaker" autocomplete="off"></label>
         <label class="field create-wide"><span>圖片台詞</span><textarea name="quote_text" placeholder="輸入圖片中的主要台詞"></textarea></label>
-        <label class="field"><span>標籤（逗號分隔）</span><input name="tags" placeholder="吐槽, 名場面"></label>
+        <label class="field"><span>標籤</span><input name="tags"></label>
         <label class="field"><span>狀態</span>
           <select name="status">
             <option value="ready">可用</option>
@@ -197,10 +212,21 @@
       </div>
       <p id="publicationStatus" role="status"></p>
       <div id="publicationReport"></div>
+      <details class="purge-panel">
+        <summary>徹底清除舊版本與已撤回的圖片</summary>
+        <p>取消公開並啟用新版後，被撤回的圖仍可能留在舊版本、舊縮圖與 R2 上。這裡會刪除目前啟用版本以外的所有舊版本、只被它們使用的縮圖，以及不再需要的 R2 大圖。刪除後無法退回舊版本。</p>
+        <div class="publication-steps purge-steps">
+          <button id="previewPurge" type="button">預覽清除內容</button>
+          <button id="runPurge" class="danger" type="button" disabled>確認清除</button>
+        </div>
+        <div id="purgeReport" role="status"></div>
+      </details>
     </section>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/publication.js"></script>
+  <script src="/assets/masonry.js"></script>
+  <script src="/static/tag-input.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

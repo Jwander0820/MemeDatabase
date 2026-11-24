@@ -32,7 +32,7 @@ const T = {
   accept: "\u63a5\u53d7",
   reject: "\u62d2\u7d55",
   decisionFailed: "\u5019\u9078\u6a19\u7c64\u5be9\u6838\u5931\u6557",
-  manualTags: "人工標籤（逗號分隔）",
+  manualTags: "人工標籤",
   decisionRefreshFailed: "審核已完成，清單更新失敗，請重新整理",
 };
 
@@ -48,9 +48,16 @@ const state = {
   randomSeed: String(Math.random()),
   entriesRequest: 0,
   loading: false,
+  // 多選模式：picked 為明確點選的 key；pickAll 代表「目前篩選結果全部」，交由後端依條件處理。
+  selecting: false,
+  picked: new Set(),
+  pickAll: false,
+  lastPicked: -1,
 };
 
 const grid = document.querySelector("#grid");
+// 瀑布流排列；沒有 MemeMasonry（例如單元測試）時退回直接附加。
+const masonry = globalThis.MemeMasonry?.create(grid);
 const resultCount = document.querySelector("#resultCount");
 const searchInput = document.querySelector("#searchInput");
 const statusFilter = document.querySelector("#statusFilter");
@@ -58,6 +65,15 @@ const sortFilter = document.querySelector("#sortFilter");
 const favoriteOnly = document.querySelector("#favoriteOnly");
 const missingImage = document.querySelector("#missingImage");
 const noTags = document.querySelector("#noTags");
+const publishedOnly = document.querySelector("#publishedOnly");
+const unpublishedOnly = document.querySelector("#unpublishedOnly");
+const selectMode = document.querySelector("#selectMode");
+const bulkBar = document.querySelector("#bulkBar");
+const bulkCount = document.querySelector("#bulkCount");
+const bulkSelectAll = document.querySelector("#bulkSelectAll");
+const bulkClear = document.querySelector("#bulkClear");
+const bulkPublish = document.querySelector("#bulkPublish");
+const bulkUnpublish = document.querySelector("#bulkUnpublish");
 const tagList = document.querySelector("#tagList");
 const clearTag = document.querySelector("#clearTag");
 const loadMore = document.querySelector("#loadMore");
@@ -77,6 +93,8 @@ const saveCreate = document.querySelector("#saveCreate");
 const toast = document.querySelector("#toast");
 const scrim = document.querySelector("#scrim");
 let createPreviewUrl = "";
+// 抽屜開啟前的焦點位置，關閉時歸還，鍵盤使用者不必從頭 Tab。
+let focusBeforeDrawer = null;
 
 function params(page = state.page) {
   const search = new URLSearchParams();
@@ -90,6 +108,7 @@ function params(page = state.page) {
   if (favoriteOnly.checked) search.set("favorite", "1");
   if (missingImage.checked) search.set("missing_image", "1");
   if (noTags.checked) search.set("no_tags", "1");
+  if (publishedOnly.checked !== unpublishedOnly.checked) search.set("published", publishedOnly.checked ? "1" : "0");
   return search;
 }
 
@@ -105,6 +124,8 @@ async function loadEntries(reset = false) {
     if (requestId !== state.entriesRequest) return;
     state.page = data.page;
     state.total = data.total;
+    // 篩選條件改變後，「全選目前篩選結果」不再代表同一批圖。
+    if (reset) state.pickAll = false;
     state.items = reset ? data.items : state.items.concat(data.items);
     renderGrid();
   } catch {
@@ -143,24 +164,47 @@ function renderGrid() {
       <p>調整搜尋字詞、狀態或標籤篩選再試一次。</p>
     </div>`;
   resultCount.textContent = state.total ? `已載入 ${state.items.length}／${state.total} 筆` : "0 筆";
-  state.items.forEach((item) => grid.appendChild(card(item)));
+  if (state.total && masonry) {
+    masonry.reset();
+    masonry.append(state.items.map(card));
+  } else {
+    state.items.forEach((item) => grid.appendChild(card(item)));
+  }
   loadMore.disabled = state.items.length >= state.total;
   loadMore.hidden = state.items.length >= state.total;
+  updateBulkBar();
+}
+
+// 原圖寬高與縮圖等比例；寫成屬性讓瀑布流在圖片載入前就知道卡片高度。
+function imageSize(item) {
+  const width = Number(item.image_width);
+  const height = Number(item.image_height);
+  return width > 0 && height > 0 ? ` width="${width}" height="${height}"` : "";
+}
+
+// GIF 與影片在卡片上標示；影片不會公開。
+function mediaKind(item) {
+  const name = String(item.file_name || "").toLowerCase();
+  if (name.endsWith(".gif")) return "GIF";
+  return /\.(mp4|mov|webm|m4v)$/.test(name) ? "影片" : "";
 }
 
 function card(item) {
   const node = document.createElement("article");
   node.className = "card";
+  node.dataset.key = item.key;
   node.tabIndex = 0;
   const image = item.thumbnail_url || item.image_url;
   const tags = item.tags.slice(0, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
   const badges = [
+    item.publish_selected ? `<span class="badge pub">公開</span>` : "",
+    mediaKind(item) ? `<span class="badge kind">${mediaKind(item)}</span>` : "",
     item.favorite ? `<span class="badge fav" aria-label="\u5df2\u6536\u85cf">\u2605</span>` : "",
     item.status && item.status !== "ready" ? `<span class="badge status-${attr(item.status)}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span>` : "",
   ].join("");
   node.innerHTML = `
     <div class="card-media">
-      ${image ? `<img src="${attr(image)}" alt="" loading="lazy">` : `<div class="missing-image">${T.missingImage}</div>`}
+      ${image ? `<img src="${attr(image)}" alt="" loading="lazy"${imageSize(item)}>` : `<div class="missing-image">${T.missingImage}</div>`}
       ${badges ? `<div class="card-badges">${badges}</div>` : ""}
     </div>
     <div class="card-body">
@@ -170,12 +214,136 @@ function card(item) {
       <div class="card-tags">${tags}</div>
     </div>
   `;
-  node.addEventListener("click", () => openEntry(item.key));
+  if (state.selecting) {
+    node.setAttribute("aria-pressed", String(isPicked(item.key)));
+    if (isPicked(item.key)) node.classList.add("picked");
+  }
+  const activate = (event) => (state.selecting ? togglePick(item, event.shiftKey) : openEntry(item.key));
+  node.addEventListener("click", activate);
   node.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") openEntry(item.key);
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activate(event);
+    }
   });
   return node;
 }
+
+// ---------- 多選與批次公開 ----------
+function isPicked(key) {
+  return state.pickAll || state.picked.has(key);
+}
+
+function setSelecting(on) {
+  state.selecting = on;
+  state.picked.clear();
+  state.pickAll = false;
+  state.lastPicked = -1;
+  selectMode.textContent = on ? "完成" : "多選";
+  selectMode.setAttribute("aria-pressed", String(on));
+  bulkBar.hidden = !on;
+  if (on) {
+    grid.classList.add("selecting");
+    if (state.selected) closeDetail();
+  } else {
+    grid.classList.remove("selecting");
+  }
+  renderGrid();
+}
+
+function togglePick(item, range) {
+  // 從「全選篩選結果」改為手動調整時，先展開成目前已載入的卡片。
+  if (state.pickAll) {
+    state.pickAll = false;
+    state.items.forEach((entry) => state.picked.add(entry.key));
+  }
+  const index = state.items.findIndex((entry) => entry.key === item.key);
+  const on = !state.picked.has(item.key);
+  // Shift + 點擊：選取上一次點選到這一張之間的範圍。
+  const hasAnchor = range && state.lastPicked >= 0;
+  const from = hasAnchor ? Math.min(state.lastPicked, index) : index;
+  const to = hasAnchor ? Math.max(state.lastPicked, index) : index;
+  for (let i = from; i <= to; i += 1) {
+    const key = state.items[i].key;
+    if (on) state.picked.add(key);
+    else state.picked.delete(key);
+  }
+  state.lastPicked = index;
+  renderPicks();
+}
+
+function renderPicks() {
+  // 瀑布流會打亂 DOM 順序，改用卡片上的 key 對應。
+  grid.querySelectorAll(".card").forEach((node) => {
+    const picked = isPicked(node.dataset.key);
+    node.classList.toggle("picked", picked);
+    node.setAttribute("aria-pressed", String(picked));
+  });
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  if (!state.selecting) return;
+  const count = state.pickAll ? state.total : state.picked.size;
+  bulkCount.textContent = state.pickAll ? `已選目前篩選結果全部 ${count} 張` : `已選 ${count} 張`;
+  bulkPublish.disabled = bulkUnpublish.disabled = bulkClear.disabled = count === 0;
+}
+
+function currentFilter() {
+  const search = params(1);
+  const filter = {};
+  ["status", "q", "tag", "favorite", "missing_image", "no_tags", "published"].forEach((name) => {
+    if (search.has(name)) filter[name] = search.get(name);
+  });
+  return filter;
+}
+
+async function bulkSetPublished(selected) {
+  const count = state.pickAll ? state.total : state.picked.size;
+  if (!count) return;
+  const verb = selected ? "設為公開" : "取消公開";
+  if ((state.pickAll || count > 20) && !confirm(`確定將 ${count} 張${verb}？`)) return;
+  const body = state.pickAll
+    ? {publish_selected: selected, filter: currentFilter()}
+    : {publish_selected: selected, keys: [...state.picked]};
+  bulkPublish.disabled = bulkUnpublish.disabled = true;
+  try {
+    const response = await fetch("/api/publication/bulk", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "批次更新失敗，請重試");
+    const skipped = data.skipped_videos?.length ? `，略過影片 ${data.skipped_videos.length} 張` : "";
+    showToast(`已${verb} ${data.matched} 張（實際變更 ${data.changed} 張${skipped}）`);
+    if (typeof invalidatePublication === "function") invalidatePublication();
+    state.picked.clear();
+    state.pickAll = false;
+    await loadEntries(true);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    updateBulkBar();
+  }
+}
+
+selectMode.addEventListener("click", () => setSelecting(!state.selecting));
+bulkSelectAll.addEventListener("click", () => {
+  state.pickAll = true;
+  state.picked.clear();
+  renderPicks();
+});
+bulkClear.addEventListener("click", () => {
+  state.pickAll = false;
+  state.picked.clear();
+  renderPicks();
+});
+bulkPublish.addEventListener("click", () => bulkSetPublished(true));
+bulkUnpublish.addEventListener("click", () => bulkSetPublished(false));
+globalThis.addEventListener?.("keydown", (event) => {
+  if (event.key === "Escape" && state.selecting && !document.querySelector("dialog[open]")) setSelecting(false);
+});
 
 async function openEntry(key) {
   const response = await fetch(`/api/entries/${encodeURIComponent(key)}`);
@@ -189,8 +357,16 @@ async function openEntry(key) {
   favoriteButton.textContent = item.favorite ? "\u2605" : "\u2606";
   favoriteButton.setAttribute("aria-pressed", String(Boolean(item.favorite)));
   drawerBody.innerHTML = detailTemplate(item);
+  // 標籤欄位換成膠囊輸入（測試環境沒有 MemeTagInput 時維持純文字框）。
+  globalThis.MemeTagInput?.mount(drawerBody.querySelector('#editForm [name="tags"]'));
+  const wasOpen = Boolean(drawer.classList.contains?.("open"));
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
+  if (!wasOpen) {
+    // 儲存後重新載入同一筆時不搶焦點；只有第一次開啟才把焦點移進抽屜。
+    focusBeforeDrawer = document.activeElement;
+    closeDrawer.focus?.();
+  }
   bindDetailForm(item);
   bindPublication(drawerBody.querySelector("#entryPublication"), item.key);
 }
@@ -345,10 +521,11 @@ function bindDetailForm(item) {
     const tags = await fetch(`/api/entries/${encodeURIComponent(item.key)}/tags`, {
       method: "PUT",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({tags: form.tags.value}),
+      body: JSON.stringify({tags: form.tags.tagInput ? form.tags.tagInput.commit() : form.tags.value}),
     });
     if (!tags.ok) return showToast(T.tagsFailed);
     showToast(T.saved);
+    globalThis.MemeTagInput?.refresh();
     await loadMeta();
     await loadEntries(true);
     await openEntry(item.key);
@@ -429,10 +606,12 @@ function closeOnBackdrop(dialog, canClose = () => true) {
 // 新增表單已選圖或已輸入內容時不因點框外而關閉，避免草稿遺失；仍可用取消或 × 關閉。
 function createFormIsBlank() {
   if (createImage.files.length) return false;
-  return ["anime_title", "speaker", "quote_text", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
+  const typingTag = createForm.querySelector(".tag-input-field")?.value.trim();
+  return !typingTag && ["anime_title", "speaker", "quote_text", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
 }
 
 closeOnBackdrop(createDialog, createFormIsBlank);
+if (globalThis.MemeTagInput) globalThis.MemeTagInput.mount(createForm.elements.tags);
 closeOnBackdrop(document.querySelector("#publicationDialog"));
 
 createForm.addEventListener("submit", async (event) => {
@@ -442,7 +621,7 @@ createForm.addEventListener("submit", async (event) => {
   try {
     const response = await fetch("/api/entries/manual", {
       method: "POST",
-      body: new FormData(createForm),
+      body: (createForm.elements.tags.tagInput?.commit(), new FormData(createForm)),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -456,6 +635,8 @@ createForm.addEventListener("submit", async (event) => {
     favoriteOnly.checked = false;
     missingImage.checked = false;
     noTags.checked = false;
+    publishedOnly.checked = false;
+    unpublishedOnly.checked = false;
     state.tag = "";
     await loadMeta();
     await loadEntries(true);
@@ -470,6 +651,7 @@ createForm.addEventListener("submit", async (event) => {
 
 function resetCreateForm() {
   createForm.reset();
+  createForm.elements?.tags?.tagInput?.setValue("");
   createError.textContent = "";
   if (createPreviewUrl) URL.revokeObjectURL(createPreviewUrl);
   createPreviewUrl = "";
@@ -484,13 +666,21 @@ function closeDetail() {
   favoriteButton.textContent = "\u2606";
   favoriteButton.setAttribute("aria-pressed", "false");
   drawerBody.innerHTML = "";
+  const previous = focusBeforeDrawer;
+  focusBeforeDrawer = null;
+  if (previous?.isConnected) previous.focus?.();
 }
 
 loadMore.addEventListener("click", () => {
   loadEntries(false);
 });
 
-[searchInput, statusFilter, sortFilter, favoriteOnly, missingImage, noTags].forEach((el) => {
+// 「已公開」「未公開」互斥：勾選其中一個時取消另一個。
+[[publishedOnly, unpublishedOnly], [unpublishedOnly, publishedOnly]].forEach(([el, other]) => {
+  el.addEventListener("change", () => { if (el.checked) other.checked = false; });
+});
+
+[searchInput, statusFilter, sortFilter, favoriteOnly, missingImage, noTags, publishedOnly, unpublishedOnly].forEach((el) => {
   el.addEventListener(el === searchInput ? "input" : "change", el === searchInput
     ? debounce(() => loadEntries(true), 180)
     : () => {

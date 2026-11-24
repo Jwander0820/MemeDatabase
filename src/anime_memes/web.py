@@ -239,6 +239,11 @@ def create_app(
         row = management.update_entry(g.db, key, request.get_json(silent=True) or {})
         return jsonify(serialize_entry(row, include_ocr=True))
 
+    @app.get("/api/tags/catalog")
+    def api_tag_catalog():
+        from .tags import tag_catalog
+        return jsonify(tag_catalog(g.db))
+
     @app.put("/api/entries/<key>/tags")
     def api_update_tags(key: str):
         row = management.update_tags(g.db, key, request.get_json(silent=True) or {})
