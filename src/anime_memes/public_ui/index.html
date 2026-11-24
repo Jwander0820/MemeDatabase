@@ -23,6 +23,10 @@
           button.setAttribute("aria-pressed", String(dark));
           button.title = dark ? "切換為淺色模式" : "切換為深色模式";
           button.setAttribute("aria-label", button.title);
+          // 手動切換後讓手機瀏覽器網址列顏色一起改變。
+          document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
+            meta.content = dark ? "#0f0f11" : "#f3f2ee";
+          });
         };
         button.addEventListener("click", () => {
           root.dataset.theme = isDark() ? "light" : "dark";
@@ -36,6 +40,7 @@
   </script>
   <link rel="stylesheet" href="/assets/catalog.css">
   <link rel="stylesheet" href="/assets/gallery.css">
+  <script defer src="/assets/masonry.js"></script>
   <script defer src="/assets/gallery.js"></script>
 </head>
 <body>

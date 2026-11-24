@@ -126,6 +126,11 @@ class PublicationMediaTest(unittest.TestCase):
             with Image.open(self.releases / "media" / thumb.split("/")[-1]) as image:
                 sizes[image.size] = True
         self.assertEqual(set(sizes), {(854, 480), (300, 200)})
+        # 公開資料記錄的寬高必須與實際縮圖一致，前端靠它預留版面。
+        with closing(open_readonly(self.releases / "versions" / result["version"] / "public.sqlite3")) as c:
+            for thumb, width, height in c.execute("SELECT thumbnail_url, thumbnail_width, thumbnail_height FROM entries"):
+                with Image.open(self.releases / "media" / thumb.split("/")[-1]) as image:
+                    self.assertEqual(image.size, (width, height))
 
     def test_check_offline_warnings(self):
         for key in ("meme_0", "meme_1"):

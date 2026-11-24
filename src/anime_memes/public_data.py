@@ -7,21 +7,23 @@ from pathlib import Path
 
 from .search import NORMALIZATION_VERSION, scorer
 
-SCHEMA_VERSION = 1
+# 第 2 版：entries 新增縮圖寬高，前端可在圖片載入前預留版面並依高度排列。
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE metadata(schema_version INTEGER NOT NULL, normalization_version INTEGER NOT NULL, version TEXT NOT NULL);
 CREATE TABLE entries(
  id TEXT PRIMARY KEY, display_title TEXT, speaker TEXT, anime_title TEXT,
  quote_text TEXT NOT NULL, ocr_text TEXT, tags_json TEXT NOT NULL,
  aliases_json TEXT NOT NULL, thumbnail_url TEXT NOT NULL, original_url TEXT,
- updated_at TEXT NOT NULL
+ updated_at TEXT NOT NULL, thumbnail_width INTEGER NOT NULL, thumbnail_height INTEGER NOT NULL
 );
 CREATE TABLE entry_tags(entry_id TEXT NOT NULL REFERENCES entries(id), tag TEXT NOT NULL,
  PRIMARY KEY(entry_id,tag));
 CREATE INDEX idx_public_tag ON entry_tags(tag,entry_id);
 CREATE INDEX idx_public_updated ON entries(updated_at DESC,id);
 """
-FIELDS = ("id", "display_title", "speaker", "anime_title", "quote_text", "thumbnail_url", "original_url", "updated_at")
+FIELDS = ("id", "display_title", "speaker", "anime_title", "quote_text", "thumbnail_url", "original_url", "updated_at",
+          "thumbnail_width", "thumbnail_height")
 ALLOWED_ARGS = {"q", "tag", "sort", "page", "page_size", "version"}
 
 
@@ -40,7 +42,7 @@ def validate_schema(conn: sqlite3.Connection, version: str) -> None:
     if {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")} != expected:
         raise ValueError("公開資料表不符合白名單")
     columns = [r[1] for r in conn.execute("PRAGMA table_info(entries)")]
-    if columns != ["id", "display_title", "speaker", "anime_title", "quote_text", "ocr_text", "tags_json", "aliases_json", "thumbnail_url", "original_url", "updated_at"]:
+    if columns != ["id", "display_title", "speaker", "anime_title", "quote_text", "ocr_text", "tags_json", "aliases_json", "thumbnail_url", "original_url", "updated_at", "thumbnail_width", "thumbnail_height"]:
         raise ValueError("公開欄位不符合白名單")
     for table, names in {"metadata": ["schema_version", "normalization_version", "version"], "entry_tags": ["entry_id", "tag"]}.items():
         if [r[1] for r in conn.execute(f"PRAGMA table_info({table})")] != names:

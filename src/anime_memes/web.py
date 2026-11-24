@@ -366,6 +366,9 @@ def browse_item(item: dict[str, Any]) -> dict[str, Any]:
         "thumbnail_url": item.get("thumbnail_url") or (image if image and image.startswith("/media/") else None),
         "original_url": image if image and image.startswith("/media/") else None,
         "updated_at": item.get("updated_at"),
+        # 原圖寬高與縮圖等比例，前端只用來預留版面比例。
+        "thumbnail_width": item.get("image_width"),
+        "thumbnail_height": item.get("image_height"),
     }
 
 

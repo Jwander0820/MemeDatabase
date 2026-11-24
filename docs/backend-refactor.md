@@ -89,6 +89,8 @@ releases/
 └─ reports/<version>.json         僅管理端使用的檢查紀錄
 ```
 
+公開資料結構目前為第 2 版：entries 新增 `thumbnail_width`、`thumbnail_height`（實際縮圖尺寸），前端據此在圖片載入前預留版面，並依高度做由左到右的瀑布流排列。公開服務只讀取相同結構版本的快照，升級程式後舊版本會被拒絕（公開 API 健康檢查失敗），須重新匯出並啟用一次；R2 大圖以內容雜湊沿用，不會重傳。
+
 同步至目標發布目錄時，先完整放好 media 與 versions，最後在**目標主機**驗證並啟用，勿把上傳中的檔案直接指定成目前版本，也不要同步覆寫 current.json。
 
 ```powershell

@@ -18,6 +18,10 @@ let localMode = false;
 let knownTags = [];
 const tagRow = byId("tags");
 const empty = byId("empty");
+// 瀑布流排列；沒有 MemeMasonry（例如單元測試）時退回直接附加。
+const masonry = window.MemeMasonry?.create(results);
+// 卡片分散在各欄裡，已顯示張數另外計算。
+let shown = 0;
 
 function element(name, text) {
   const node = document.createElement(name);
@@ -45,6 +49,10 @@ function card(item) {
   image.src = item.thumbnail_url;
   image.alt = "";
   image.loading = "lazy";
+  if (item.thumbnail_width && item.thumbnail_height) {
+    image.width = item.thumbnail_width;
+    image.height = item.thumbnail_height;
+  }
   const body = element("div");
   body.className = "card-body";
   const title = element("strong", item.resolved_title);
@@ -94,7 +102,11 @@ async function search(reset) {
   clearTimeout(timer);
   const request = ++listRequest;
   if (reset) {
-    results.replaceChildren();
+    // 舊卡片已移除，清掉它們的星號同步記錄；詳情每次開啟都會重新登記。
+    favoriteButtons.clear();
+    if (masonry) masonry.reset();
+    else results.replaceChildren();
+    shown = 0;
     page = 0;
     version = "";
   }
@@ -119,11 +131,14 @@ async function search(reset) {
     }
     version = data.version;
     page = data.page;
-    results.append(...data.items.map(card));
-    statusLine.textContent = data.total ? `已顯示 ${results.childElementCount}／${data.total} 張` : "查無結果";
+    const cards = data.items.map(card);
+    if (masonry) masonry.append(cards);
+    else results.append(...cards);
+    shown += cards.length;
+    statusLine.textContent = data.total ? `已顯示 ${shown}／${data.total} 張` : "查無結果";
     empty.hidden = data.total !== 0;
     more.textContent = "載入更多";
-    more.hidden = results.childElementCount >= data.total;
+    more.hidden = shown >= data.total;
     retryFromStart = false;
   } catch (error) {
     if (request !== listRequest) return;
@@ -161,6 +176,15 @@ async function pngBlob(url) {
   }
 }
 
+// 直接用畫面上已載入的圖轉成 PNG，不再下載一次；圖片需以 CORS 載入，否則畫布會被污染而無法輸出。
+function elementPng(img) {
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext("2d").drawImage(img, 0, 0);
+  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(), "image/png"));
+}
+
 function facts(rows) {
   const list = element("dl");
   list.className = "facts";
@@ -173,24 +197,29 @@ function facts(rows) {
 function renderDetail(item, request) {
   const detail = byId("detail");
   const url = item.original_url || new URL(item.thumbnail_url, location.href).href;
-  // 預設只載入本站縮圖；外部大圖（R2 720P 或手填網址）要等訪客明確點選才請求，避免每次開啟詳情都消耗外部主機流量。
+  // 預設只載入本站縮圖；外部原始圖片（R2 720P 或手填網址）要等訪客明確點選才請求，避免每次開啟詳情都消耗外部主機流量。
   const image = element("img");
   image.alt = item.resolved_title;
   image.referrerPolicy = "no-referrer";
   const caption = element("figcaption");
   const direct = localMode && item.original_url;
-  const note = element("span", direct ? "原圖" : item.original_url ? "目前顯示縮圖" : "僅提供縮圖");
+  const note = element("span", direct ? "原始圖片" : item.original_url ? "目前顯示縮圖" : "僅提供縮圖");
   caption.append(note);
   image.onerror = () => {
     if (request !== detailRequest) return;
     note.textContent = "縮圖無法載入，請稍後再試。";
   };
+  // 目前畫面顯示的是不是原始圖片：決定「複製圖片」要複製原始圖片還是縮圖，縮圖狀態下完全不碰外部原始圖片。
+  let showingLarge = Boolean(direct);
+  // 以 CORS 載入成功的原始圖片物件，可直接轉檔複製，不必重新下載。
+  let largeImage = null;
   if (direct) {
     // 本機不需節省流量：直接顯示原圖，失敗才退回縮圖。
     image.onerror = () => {
       if (request !== detailRequest) return;
       image.onerror = null;
-      note.textContent = "原圖無法載入，顯示縮圖。";
+      showingLarge = false;
+      note.textContent = "原始圖片無法載入，顯示縮圖。";
       image.src = item.thumbnail_url;
     };
     image.src = item.original_url;
@@ -198,24 +227,36 @@ function renderDetail(item, request) {
     image.src = item.thumbnail_url;
   }
   if (item.original_url && !direct) {
-    const loadOriginal = button("載入大圖", () => {
-      loadOriginal.disabled = true;
-      note.textContent = "大圖載入中…";
+    // 先以 CORS 模式載入：來源有開放 CORS 時，之後複製可直接用這張圖；
+    // 沒開放時改用一般模式載入，原始圖片照樣能看，只是複製會退回縮圖。
+    const tryLoad = cors => {
       const full = new Image();
       full.referrerPolicy = "no-referrer";
+      if (cors) full.crossOrigin = "anonymous";
       full.onload = () => {
         if (request !== detailRequest) return;
         image.onerror = null;
+        // 顯示用的 img 與載入時同一模式，才能沿用瀏覽器快取而不重複下載。
+        if (cors) image.crossOrigin = "anonymous";
+        else image.removeAttribute("crossorigin");
         image.src = full.src;
-        note.textContent = "大圖";
+        showingLarge = true;
+        largeImage = cors ? full : null;
+        note.textContent = "原始圖片";
         loadOriginal.remove();
       };
       full.onerror = () => {
         if (request !== detailRequest) return;
-        note.textContent = "大圖無法載入，繼續顯示縮圖。";
+        if (cors) return tryLoad(false);
+        note.textContent = "原始圖片無法載入，繼續顯示縮圖。";
         loadOriginal.disabled = false;
       };
       full.src = item.original_url;
+    };
+    const loadOriginal = button("載入原始圖片", () => {
+      loadOriginal.disabled = true;
+      note.textContent = "原始圖片載入中…";
+      tryLoad(true);
     });
     loadOriginal.className = "load-original";
     caption.append(loadOriginal);
@@ -227,8 +268,8 @@ function renderDetail(item, request) {
   function action(label, fn, message, primary) {
     const node = button(label, async () => {
       try {
-        await fn();
-        if (request === detailRequest) feedback.textContent = message;
+        const override = await fn();
+        if (request === detailRequest) feedback.textContent = override || message;
       } catch {
         if (request === detailRequest) feedback.textContent = "瀏覽器或圖片來源限制了這項操作，可手動複製網址或下載本站縮圖。";
       }
@@ -236,22 +277,37 @@ function renderDetail(item, request) {
     if (primary) node.className = "primary";
     actions.append(node);
   }
-  action("複製圖片", () => navigator.clipboard.write([new ClipboardItem({"image/png": pngBlob(url)})]), "已複製圖片，可直接貼上", true);
+  // 外部原始圖片（R2）若未開放 CORS，fetch 會失敗；退回同網域的本站縮圖，讓複製／下載仍可用。
+  const thumbUrl = new URL(item.thumbnail_url, location.href).href;
+  let usedThumb = false;
+  const withFallback = convert => convert(url).catch(error => {
+    if (url === thumbUrl) throw error;
+    usedThumb = true;
+    return convert(thumbUrl);
+  });
+  action("複製圖片", async () => {
+    usedThumb = false;
+    // 複製畫面上目前顯示的那張：縮圖狀態只複製縮圖；顯示原始圖片時優先用已載入的圖轉檔，不再下載。
+    const source = !showingLarge ? pngBlob(thumbUrl)
+      : largeImage ? elementPng(largeImage).catch(() => withFallback(pngBlob))
+      : withFallback(pngBlob);
+    // ClipboardItem 直接接收 Promise，Safari 才會保留使用者點擊的授權。
+    await navigator.clipboard.write([new ClipboardItem({"image/png": source})]);
+    if (!showingLarge && item.original_url) return "已複製縮圖；按「載入原始圖片」後可複製原始圖片";
+    return usedThumb ? "原始圖片受來源限制，已改為複製縮圖" : "";
+  }, "已複製圖片，可直接貼上", true);
   action("複製頁面連結", () => navigator.clipboard.writeText(location.href), "已複製頁面連結");
   action("複製圖片連結", () => navigator.clipboard.writeText(url), "已複製圖片連結");
   if (item.original_url) {
-    const original = element("a", "開啟大圖");
-    original.href = url;
-    original.target = "_blank";
-    original.rel = "noreferrer";
-    actions.append(original);
-    action("下載大圖", async () => {
-      const blob = await imageBlob(url);
+    action("下載原始圖片", async () => {
+      usedThumb = false;
+      const blob = await withFallback(imageBlob);
       const download = element("a");
       download.href = URL.createObjectURL(blob);
       download.download = item.resolved_title;
       download.click();
       setTimeout(() => URL.revokeObjectURL(download.href), 60000);
+      return usedThumb ? "原始圖片受來源限制，已改為下載縮圖；可用「複製圖片連結」在瀏覽器開啟後另存" : "";
     }, "已開始下載");
   }
   const thumb = element("a", "下載本站縮圖");
@@ -322,6 +378,7 @@ dialog.addEventListener("close", () => {
   history.replaceState(null, "", location.pathname + location.search);
 });
 window.addEventListener("hashchange", () => showRoute());
+
 byId("filters").onsubmit = event => { event.preventDefault(); search(true); };
 byId("query").oninput = () => {
   ++listRequest;

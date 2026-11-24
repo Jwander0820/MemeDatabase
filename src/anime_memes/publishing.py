@@ -413,7 +413,7 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
             for row in selected_rows(source):
                 output = staging / "image.webp"
                 # render_webp 以全新像素圖輸出，不攜帶來源 EXIF／ICC／文字 metadata。
-                data, _, _ = render_webp(_thumbnail_source(row), "thumb")
+                data, thumb_width, thumb_height = render_webp(_thumbnail_source(row), "thumb")
                 output.write_bytes(data)
                 hash_value = digest(output)
                 filename = hash_value + ".webp"
@@ -427,10 +427,11 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
                 media_hashes[filename] = hash_value
                 tags = sorted({r[0] for r in source.execute("SELECT tag_name FROM entry_tags WHERE entry_key=?", (row["key"],))})
                 aliases = [r[0] for r in source.execute("SELECT alias_text FROM entry_search_aliases WHERE entry_key=? ORDER BY alias_normalized", (row["key"],))]
-                target.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                target.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                (row["public_id"], row["display_title"], row["speaker"], row["anime_title"], row["quote_text"],
                                 row["ocr_text"], json.dumps(tags, ensure_ascii=False), json.dumps(aliases, ensure_ascii=False),
-                                "/media/" + filename, row["public_original_url"] or row["r2_url"], row["updated_at"]))
+                                "/media/" + filename, row["public_original_url"] or row["r2_url"], row["updated_at"],
+                                thumb_width, thumb_height))
                 target.executemany("INSERT INTO entry_tags VALUES(?,?)", [(row["public_id"], tag) for tag in tags])
             target.commit()
         manifest = {"schema_version": SCHEMA_VERSION, "normalization_version": NORMALIZATION_VERSION,
