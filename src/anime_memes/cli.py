@@ -46,6 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init-db", help="Create or migrate the SQLite database")
     init.set_defaults(func=cmd_init_db)
 
+    web_import = sub.add_parser("import-web-memes", help="預檢核准的網路梗圖，使用 --apply 寫入")
+    web_import.add_argument("approved_jsonl", type=Path)
+    web_import.add_argument("--apply", action="store_true")
+    web_import.add_argument("--attachment-dir", type=Path, default=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"))
+    web_import.add_argument("--thumbnail-dir", type=Path, default=getenv("MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    web_import.set_defaults(func=cmd_import_web_memes)
+
     convert = sub.add_parser("convert", help="Prune raw DiscordChatExporter JSON")
     convert.add_argument("input_json")
     convert.add_argument("output_json", nargs="?")
@@ -273,6 +280,14 @@ def cmd_publication(args):
         result = export_release(args.db, args.root)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("valid") is False or result.get("exported") is False:
+        raise SystemExit(2)
+
+
+def cmd_import_web_memes(args):
+    from .web_import import import_approved
+    rows = import_approved(args)
+    print(json.dumps(rows, ensure_ascii=False, indent=2))
+    if any(row["status"] == "error" for row in rows):
         raise SystemExit(2)
 
 

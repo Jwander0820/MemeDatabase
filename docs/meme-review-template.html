@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>梗圖候選審核</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #181b24;
+      --border: #2a2f3d;
+      --text: #e6e8ef;
+      --muted: #9aa3b2;
+      --accent: #f59e0b;
+      --selected: #22c55e;
+      --tag-bg: #252b3b;
+      --tag-edited: #4a2530;
+      --tag-edited-text: #fda4af;
+      --tag-textless: #1e3a3a;
+      --tag-textless-text: #6ee7b7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      max-width: 1400px;
+      margin: 0 auto 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+    .header-top {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+    }
+    .controls, .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    input[type="text"] {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      min-width: 240px;
+      font-size: 0.9rem;
+    }
+    button, label.file-btn {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    button:hover, label.file-btn:hover { border-color: var(--accent); }
+    button.primary {
+      background: #14532d;
+      border-color: var(--selected);
+      color: #dcfce7;
+      font-weight: 600;
+    }
+    button.primary:hover { background: #166534; }
+    button.active-filter {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    input[type="file"] { display: none; }
+    .count {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .status-msg {
+      color: #86efac;
+      font-size: 0.85rem;
+      margin-left: 6px;
+    }
+    .grid {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .card.is-selected {
+      border-color: var(--selected);
+      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25);
+    }
+    .img-wrap {
+      background: #090a0f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 220px;
+      max-height: 420px;
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+    }
+    .img-wrap img {
+      max-width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      display: block;
+    }
+    .img-error {
+      padding: 20px;
+      text-align: center;
+      color: #fca5a5;
+      font-size: 0.85rem;
+    }
+    .body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+    .meta-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .pick-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.82rem;
+      user-select: none;
+    }
+    .card.is-selected .pick-label {
+      background: #14532d;
+      border-color: var(--selected);
+      color: #dcfce7;
+      font-weight: 600;
+    }
+    .pick-label input[type="checkbox"] {
+      accent-color: var(--selected);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+    .caption {
+      background: #11131a;
+      border-left: 3px solid var(--accent);
+      padding: 8px 10px;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      font-size: 0.92rem;
+    }
+    .caption.null {
+      border-left-color: #34d399;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .field-label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-bottom: 2px;
+    }
+    .desc, .usage {
+      font-size: 0.9rem;
+    }
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tag {
+      background: var(--tag-bg);
+      color: var(--text);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .tag.edited { background: var(--tag-edited); color: var(--tag-edited-text); }
+    .tag.textless { background: var(--tag-textless); color: var(--tag-textless-text); }
+    .links {
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 12px;
+      font-size: 0.82rem;
+    }
+    .links a {
+      color: #60a5fa;
+      text-decoration: none;
+    }
+    .links a:hover { text-decoration: underline; }
+  .links { display: grid; gap: .35rem; overflow-wrap: anywhere; }
+    dialog { width: min(32rem, 90vw); border: 1px solid #aaa; border-radius: 12px; }
+    dialog label { display: grid; gap: .25rem; margin: .7rem 0; }
+    dialog input, dialog textarea { font: inherit; padding: .4rem; }
+    .gallery-view .review-only, .review-view .gallery-only { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-top">
+      <div>
+        <h1>梗圖候選審核</h1>
+        <div class="count" id="countText"></div>
+      </div>
+      <div class="controls">
+        <label>顯示模式 <select id="viewMode"><option value="review">原始審核</option><option value="gallery">圖庫預覽</option></select></label>
+        <input type="text" id="searchInput" placeholder="搜尋台詞、描述、標籤、用法..." />
+      </div>
+    </div>
+    <div class="action-bar">
+      <button type="button" data-filter="all" class="active-filter">全部</button>
+      <button type="button" data-filter="selected">僅看已勾選</button>
+      <button type="button" data-filter="unselected">僅看未勾選</button>
+      <span style="color:var(--border)">|</span>
+      <button type="button" id="selectVisibleBtn">全選目前顯示</button>
+      <button type="button" id="clearVisibleBtn">取消目前顯示</button>
+      <span style="color:var(--border)">|</span>
+      <button type="button" class="primary" id="exportJsonlBtn">匯出已勾選 (.jsonl)</button>
+      <button type="button" id="copyJsonlBtn">複製已勾選 JSONL</button>
+      <span class="status-msg" id="statusMsg"></span>
+    </div>
+  </header>
+
+  <main class="grid" id="grid"></main>
+  <dialog id="editor"><form id="editForm">
+    <h2>編輯收錄欄位</h2>
+    <label>標題<input name="display_title" placeholder="留空時自動產生"></label>
+    <label>作品<input name="subject"></label>
+    <label>角色<input name="speaker"></label>
+    <label>台詞<textarea name="caption" rows="3"></textarea></label>
+    <label>標籤（每行一個）<textarea name="tags" rows="4"></textarea></label>
+    <label>圖片出處（選填）<input name="source_page" type="url" pattern="https?://.+" placeholder="https://"></label>
+    <button type="submit">儲存修改</button> <button type="button" id="cancelEdit">取消</button>
+  </form></dialog>
+
+  <script>
+    const DEFAULT_ITEMS = __BATCH_ITEMS__;
+
+    const STORAGE_KEY = "meme_review___BATCH_ID__";
+    const keyFor = item => JSON.stringify([item.source_page ?? null, item.image_url ?? null]);
+    const edits = JSON.parse(localStorage.getItem(STORAGE_KEY + "_edits") || "null") ?? __INITIAL_EDITS__;
+    const originalKeys = DEFAULT_ITEMS.map(keyFor);
+    const allItems = DEFAULT_ITEMS.map((item, i) => ({...item, ...edits[originalKeys[i]]}));
+    const viewMode = document.getElementById("viewMode");
+    const editor = document.getElementById("editor");
+    const editForm = document.getElementById("editForm");
+    let editingIndex;
+    viewMode.addEventListener("change", render);
+    document.getElementById("cancelEdit").onclick = () => editor.close();
+    editForm.onsubmit = event => {
+      event.preventDefault();
+      const values = Object.fromEntries(new FormData(editForm));
+      values.tags = [...new Set(values.tags.split(/\r?\n/).map(t => t.trim()).filter(Boolean))];
+      for (const field of ["caption", "display_title", "speaker", "source_page"]) {
+        values[field] = values[field].trim() || null;
+      }
+      edits[originalKeys[editingIndex]] = values;
+      Object.assign(allItems[editingIndex], values);
+      localStorage.setItem(STORAGE_KEY + "_edits", JSON.stringify(edits));
+      editor.close();
+      render();
+    };
+    let currentFilter = "all";
+    let selectedKeys = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || JSON.stringify(__APPROVED_KEYS__)));
+
+    const grid = document.getElementById("grid");
+    const searchInput = document.getElementById("searchInput");
+
+    const countText = document.getElementById("countText");
+    const statusMsg = document.getElementById("statusMsg");
+
+    function itemKey(item, idx) {
+      return originalKeys[idx];
+    }
+
+    function saveSelection() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...selectedKeys]));
+    }
+
+    function showStatus(msg) {
+      statusMsg.textContent = msg;
+      setTimeout(() => {
+        if (statusMsg.textContent === msg) statusMsg.textContent = "";
+      }, 2500);
+    }
+
+    function esc(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function getFilteredItems() {
+      const q = searchInput.value.trim().toLowerCase();
+      return allItems
+        .map((item, idx) => ({ item, idx, key: itemKey(item, idx) }))
+        .filter(({ item, key }) => {
+          const isSel = selectedKeys.has(key);
+          if (currentFilter === "selected" && !isSel) return false;
+          if (currentFilter === "unselected" && isSel) return false;
+          if (!q) return true;
+          const hay = [
+            item.subject,
+            item.display_title, item.speaker,
+            item.caption,
+            item.description,
+            item.usage,
+            ...(item.tags || [])
+          ].join(" ").toLowerCase();
+          return hay.includes(q);
+        });
+    }
+
+    function toggleKey(key) {
+      if (selectedKeys.has(key)) selectedKeys.delete(key);
+      else selectedKeys.add(key);
+      saveSelection();
+      render();
+    }
+
+    function render() {
+      grid.className = "grid " + viewMode.value + "-view";
+      const filtered = getFilteredItems();
+      const totalSelected = allItems.filter((item, idx) => selectedKeys.has(itemKey(item, idx))).length;
+      countText.textContent = `顯示 ${filtered.length} / ${allItems.length} 筆 · 已勾選 ${totalSelected} 筆`;
+
+      grid.innerHTML = filtered.map(({ item, idx, key }) => {
+        const isSel = selectedKeys.has(key);
+        const capHtml = item.caption
+          ? `<div class="caption">${esc(item.caption)}</div>`
+          : `<div class="caption null">（無字反應圖 / caption: null）</div>`;
+
+        const tagsHtml = (item.tags || []).map((t) => {
+          const cls = t === "改字版" ? "tag edited" : (t === "無字反應圖" ? "tag textless" : "tag");
+          return `<span class="${cls}" data-tag="${esc(t)}">${esc(t)}</span>`;
+        }).join("");
+
+        const webUrl = value => {
+          try {
+            const url = new URL(value);
+            return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+          } catch { return ""; }
+        };
+        const source = webUrl(item.source_page);
+        const image = webUrl(item.image_url);
+        const imgHtml = image
+          ? `<img src="${esc(image)}" alt="${esc(item.description)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.replaceWith('圖片載入失敗，可開啟下方出處查閱')">`
+          : "未提供圖片直連";
+        return `
+          <article class="card ${isSel ? "is-selected" : ""}" data-key="${esc(key)}">
+            <div class="img-wrap" title="點擊圖片也可切換勾選">${imgHtml}</div>
+            <div class="body">
+              <div class="meta-top">
+                <span>#${idx + 1} · ${esc(item.subject)}</span>
+                <label class="pick-label">
+                  <input type="checkbox" ${isSel ? "checked" : ""} data-pick="${esc(key)}" />
+                  ${isSel ? "已保留" : "勾選保留"}
+                </label>
+              </div>
+              <div class="gallery-only">
+              <div>標題 · ${esc(item.display_title || [item.speaker, item.caption].filter(Boolean).join(" ") || item.subject || "未命名梗圖")}</div>
+              <div>作品 · ${esc(item.subject)}　角色 · ${esc(item.speaker || "未填")}</div>
+              </div>
+              <div class="field-label">台詞</div>
+              ${capHtml}
+              <div class="tags">${tagsHtml}</div>
+              <section class="review-only">
+              <div>
+                <div class="field-label">畫面描述</div>
+                <div class="desc">${esc(item.description)}</div>
+              </div>
+              <div>
+                <div class="field-label">使用時機</div>
+                <div class="usage">${item.usage ? esc(item.usage) : "null"}</div>
+              </div>
+              </section>
+              <button type="button" data-edit="${idx}">編輯收錄欄位</button>
+              <div class="links">
+                <div>圖片出處 · ${source ? `<a href="${esc(source)}" target="_blank" rel="noopener noreferrer">${esc(source)}</a>` : "待補來源頁"}</div>
+                <div>圖片直連 · ${image ? `<a href="${esc(image)}" target="_blank" rel="noopener noreferrer">${esc(image)}</a>` : "未提供"}</div>
+              </div>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      grid.querySelectorAll("[data-edit]").forEach(button => {
+        button.onclick = () => {
+          editingIndex = Number(button.dataset.edit);
+          const row = allItems[editingIndex];
+          for (const field of ["display_title", "subject", "speaker", "caption", "tags", "source_page"]) {
+            editForm.elements[field].value = field === "tags" ? row.tags.join("\n") : row[field] ?? "";
+          }
+          editor.showModal();
+        };
+      });
+
+      grid.querySelectorAll("input[data-pick]").forEach((cb) => {
+        cb.addEventListener("change", () => toggleKey(cb.dataset.pick));
+      });
+
+      grid.querySelectorAll(".img-wrap").forEach((wrap) => {
+        wrap.addEventListener("click", (e) => {
+          if (e.target.tagName === "A") return;
+          toggleKey(wrap.closest(".card").dataset.key);
+        });
+      });
+
+      grid.querySelectorAll(".tag").forEach((el) => {
+        el.addEventListener("click", () => {
+          searchInput.value = el.dataset.tag;
+          render();
+        });
+      });
+    }
+
+    document.querySelectorAll("button[data-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentFilter = btn.dataset.filter;
+        document.querySelectorAll("button[data-filter]").forEach((b) => b.classList.remove("active-filter"));
+        btn.classList.add("active-filter");
+        render();
+      });
+    });
+
+    document.getElementById("selectVisibleBtn").addEventListener("click", () => {
+      getFilteredItems().forEach(({ key }) => selectedKeys.add(key));
+      saveSelection();
+      render();
+    });
+
+    document.getElementById("clearVisibleBtn").addEventListener("click", () => {
+      getFilteredItems().forEach(({ key }) => selectedKeys.delete(key));
+      saveSelection();
+      render();
+    });
+
+    function buildSelectedJsonl() {
+      const picked = allItems.flatMap((item, idx) => {
+        const key = originalKeys[idx];
+        if (!selectedKeys.has(key)) return [];
+        return [keyFor(item) === key ? item : {...item, review_candidate_key: key}];
+      });
+      return {
+        count: picked.length,
+        text: picked.map((item) => JSON.stringify(item)).join("\n") + (picked.length ? "\n" : "")
+      };
+    }
+
+    document.getElementById("exportJsonlBtn").addEventListener("click", () => {
+      const { count, text } = buildSelectedJsonl();
+      if (!count) {
+        showStatus("尚未勾選任何項目");
+        return;
+      }
+      const blob = new Blob([text], { type: "application/x-ndjson;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "approved_memes.jsonl";
+      a.click();
+      URL.revokeObjectURL(url);
+      showStatus(`已匯出 ${count} 筆至 approved_memes.jsonl`);
+    });
+
+    document.getElementById("copyJsonlBtn").addEventListener("click", async () => {
+      const { count, text } = buildSelectedJsonl();
+      if (!count) {
+        showStatus("尚未勾選任何項目");
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      showStatus(`已複製 ${count} 筆 JSONL 到剪貼簿`);
+    });
+
+    searchInput.addEventListener("input", render);
+
+
+
+    render();
+  </script>
+</body>
+</html>

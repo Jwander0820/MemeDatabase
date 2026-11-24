@@ -5,6 +5,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 from PIL import Image, UnidentifiedImageError
 from werkzeug.utils import secure_filename
@@ -16,6 +17,20 @@ MANUAL_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 def dedupe(values):
     return list(dict.fromkeys(values))
+
+
+def source_page_url(value):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError("圖片出處需為網址")
+    value = value.strip()
+    if not value:
+        return None
+    url = urlsplit(value)
+    if url.scheme not in {"https", "http"} or not url.hostname or any(c.isspace() for c in value):
+        raise ValueError("圖片出處需為完整 HTTP 或 HTTPS 網址")
+    return value
 
 
 def set_favorite(conn, key, enabled):
@@ -55,7 +70,11 @@ def update_entry(conn, key, data):
         updates.append("display_title = ?")
         params.append((data["display_title"] or "").strip() or None)
     if not updates and aliases is None:
-        raise ValueError("no fields to update")
+        if "source_page" not in data:
+            raise ValueError("no fields to update")
+    if "source_page" in data:
+        updates.append("source_page = ?")
+        params.append(source_page_url(data["source_page"]))
     updates.append("updated_at = CURRENT_TIMESTAMP")
     params.append(key)
     cursor = conn.execute(f"UPDATE meme_entries SET {', '.join(updates)} WHERE key = ?", params)
@@ -145,7 +164,8 @@ def delete_entry(conn, key, attachment_root, thumbnail_root):
     )
 
 
-def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root):
+def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, web_image_url=None):
+    source_page = source_page_url(form.get("source_page"))
     aliases = validate_aliases(json.loads(form.get("search_aliases", "[]")))
     display_title = (form.get("display_title") or "").strip() or None
     if upload is None or not upload.filename:
@@ -241,7 +261,8 @@ def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root):
                 notes or None,
             ),
         )
-        conn.execute("UPDATE meme_entries SET display_title=? WHERE key=?", (display_title, key))
+        conn.execute("UPDATE meme_entries SET display_title=?, source_page=?, web_image_url=? WHERE key=?",
+                     (display_title, source_page, web_image_url, key))
         replace_aliases(conn, key, aliases)
         for tag in tag_values:
             add_entry_tag(conn, key, tag, "manual", None, "manual upload")

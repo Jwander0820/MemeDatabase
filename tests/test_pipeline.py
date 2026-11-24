@@ -558,6 +558,7 @@ class PipelineTest(unittest.TestCase):
                     "anime_title": "手動作品",
                     "speaker": "手動角色",
                     "quote_text": "手動新增台詞",
+                    "source_page": "https://example.org/posts/42?image=2",
                     "tags": "收藏, 手動",
                     "status": "ready",
                     "notes": "UI upload test",
@@ -569,6 +570,10 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(item["key"].startswith("meme_manual_"))
             self.assertEqual(item["pairing_method"], "manual_upload")
             self.assertEqual(item["anime_title"], "手動作品")
+            entry_url = "/api/entries/" + item["key"]
+            self.assertEqual(client.get(entry_url).get_json()["source_page"], "https://example.org/posts/42?image=2")
+            self.assertEqual(client.patch(entry_url, json={"source_page": None}).status_code, 200)
+            self.assertIsNone(client.get(entry_url).get_json()["source_page"])
             self.assertCountEqual(item["tags"], ["手動", "收藏"])
             self.assertTrue(Path(item["local_path"]).exists())
             self.assertTrue(Path(item["thumbnail_path"]).exists())

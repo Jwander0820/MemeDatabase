@@ -235,7 +235,9 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     ensure_columns(conn, "attachments", {"public_original_url": "TEXT"})
     ensure_columns(conn, "attachments", {"web_path": "TEXT", "web_sha256": "TEXT", "r2_key": "TEXT"})
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_public_id ON meme_entries(public_id)")
-    ensure_columns(conn, "meme_entries", {"display_title": "TEXT"})
+    ensure_columns(conn, "meme_entries", {"display_title": "TEXT", "source_page": "TEXT"})
+    ensure_columns(conn, "meme_entries", {"web_image_url": "TEXT"})
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_image_url ON meme_entries(web_image_url) WHERE web_image_url IS NOT NULL")
     conn.execute("""CREATE TABLE IF NOT EXISTS entry_search_aliases (
         entry_key TEXT NOT NULL REFERENCES meme_entries(key) ON DELETE CASCADE,
         alias_text TEXT NOT NULL CHECK(length(trim(alias_text)) > 0),

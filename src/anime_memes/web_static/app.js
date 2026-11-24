@@ -399,6 +399,7 @@ function detailTemplate(item) {
         <label class="field"><span>${T.speaker}</span><input name="speaker" value="${attr(item.speaker || "")}"></label>
       </div>
       <label class="field"><span>${T.quote}</span><textarea name="quote_text">${escapeHtml(item.quote_text || "")}</textarea></label>
+      <label class="field"><span>圖片出處（選填）</span><input type="url" name="source_page" value="${attr(item.source_page || "")}"></label>
       <div class="field-grid">
         <label class="field"><span>${T.manualTags}</span><input name="tags" value="${attr((item.manual_tags || []).join(", "))}"></label>
         <label class="field"><span>${T.status}</span><select name="status">${statusOptions}</select></label>
@@ -507,6 +508,7 @@ function bindDetailForm(item) {
     event.preventDefault();
     const payload = {
       anime_title: form.anime_title.value,
+      source_page: form.source_page.value,
       speaker: form.speaker.value,
       quote_text: form.quote_text.value,
       status: form.status.value,
@@ -607,7 +609,7 @@ function closeOnBackdrop(dialog, canClose = () => true) {
 function createFormIsBlank() {
   if (createImage.files.length) return false;
   const typingTag = createForm.querySelector(".tag-input-field")?.value.trim();
-  return !typingTag && ["anime_title", "speaker", "quote_text", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
+  return !typingTag && ["anime_title", "speaker", "source_page", "quote_text", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
 }
 
 closeOnBackdrop(createDialog, createFormIsBlank);

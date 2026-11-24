@@ -9,6 +9,7 @@
 | [整體規格](personal-meme-platform-spec.md) | 產品目標、雙版本、前後端分離、Nginx／Docker、發布與熱更新；第 15 節列實作差距 | 現行目標，部分完成 |
 | [DB 與搜尋規格](database-search-spec.md) | 欄位、替代詞、搜尋契約、索引與 migration | 本地核心已實作，UI／發布待完成 |
 | [Agent 圖片標籤操作手冊](agent-image-tagging-guide.md) | 現有 JSONL 工作匯出、候選匯入與審核 | 現行操作手冊 |
+| [委託 Agent 蒐集新梗圖](agent-meme-collection.md) | 可複製的搜尋提示詞、無字圖標記與跨批去重 | 現行操作手冊 |
 | [歷史文件](archive/README.md) | 已完成階段設計、工作紀錄、維護及背景研究 | 歷史參考 |
 
 ## 維護原則
