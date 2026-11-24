@@ -15,7 +15,7 @@ from .attachments import (
     is_probably_downloadable,
 )
 from .db import init_db
-from .renditions import render_webp, write_atomic
+from .renditions import UNSUPPORTED_SUFFIXES, render_webp, write_atomic
 
 
 def utc_now() -> str:
@@ -229,7 +229,8 @@ def build_thumbnails(
             summary["skipped"] += 1
             continue
         suffix = Path(row["file_name"] or "").suffix.lower()
-        if suffix in OCR_UNSUPPORTED_SUFFIXES:
+        # 影片不產縮圖；GIF 取第一幀。
+        if suffix in UNSUPPORTED_SUFFIXES:
             summary["skipped"] += 1
             continue
         source = Path(row["local_path"] or "")

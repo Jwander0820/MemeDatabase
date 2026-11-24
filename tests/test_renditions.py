@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import closing
 from io import BytesIO
 from pathlib import Path
@@ -105,12 +106,44 @@ class RenditionTests(unittest.TestCase):
         self.assertTrue(path.is_file())
 
     def test_ensure_web_rendition_errors(self):
-        self.add_attachment("g1", "x.gif", self.root / "x.gif")
+        # 影片不產生大圖；GIF 改為支援（見 test_gif_*）。
+        self.add_attachment("v1", "x.mp4", self.root / "x.mp4")
         with self.assertRaisesRegex(ValueError, "不支援的媒體格式"):
-            ensure_web_rendition(self.conn, "g1", web_dir=self.root / "web")
+            ensure_web_rendition(self.conn, "v1", web_dir=self.root / "web")
         self.add_attachment("n1", "n.png", self.root / "missing.png")
         with self.assertRaisesRegex(ValueError, "缺少本地原圖"):
             ensure_web_rendition(self.conn, "n1", web_dir=self.root / "web")
+
+    def make_gif(self, name, size=(1600, 900), frames=4):
+        path = self.root / name
+        images = [Image.new("RGB", size, color) for color in ("red", "green", "blue", "white")[:frames]]
+        images[0].save(path, save_all=True, append_images=images[1:], duration=[80, 120, 160, 200][:frames], loop=0)
+        return path
+
+    def test_gif_web_rendition_is_animated_webp_and_thumbnail_is_first_frame(self):
+        gif = self.make_gif("anim.gif")
+        self.add_attachment("g1", "anim.gif", gif)
+        path, _ = ensure_web_rendition(self.conn, "g1", web_dir=self.root / "web")
+        with Image.open(path) as image:
+            self.assertEqual(image.format, "WEBP")
+            self.assertEqual(image.n_frames, 4)
+            self.assertEqual(image.size, (1280, 720))
+            image.seek(2)
+            image.load()  # WebP 的每幀時間要載入該幀後才會出現在 info
+            self.assertEqual(image.info.get("duration"), 160)
+        data, width, height = render_webp(gif, "thumb")
+        with Image.open(BytesIO(data)) as thumb:
+            self.assertEqual(getattr(thumb, "n_frames", 1), 1)
+            self.assertEqual((width, height), (854, 480))
+            red, green, blue = thumb.convert("RGB").getpixel((10, 10))
+            self.assertTrue(red > 200 and green < 60 and blue < 60, "縮圖應是第一幀（紅色）")
+
+    def test_gif_over_frame_limit_falls_back_to_static(self):
+        gif = self.make_gif("long.gif", size=(320, 180))
+        with patch("src.anime_memes.renditions.MAX_ANIMATION_FRAMES", 2):
+            data, _, _ = render_webp(gif, "web", animated=True)
+        with Image.open(BytesIO(data)) as image:
+            self.assertEqual(getattr(image, "n_frames", 1), 1)
 
     def test_build_thumbnails_uses_thumb_preset(self):
         source = self.make_png()

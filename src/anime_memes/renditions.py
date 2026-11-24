@@ -10,12 +10,17 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
 from .attachments import OCR_UNSUPPORTED_SUFFIXES
 from .paths import resolve_local
 
-UNSUPPORTED_SUFFIXES = OCR_UNSUPPORTED_SUFFIXES
+# 影片不產生衍生圖、也不公開；GIF 可以（縮圖取第一幀，大圖做成動態 WebP）。
+VIDEO_SUFFIXES = OCR_UNSUPPORTED_SUFFIXES - {".gif"}
+UNSUPPORTED_SUFFIXES = VIDEO_SUFFIXES
+# 動態大圖的上限：超過就退回第一幀的靜態大圖，避免超大 GIF 拖垮處理或產生過大的檔案。
+MAX_ANIMATION_FRAMES = 300
+MAX_ANIMATION_PIXELS = 300_000_000
 
 
 @dataclass(frozen=True)
@@ -52,10 +57,42 @@ def _has_alpha(image: Image.Image) -> bool:
     return image.mode in ("RGBA", "LA", "PA") or (image.mode == "P" and "transparency" in image.info)
 
 
-def render_webp(source: str | Path, preset_name: str) -> tuple[bytes, int, int]:
-    """讀取來源圖並輸出去除中繼資料的 WebP；回傳 (bytes, width, height)。"""
+def is_video(*names: str | None) -> bool:
+    return any(Path(name or "").suffix.lower() in VIDEO_SUFFIXES for name in names)
+
+
+def _render_animated(opened: Image.Image, preset: Preset) -> tuple[bytes, int, int] | None:
+    """多幀圖片輸出動態 WebP（保留每幀時間與循環次數）；超過上限時回傳 None 改用靜態圖。"""
+    frames = getattr(opened, "n_frames", 1)
+    target = fit_size(*opened.size, preset)
+    if frames <= 1 or frames > MAX_ANIMATION_FRAMES or frames * target[0] * target[1] > MAX_ANIMATION_PIXELS:
+        return None
+    images, durations = [], []
+    for frame in ImageSequence.Iterator(opened):
+        rgba = frame.convert("RGBA")
+        if target != rgba.size:
+            rgba = rgba.resize(target, Image.Resampling.LANCZOS)
+        clean = Image.new("RGBA", rgba.size)  # 新建像素，不帶來源中繼資料
+        clean.paste(rgba)
+        images.append(clean)
+        durations.append(max(int(frame.info.get("duration", opened.info.get("duration", 100)) or 100), 20))
+    buffer = BytesIO()
+    images[0].save(buffer, "WEBP", save_all=True, append_images=images[1:], duration=durations,
+                   loop=int(opened.info.get("loop", 0) or 0), quality=preset.quality, method=4)
+    return buffer.getvalue(), target[0], target[1]
+
+
+def render_webp(source: str | Path, preset_name: str, *, animated: bool = False) -> tuple[bytes, int, int]:
+    """讀取來源圖並輸出去除中繼資料的 WebP；回傳 (bytes, width, height)。
+
+    animated=True 且來源有多幀（例如 GIF）時輸出動態 WebP，否則只取第一幀。
+    """
     preset = PRESETS[preset_name]
     with Image.open(source) as opened:
+        if animated:
+            result = _render_animated(opened, preset)
+            if result is not None:
+                return result
         opened.seek(0)  # 只取第一幀
         image = ImageOps.exif_transpose(opened)
         image.load()
@@ -128,7 +165,7 @@ def ensure_web_rendition(
         existing = resolve_local(row["web_path"], "WEB")
         if existing and Path(existing).is_file():
             return Path(existing), row["web_sha256"]
-    data, _, _ = render_webp(source, "web")
+    data, _, _ = render_webp(source, "web", animated=True)
     output = Path(web_dir) / f"{attachment_id}.webp"
     write_atomic(output, data)
     digest = sha256_bytes(data)

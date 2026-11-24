@@ -20,7 +20,7 @@ from .releases import digest, validate, version_name
 from .search import NORMALIZATION_VERSION
 from .paths import resolve_local
 from .r2 import R2Config, R2Error, store_from_env
-from .renditions import UNSUPPORTED_SUFFIXES, ensure_web_rendition, render_webp, sha256_bytes
+from .renditions import UNSUPPORTED_SUFFIXES, ensure_web_rendition, is_video, render_webp, sha256_bytes
 from .urls import original_url
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,9 +33,12 @@ def update_selection(conn, key, data):
     if "publish_selected" in data and not isinstance(data["publish_selected"], bool):
         raise ValueError("publish_selected 必須為布林值")
     url = original_url(data["public_original_url"]) if "public_original_url" in data else None
-    row = conn.execute("SELECT attachment_id, public_id FROM meme_entries WHERE key=?", (key,)).fetchone()
+    row = conn.execute("""SELECT e.attachment_id, e.public_id, a.file_name, a.local_path FROM meme_entries e
+        LEFT JOIN attachments a ON a.id=e.attachment_id WHERE e.key=?""", (key,)).fetchone()
     if row is None:
         raise KeyError(key)
+    if data.get("publish_selected") is True and is_video(row[2], row[3]):
+        raise ValueError("影片不提供公開")
     with conn:
         if "publish_selected" in data:
             conn.execute("UPDATE meme_entries SET publish_selected=?,public_id=COALESCE(public_id,?) WHERE key=?",
@@ -118,6 +121,8 @@ def check(conn, *, r2_enabled=False):
         report["warnings"].append("匯出時會為尚無外部原圖的項目產生 720P 大圖，並將缺少的檔案上傳至 R2。")
     for row in selected_rows(conn):
         errors, warnings = [], []
+        if is_video(row["file_name"], row["local_path"]):
+            errors.append("影片不提供公開，請取消勾選")
         if row["status"] != "ready":
             errors.append("尚非 ready")
         if not row["public_id"]:
