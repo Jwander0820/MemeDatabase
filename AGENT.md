@@ -26,6 +26,8 @@ V1 不上傳 R2、不直接呼叫 Notion API、不使用雲端 LLM 標籤。
 
 ## 程式架構
 
+依賴統一使用 `requirements.txt`（非 OCR 基礎）與 `requirements-ocr.txt`（本機選用，包含基礎清單）。不得將 OCR／CUDA／模型套件加入部署基礎清單，也不要再建立單數 `requirement.txt` 或用整個開發環境的 pip freeze 覆蓋基礎清單。現有 Web 仍有管理功能，依賴拆分不代表公開唯讀服務已完成。
+
 ```text
 src/anime_memes/
   cli.py          CLI 入口

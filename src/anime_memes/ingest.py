@@ -63,6 +63,7 @@ def ingest_fixed_export(
     }
     changed_message_ids: set[str] = set()
     new_message_ids: set[str] = set()
+    deleted_ids = {row[0] for row in conn.execute("SELECT attachment_id FROM deleted_attachments")}
     for message in messages:
         message_id = str(message.get("id"))
         signature = (
@@ -78,7 +79,7 @@ def ingest_fixed_export(
             changed_message_ids.add(message_id)
         upsert_message(conn, message, export_run_id)
         for attachment in message.get("attachments") or []:
-            if isinstance(attachment, dict):
+            if isinstance(attachment, dict) and str(attachment.get("id")) not in deleted_ids:
                 upsert_attachment(conn, message, attachment, attachment_dir)
 
     used_text_ids: set[str] = set()
@@ -97,6 +98,8 @@ def ingest_fixed_export(
             used_text_ids.add(pairing.text_message["id"])
 
         for attachment in attachments:
+            if str(attachment.get("id")) in deleted_ids:
+                continue
             key = f"meme_{attachment.get('id')}"
             confidence = clamp(pairing.confidence + parsed.confidence_delta)
             status = "ready" if confidence >= 0.7 and parsed.quote_text else "needs_review"
@@ -141,6 +144,7 @@ def ingest_fixed_export(
             inserted = upsert_entry(conn, entry)
             created_entries += 1
             if inserted:
+                record_ocr_failure(conn, entry)
                 inserted_entries += 1
                 for tag, reason in match_tags(entry, tag_rules):
                     add_entry_tag(conn, key, tag, "auto", 1.0, reason)
@@ -364,11 +368,31 @@ def apply_ocr(
     entry["ocr_text"] = ocr_text or None
     entry["ocr_status"] = status
     entry["ocr_score"] = similarity(entry["quote_text"], ocr_text) if ocr_text else None
-    if not status.startswith("ok"):
-        conn.execute(
-            "INSERT INTO review_items(entry_key, attachment_id, reason, details) VALUES(?, ?, ?, ?)",
-            (entry["key"], attachment.get("id"), "ocr_skipped", status),
-        )
+
+
+def record_ocr_failure(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
+    status = entry["ocr_status"]
+    if status == "skipped" or status.startswith("ok"):
+        return
+    conn.execute(
+        "DELETE FROM review_items WHERE entry_key = ? AND reason = 'ocr_skipped' AND status = 'open'",
+        (entry["key"],),
+    )
+    conn.execute(
+        "INSERT INTO review_items(entry_key, attachment_id, reason, details) VALUES(?, ?, 'ocr_skipped', ?)",
+        (entry["key"], entry["attachment_id"], status),
+    )
+
+
+def update_ocr_result(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
+    # OCR is auxiliary: never replace source text or manual metadata.
+    conn.execute(
+        """UPDATE meme_entries SET ocr_text = ?, ocr_score = ?, ocr_status = ?,
+            confidence = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?""",
+        (entry["ocr_text"], entry["ocr_score"], entry["ocr_status"],
+         entry["confidence"], entry["status"], entry["key"]),
+    )
+    record_ocr_failure(conn, entry)
 
 
 def should_run_ocr_for_entry(entry: dict[str, Any], scope: str, threshold: float) -> bool:
@@ -432,7 +456,7 @@ def ocr_review_entries(
         FROM meme_entries e
         JOIN attachments a ON a.id = e.attachment_id
         JOIN discord_messages m ON m.id = e.source_message_id
-        WHERE (e.status = 'needs_review'
+        WHERE e.status != 'ignored' AND (e.status = 'needs_review'
            OR e.confidence < ?)
     """
     if not retry_failed_downloads:
@@ -466,7 +490,7 @@ def ocr_review_entries(
             entry["ocr_score"] = None
             suffix = Path(row["file_name"] or "").suffix.lower() or "unknown"
             entry["ocr_status"] = f"skipped: unsupported media type ({suffix})"
-            upsert_entry(conn, entry)
+            update_ocr_result(conn, entry)
             continue
         if download_missing:
             maybe_download(
@@ -506,7 +530,7 @@ def ocr_review_entries(
                 entry["status"] = "needs_review"
         else:
             failed += 1
-        upsert_entry(conn, entry)
+        update_ocr_result(conn, entry)
         if entry["status"] == "needs_review":
             add_review_item(conn, entry, "ocr_review_unresolved")
     conn.commit()

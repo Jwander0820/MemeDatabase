@@ -12,11 +12,13 @@
 - Notion 匯入用 CSV 匯出
 - 本地 Flask Web UI：搜尋、篩選、瀏覽、編輯欄位、編輯人工標籤、收藏、狀態切換、永久刪除
 
-目前使用 **SQLite＋Flask**，搜尋為作品、說話者、台詞與 OCR 的文字包含比對，標籤另外篩選。
+目前使用 **SQLite＋Flask**。後端支援梗圖名稱、替代搜尋詞、繁簡／標點正規化、多詞跨欄位搜尋與相關度排序，標籤亦可獨立精確篩選。新欄位可透過本機 API 編輯，UI 表單尚待整合；既有 UI 仍明確指定更新排序。
 
 ## 發展方向與文件
 
-目標為「本機管理與整理、公開端唯讀搜尋、R2 直接取圖」，並提供受控的 Agent 搜尋接口。梗圖名稱、替代搜尋詞、相關度排序、公開部署及 MCP 都仍屬規劃，尚未因規格建立而實作；目前服務沒有完整公開存取控制，不應直接公開管理接口。
+已選定公開版採前後端分離：Nginx 供應前端與縮圖、轉送唯讀搜尋 API；SQLite 與縮圖保存在 VPS 持久化目錄並唯讀掛載。第一版直接查 SQLite，不加全庫 dict，透過版本快照切換更新資料。本機版保留完整管理 UI 與選用 OCR。這些部署／發布機制尚待實作，現況對照見整體規格第 15 節。
+
+目標為「本機管理與整理、公開端唯讀搜尋、R2 直接取圖」，並提供受控的 Agent 搜尋接口。公開部署及 MCP 仍待實作；目前服務沒有完整公開存取控制，不應直接公開管理接口。本次後端與 DB 遷移範圍見 [搜尋後端實作紀錄](docs/backend-search-implementation.md)。
 
 | 入口 | 內容 |
 |---|---|
@@ -38,6 +40,29 @@
 - PaddleOCR 模型：`models/`
 
 `data/`、`exports/`、`models/`、`.env`、`.venv/` 都應維持不提交到 Git。
+
+## 安裝依賴
+
+統一使用 `requirements.txt`，舊的 `requirement.txt` 已移除。基礎清單只保留目前程式直接使用的 Flask、Werkzeug、OpenCC、Pillow，沿用既有版本；不再把整個開發環境的 GPU 與間接依賴全部列入。
+
+非 OCR 功能使用獨立虛擬環境：
+
+```bat
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+只有本機需要執行 PaddleOCR 時才安裝：
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements-ocr.txt
+```
+
+OCR 清單包含基礎清單及既有 GPU 引擎設定，需要相容的 Python／CUDA 環境；它不是跨平台 CPU 安裝方案。EasyOCR 目前僅有程式入口，未納入這兩份安裝清單。
+
+部署建置只安裝 `requirements.txt`，不要安裝 `requirements-ocr.txt`，也不要將 `.venv/`、`models/` 或整個本機環境複製進映像。現有環境已安裝的 OCR 套件不會因清單變短而自動移除；請以全新環境／映像驗證精簡效果。Pillow 目前仍供 Web 上傳與圖片驗證使用，待唯讀服務拆分後再評估移除。
+
+依賴清單拆分已完成；獨立公開唯讀啟動入口、正式 WSGI 服務與 Docker 建置仍待實作，不能把目前管理 Web 直接公開。本清單是直接依賴清單，不是含所有間接套件的完整 lockfile。
 
 ## 啟動 Web UI
 
@@ -118,6 +143,12 @@ OCR review：
 ```bat
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 import-review-corrections exports\review\needs_review.csv --mark-ready
 ```
+
+Review／Notion CSV 會在公式開頭的文字前加入單引號，避免試算表將文字當公式。Review CSV 的 `_text_encoding` 欄請保留，回匯時會還原原始欄位的保護前綴；人工「修正」欄仍按輸入原文處理。Notion 匯出沒有對應解碼流程，因此可能看得到保護用的單引號。
+
+永久刪除會保留附件 ID 的刪除紀錄，重新匯入同一份 Discord 匯出也不會重建該筆資料。無效或超過 Pillow 安全限制的圖片會標記為 `invalid_image`，後續下載／縮圖批次會跳過；需要重新下載驗證時可使用 `download-attachments --all --force`。HTML／SVG 等附件只提供下載，不在本地編輯器來源內執行。
+
+前端狀態回歸測試可執行 `node --test tests/test_web_state.cjs`，涵蓋收藏草稿保留、請求順序與分頁重試。
 
 匯出未標籤圖片給 Codex／Antigravity 等可讀圖 Agent：
 

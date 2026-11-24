@@ -43,6 +43,9 @@ const state = {
   tag: "",
   items: [],
   selected: null,
+  randomSeed: String(Math.random()),
+  entriesRequest: 0,
+  loading: false,
 };
 
 const grid = document.querySelector("#grid");
@@ -72,13 +75,13 @@ const saveCreate = document.querySelector("#saveCreate");
 const toast = document.querySelector("#toast");
 let createPreviewUrl = "";
 
-function params(resetPage = false) {
-  if (resetPage) state.page = 1;
+function params(page = state.page) {
   const search = new URLSearchParams();
-  search.set("page", state.page);
+  search.set("page", page);
   search.set("page_size", state.pageSize);
   search.set("status", statusFilter.value);
   search.set("sort", sortFilter.value);
+  search.set("seed", state.randomSeed);
   if (searchInput.value.trim()) search.set("q", searchInput.value.trim());
   if (state.tag) search.set("tag", state.tag);
   if (favoriteOnly.checked) search.set("favorite", "1");
@@ -88,11 +91,27 @@ function params(resetPage = false) {
 }
 
 async function loadEntries(reset = false) {
-  const response = await fetch(`/api/entries?${params(reset)}`);
-  const data = await response.json();
-  state.total = data.total;
-  state.items = reset ? data.items : state.items.concat(data.items);
-  renderGrid();
+  if (!reset && state.loading) return;
+  const requestId = ++state.entriesRequest;
+  state.loading = true;
+  loadMore.disabled = true;
+  try {
+    const response = await fetch(`/api/entries?${params(reset ? 1 : state.page + 1)}`);
+    if (!response.ok) throw new Error("entries request failed");
+    const data = await response.json();
+    if (requestId !== state.entriesRequest) return;
+    state.page = data.page;
+    state.total = data.total;
+    state.items = reset ? data.items : state.items.concat(data.items);
+    renderGrid();
+  } catch {
+    if (requestId === state.entriesRequest) showToast("清單載入失敗，請重試");
+  } finally {
+    if (requestId === state.entriesRequest) {
+      state.loading = false;
+      loadMore.disabled = false;
+    }
+  }
 }
 
 async function loadMeta() {
@@ -302,12 +321,25 @@ function bindDetailForm(item) {
 }
 
 favoriteButton.addEventListener("click", async () => {
-  if (!state.selected) return;
-  const method = state.selected.favorite ? "DELETE" : "POST";
-  const response = await fetch(`/api/entries/${encodeURIComponent(state.selected.key)}/favorite`, {method});
-  if (!response.ok) return;
-  await openEntry(state.selected.key);
-  await loadEntries(true);
+  if (!state.selected || favoriteButton.disabled) return;
+  const item = state.selected;
+  const method = item.favorite ? "DELETE" : "POST";
+  favoriteButton.disabled = true;
+  try {
+    const response = await fetch(`/api/entries/${encodeURIComponent(item.key)}/favorite`, {method});
+    if (!response.ok) throw new Error("favorite failed");
+    const result = await response.json();
+    item.favorite = result.favorite;
+    if (state.selected?.key === item.key) {
+      state.selected.favorite = result.favorite;
+      favoriteButton.textContent = result.favorite ? "\u2605" : "\u2606";
+    }
+    await loadEntries(true);
+  } catch {
+    showToast("收藏更新失敗，請重試");
+  } finally {
+    favoriteButton.disabled = false;
+  }
 });
 
 closeDrawer.addEventListener("click", closeDetail);
@@ -388,13 +420,16 @@ function closeDetail() {
 }
 
 loadMore.addEventListener("click", () => {
-  state.page += 1;
   loadEntries(false);
 });
 
 [searchInput, statusFilter, sortFilter, favoriteOnly, missingImage, noTags].forEach((el) => {
-  el.addEventListener("input", debounce(() => loadEntries(true), 180));
-  el.addEventListener("change", () => loadEntries(true));
+  el.addEventListener(el === searchInput ? "input" : "change", el === searchInput
+    ? debounce(() => loadEntries(true), 180)
+    : () => {
+      if (el === sortFilter) state.randomSeed = String(Math.random());
+      loadEntries(true);
+    });
 });
 
 clearTag.addEventListener("click", () => {

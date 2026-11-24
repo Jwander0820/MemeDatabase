@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .tags import add_entry_tag, split_tags
+from .csv_text import FORMAT_COLUMN, FORMAT_VERSION, encode_cell, decode_cell
 
 
 H = {
@@ -96,7 +97,7 @@ def export_review_csv(conn: sqlite3.Connection, output_path: str | Path | None =
     ).fetchall()
     with output.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow([label for _, label in REVIEW_COLUMNS])
+        writer.writerow([label for _, label in REVIEW_COLUMNS] + [FORMAT_COLUMN])
         for row in rows:
             values = dict(row)
             values.update(
@@ -109,7 +110,7 @@ def export_review_csv(conn: sqlite3.Connection, output_path: str | Path | None =
                     "fixed_notes": "",
                 }
             )
-            writer.writerow([values.get(key, "") for key, _ in REVIEW_COLUMNS])
+            writer.writerow([encode_cell(values.get(key, "")) for key, _ in REVIEW_COLUMNS] + [FORMAT_VERSION])
     return output
 
 
@@ -131,6 +132,12 @@ def import_review_corrections(
             return {"updated": 0, "missing": 0, "tags_added": 0, "resolved": 0}
         for row in reader:
             values = row_values(headers, row)
+            if values.get(FORMAT_COLUMN) == FORMAT_VERSION:
+                for field, label in REVIEW_COLUMNS:
+                    if not field.startswith("fixed_"):
+                        for name in (field, label):
+                            if name in values:
+                                values[name] = decode_cell(values[name])
             key = pick(values, "Key", "key").strip()
             if not key:
                 continue
@@ -207,6 +214,8 @@ def row_values_by_position(row: list[str]) -> dict[str, str]:
         value = row[index] if index < len(row) else ""
         values[key] = value
         values[label] = value
+    if len(row) > len(REVIEW_COLUMNS):
+        values[FORMAT_COLUMN] = row[len(REVIEW_COLUMNS)]
     return values
 
 

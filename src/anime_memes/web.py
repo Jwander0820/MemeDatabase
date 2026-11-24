@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+import hashlib
 import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import Flask, abort, g, jsonify, render_template, request, send_file
 from PIL import Image, UnidentifiedImageError
 from werkzeug.utils import secure_filename
 
+from .search import ALIASES_SQL, SCORE_SQL, scorer, validate_aliases, replace_aliases
 from .db import connect, init_db
 from .tagging import decide_tag_suggestion, list_tag_suggestions
 from .tags import add_entry_tag, split_tags
@@ -61,6 +65,8 @@ def create_app(
 
     @app.before_request
     def before_request() -> None:
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            check_mutation_origin()
         conn = sqlite3.connect(app.config["DB_PATH"])
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -71,6 +77,10 @@ def create_app(
         conn = getattr(g, "db", None)
         if conn is not None:
             conn.close()
+
+    @app.errorhandler(ValueError)
+    def invalid_input(exc):
+        return jsonify({"error": str(exc)}), 400
 
     @app.get("/")
     def index():
@@ -122,6 +132,8 @@ def create_app(
 
     @app.post("/api/entries/manual")
     def api_create_manual_entry():
+        aliases = validate_aliases(json.loads(request.form.get("search_aliases", "[]")))
+        display_title = (request.form.get("display_title") or "").strip() or None
         upload = request.files.get("image")
         if upload is None or not upload.filename:
             return jsonify({"error": "請選擇圖片檔案"}), 400
@@ -158,7 +170,7 @@ def create_app(
                     preview = image.convert("RGB")
                     preview.thumbnail((420, 420), Image.Resampling.LANCZOS)
                     preview.save(thumbnail_path, "WEBP", quality=78, method=6)
-        except (OSError, UnidentifiedImageError, ValueError) as exc:
+        except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError) as exc:
             local_path.unlink(missing_ok=True)
             thumbnail_path.unlink(missing_ok=True)
             return jsonify({"error": f"無法讀取圖片：{exc}"}), 400
@@ -218,6 +230,8 @@ def create_app(
                     notes or None,
                 ),
             )
+            g.db.execute("UPDATE meme_entries SET display_title=? WHERE key=?", (display_title, key))
+            replace_aliases(g.db, key, aliases)
             for tag in tag_values:
                 add_entry_tag(g.db, key, tag, "manual", None, "manual upload")
             g.db.commit()
@@ -236,6 +250,11 @@ def create_app(
     @app.patch("/api/entries/<key>")
     def api_update_entry(key: str):
         data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            raise ValueError("JSON object required")
+        aliases = validate_aliases(data["search_aliases"]) if "search_aliases" in data else None
+        if "display_title" in data and data["display_title"] is not None and not isinstance(data["display_title"], str):
+            raise ValueError("display_title must be text or null")
         fields = {
             "anime_title": data.get("anime_title"),
             "speaker": data.get("speaker"),
@@ -253,13 +272,18 @@ def create_app(
                 continue
             updates.append(f"{column} = ?")
             params.append(str(value).strip() if column != "quote_text" else str(value))
-        if not updates:
+        if "display_title" in data:
+            updates.append("display_title = ?")
+            params.append((data["display_title"] or "").strip() or None)
+        if not updates and aliases is None:
             return jsonify({"error": "no fields to update"}), 400
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(key)
         cursor = g.db.execute(f"UPDATE meme_entries SET {', '.join(updates)} WHERE key = ?", params)
         if cursor.rowcount == 0:
             abort(404)
+        if aliases is not None:
+            replace_aliases(g.db, key, aliases)
         g.db.commit()
         return jsonify(serialize_entry(fetch_entry_or_404(g.db, key), include_ocr=True))
 
@@ -332,6 +356,7 @@ def create_app(
             abort(404)
 
         attachment_id = row["attachment_id"]
+        g.db.execute("INSERT OR IGNORE INTO deleted_attachments(attachment_id) VALUES(?)", (attachment_id,))
         attachment = g.db.execute(
             "SELECT id, local_path, thumbnail_path FROM attachments WHERE id = ?",
             (attachment_id,),
@@ -387,16 +412,57 @@ def create_app(
         path = media_path(g.db, attachment_id, "local_path")
         if path is None:
             abort(404)
-        return send_file(path)
+        return media_response(path)
 
     @app.get("/media/thumbnails/<attachment_id>")
     def media_thumbnail(attachment_id: str):
         path = media_path(g.db, attachment_id, "thumbnail_path")
         if path is None:
             abort(404)
-        return send_file(path)
+        return media_response(path)
 
     return app
+
+
+def check_mutation_origin() -> None:
+    def origin(value: str, *, referer: bool = False):
+        try:
+            if any(char.isspace() for char in value):
+                return None
+            parsed = urlsplit(value)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+                return None
+            if not referer and (parsed.path or parsed.query or parsed.fragment):
+                return None
+            return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError:
+            return None
+
+    expected = origin(request.host_url.rstrip("/"))
+    supplied = request.headers.get("Origin")
+    referer = request.headers.get("Referer")
+    if supplied is not None:
+        if origin(supplied) is None or origin(supplied) != expected:
+            abort(403)
+    elif referer is not None:
+        if origin(referer, referer=True) is None or origin(referer, referer=True) != expected:
+            abort(403)
+    if request.headers.get("Sec-Fetch-Site") in {"cross-site", "same-site"}:
+        abort(403)
+
+
+def media_response(path: Path):
+    # Explicit passive MIME types prevent imported documents from running as the editor.
+    mime = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+        ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+        ".webm": "video/webm",
+    }.get(path.suffix.lower())
+    response = send_file(path, mimetype=mime or "application/octet-stream", as_attachment=mime is None)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
+    return response
 
 
 def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int) -> tuple[list[sqlite3.Row], int]:
@@ -406,18 +472,10 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
     if status and status != "all":
         where.append("e.status = ?")
         params.append(status)
-    q = (args.get("q") or "").strip()
+    q = args.get("q") or ""
     if q:
-        like = f"%{q}%"
-        where.append(
-            """
-            (e.anime_title LIKE ?
-             OR e.speaker LIKE ?
-             OR e.quote_text LIKE ?
-             OR e.ocr_text LIKE ?)
-            """
-        )
-        params.extend([like, like, like, like])
+        conn.create_function("meme_score", 7, scorer(q), deterministic=True)
+        where.append(f"{SCORE_SQL} > 0")
     tag = (args.get("tag") or "").strip()
     if tag:
         where.append("EXISTS (SELECT 1 FROM entry_tags tx WHERE tx.entry_key = e.key AND tx.tag_name = ?)")
@@ -443,18 +501,24 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         ).fetchone()[0]
     )
 
-    sort = args.get("sort") or "updated"
+    sort = args.get("sort") or ("relevance" if q else "updated")
+    if sort == "random":
+        seed = str(args.get("seed") or "default")[:128]
+        conn.create_function("shuffle_key", 1, lambda key: hashlib.sha256(f"{seed}:{key}".encode()).hexdigest(), deterministic=True)
     order_by = {
-        "random": "RANDOM()",
+        "random": "shuffle_key(e.key), e.key",
         "source_old": "m.timestamp ASC, e.key",
         "source_new": "m.timestamp DESC, e.key",
         "title": "e.anime_title COLLATE NOCASE, e.key",
     }.get(sort, "e.updated_at DESC, m.timestamp DESC, e.key")
+    if sort == "relevance" and q:
+        order_by = f"{SCORE_SQL} DESC, e.updated_at DESC, e.key ASC"
     offset = (page - 1) * page_size
     rows = conn.execute(
         f"""
         SELECT
             e.*,
+            {ALIASES_SQL} AS search_aliases_json,
             a.file_name,
             a.local_path,
             a.thumbnail_path,
@@ -483,9 +547,10 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
 
 def fetch_entry(conn: sqlite3.Connection, key: str) -> sqlite3.Row | None:
     return conn.execute(
-        """
+        f"""
         SELECT
             e.*,
+            {ALIASES_SQL} AS search_aliases_json,
             a.file_name,
             a.local_path,
             a.thumbnail_path,
@@ -518,6 +583,8 @@ def fetch_entry_or_404(conn: sqlite3.Connection, key: str) -> sqlite3.Row:
 
 def serialize_entry(row: sqlite3.Row, *, include_ocr: bool = False) -> dict[str, Any]:
     item = dict(row)
+    item["search_aliases"] = json.loads(item.pop("search_aliases_json", "[]"))
+    item["resolved_title"] = item.get("display_title") or " ".join(v for v in (item.get("speaker"), item.get("quote_text")) if v).strip() or item.get("anime_title") or "未命名梗圖"
     tags = [tag for tag in (item.get("tags") or "").split(",") if tag]
     thumbnail_path = resolve_media_path(item.get("thumbnail_path"))
     local_path = resolve_media_path(item.get("local_path"))

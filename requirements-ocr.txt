@@ -1,4 +1,6 @@
+# 僅供本機資料準備，部署映像不可安裝本清單。
+-r requirements.txt
 paddleocr==3.7.0
+# 保留既有 GPU 引擎版本；需相容的作業系統、Python 與 CUDA 環境。
+# CPU 環境請依 Paddle 官方安裝指引改裝 CPU 引擎，不要同裝兩種引擎。
 paddlepaddle-gpu==3.3.0
-opencc-python-reimplemented==0.1.7
-Pillow

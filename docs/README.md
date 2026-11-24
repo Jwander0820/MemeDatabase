@@ -4,8 +4,9 @@
 
 | 文件 | 用途 | 狀態 |
 |---|---|---|
-| [整體規格](personal-meme-platform-spec.md) | 產品目標、UI、Agent API、部署分工與分階段驗收 | 現行目標，待實作 |
-| [DB 與搜尋規格](database-search-spec.md) | 欄位、替代詞、搜尋契約、索引與 migration | 現行目標，待實作 |
+| [搜尋後端實作紀錄](backend-search-implementation.md) | 已實作 schema、API、搜尋行為與遷移驗證 | 本地後端已實作，UI／公開部署待完成 |
+| [整體規格](personal-meme-platform-spec.md) | 產品目標、雙版本、前後端分離、Nginx／Docker、發布與熱更新；第 15 節列實作差距 | 現行目標，部分完成 |
+| [DB 與搜尋規格](database-search-spec.md) | 欄位、替代詞、搜尋契約、索引與 migration | 本地核心已實作，UI／發布待完成 |
 | [Agent 圖片標籤操作手冊](agent-image-tagging-guide.md) | 現有 JSONL 工作匯出、候選匯入與審核 | 現行操作手冊 |
 | [歷史文件](archive/README.md) | 已完成階段設計、工作紀錄、維護及背景研究 | 歷史參考 |
 

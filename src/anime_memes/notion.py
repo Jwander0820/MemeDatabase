@@ -4,6 +4,7 @@ import csv
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from .csv_text import encode_cell
 
 
 HEADERS = [
@@ -53,7 +54,7 @@ def export_notion_csv(conn: sqlite3.Connection, output_path: str | Path | None =
         writer.writerow(HEADERS)
         for row in rows:
             writer.writerow(
-                [
+                [encode_cell(value) for value in [
                     row["key"],
                     row["anime_title"] or "",
                     row["speaker"] or "",
@@ -65,6 +66,6 @@ def export_notion_csv(conn: sqlite3.Connection, output_path: str | Path | None =
                     row["confidence"],
                     row["timestamp"],
                     row["source_message_id"],
-                ]
+                ]]
             )
     return output

@@ -25,8 +25,20 @@ def measure_image(path: str | Path) -> tuple[int | None, int | None]:
     try:
         with Image.open(path) as image:
             return image.size
-    except (FileNotFoundError, OSError, UnidentifiedImageError):
+    except (FileNotFoundError, OSError, UnidentifiedImageError, Image.DecompressionBombError):
         return None, None
+
+
+def reject_invalid_image(conn: sqlite3.Connection, attachment_id: str, path: Path, width: int | None) -> bool:
+    if width is not None or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}:
+        return False
+    conn.execute(
+        """UPDATE attachments SET download_status = 'invalid_image',
+           download_error = 'Image rejected by Pillow', local_path = ?,
+           image_width = NULL, image_height = NULL, thumbnail_path = NULL WHERE id = ?""",
+        (str(path), attachment_id),
+    )
+    return True
 
 
 def download_all_attachments(
@@ -62,11 +74,17 @@ def download_all_attachments(
         "skipped": 0,
     }
     for row in rows:
+        if row["download_status"] == "invalid_image" and not force:
+            summary["skipped"] += 1
+            continue
         attachment_id = str(row["id"])
         path = attachment_path(attachment_id, row["file_name"], attachment_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and path.stat().st_size > 0 and not force:
             width, height = measure_image(path)
+            if reject_invalid_image(conn, attachment_id, path, width):
+                summary["failed"] += 1
+                continue
             update_attachment_download(
                 conn,
                 attachment_id,
@@ -112,6 +130,9 @@ def download_all_attachments(
 
         if status in {"downloaded", "cached"}:
             width, height = measure_image(path)
+            if reject_invalid_image(conn, attachment_id, path, width):
+                summary["failed"] += 1
+                continue
             summary[status] += 1
             update_attachment_download(
                 conn,
@@ -193,7 +214,7 @@ def build_thumbnails(
     init_db(conn)
     rows = conn.execute(
         """
-        SELECT id, file_name, local_path, thumbnail_path
+        SELECT id, file_name, local_path, thumbnail_path, download_status
         FROM attachments
         ORDER BY id
         """
@@ -204,6 +225,9 @@ def build_thumbnails(
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = {"candidates": len(rows), "created": 0, "cached": 0, "missing_source": 0, "skipped": 0, "failed": 0}
     for row in rows:
+        if row["download_status"] == "invalid_image" and not force:
+            summary["skipped"] += 1
+            continue
         suffix = Path(row["file_name"] or "").suffix.lower()
         if suffix in OCR_UNSUPPORTED_SUFFIXES:
             summary["skipped"] += 1
@@ -238,6 +262,12 @@ def build_thumbnails(
                 (str(output), width, height, row["id"]),
             )
             summary["created"] += 1
+        except Image.DecompressionBombError:
+            summary["failed"] += 1
+            conn.execute(
+                "UPDATE attachments SET download_status = 'invalid_image', download_error = 'Image rejected by Pillow', thumbnail_path = NULL WHERE id = ?",
+                (row["id"],),
+            )
         except (OSError, UnidentifiedImageError):
             summary["failed"] += 1
         conn.commit()

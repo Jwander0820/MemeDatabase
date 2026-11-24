@@ -9,6 +9,11 @@ from pathlib import Path
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS deleted_attachments (
+    attachment_id TEXT PRIMARY KEY,
+    deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS export_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channel_id TEXT NOT NULL,
@@ -226,6 +231,17 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 def migrate_db(conn: sqlite3.Connection) -> None:
+    ensure_columns(conn, "meme_entries", {"display_title": "TEXT"})
+    conn.execute("""CREATE TABLE IF NOT EXISTS entry_search_aliases (
+        entry_key TEXT NOT NULL REFERENCES meme_entries(key) ON DELETE CASCADE,
+        alias_text TEXT NOT NULL CHECK(length(trim(alias_text)) > 0),
+        alias_normalized TEXT NOT NULL CHECK(length(alias_normalized) > 0),
+        normalization_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(entry_key, alias_normalized)
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_entry_tags_name_entry ON entry_tags(tag_name, entry_key)")
     ensure_columns(
         conn,
         "export_runs",
