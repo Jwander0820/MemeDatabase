@@ -80,7 +80,13 @@ class ContainerTest(unittest.TestCase):
                 self.assertIn("immutable", headers["Cache-Control"])
                 with Image.open(BytesIO(body)) as im:
                     self.assertLessEqual(max(im.size), 420)
-                for path in ["/", "/mcp", "/api/entries", "/public.sqlite3", "/static/app.js"]:
+                self.assertIn("/assets/gallery.js", http("/")[2].decode())
+                for path in ["/assets/gallery.js", "/assets/gallery.css", "/assets/catalog.css"]:
+                    self.assertEqual(http(path)[0], 200)
+                self.assertEqual(http("/assets/catalog.css")[2], http("/static/catalog.css", private=True)[2])
+                for path in ["/mcp", "/api/entries", "/public.sqlite3", "/static/app.js",
+                             "/api/publication/activate", "/static/publication.js",
+                             f"/reports/{old}.json", f"/versions/{old}/public.sqlite3"]:
                     self.assertEqual(http(path)[0], 404)
                 self.assertEqual(http("/api/v1/entries", method="POST", data={})[0], 405)
                 self.assertEqual(http("/", private=True)[0], 200)
@@ -91,8 +97,9 @@ class ContainerTest(unittest.TestCase):
                 self.assertEqual(http("/api/entries/meme_a", private=True, method="PATCH", data={"quote_text": "new container version"})[0], 200)
                 result = json.loads(http("/api/publication/export", private=True, method="POST", data={})[2])
                 self.assertTrue(result["exported"])
-                # 在公開容器外切換，搜尋程序不重啟。
-                docker("exec", "-T", "private-api", "python", "-m", "src.anime_memes.runtime", "activate", "--root", "/releases", result["version"])
+                self.assertEqual(json.loads(http("/api/v1/entries")[2])["version"], old)
+                self.assertEqual(http("/api/publication/activate", private=True, method="POST",
+                                      data={"version": result["version"]})[0], 200)
                 time.sleep(0.6)
                 self.assertEqual(json.loads(http("/api/v1/entries")[2])["items"][0]["quote_text"], "new container version")
                 time.sleep(0.6)

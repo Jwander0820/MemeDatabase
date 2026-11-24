@@ -18,6 +18,14 @@ server {
         add_header X-Content-Type-Options nosniff;
         try_files $uri =404;
     }
-    # 公開 UI 尚未交付，禁止從管理 UI 回退或公開管理資源。
+    location = / {
+        root /usr/share/nginx/gallery;
+        add_header Cache-Control no-cache;
+        try_files /index.html =404;
+    }
+    location /assets/ {
+        alias /usr/share/nginx/gallery/;
+        add_header Cache-Control no-cache;
+    }
     location / { return 404; }
 }

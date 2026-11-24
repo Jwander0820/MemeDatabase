@@ -210,8 +210,8 @@ Nginx 配置維持靜態供應與 API 代理用途，不增加管理面板。初
 | 本機完整管理 UI、SQLite、匯入／OCR／審核 | 已有，仍由 Flask 同時供應 HTML、靜態檔與 API |
 | 名稱、替代詞、正規化與相關度後端 | 已實作，新 UI 欄位與預設排序尚待整合 |
 | 基礎／OCR 依賴拆分 | 已完成 requirements.txt、requirements-ocr.txt，基礎環境已驗證 |
-| 前後端獨立交付、公開唯讀入口 | 後端完成，管理 HTML 靜態供應；公開 UI 留下一階段 |
-| 發布管理、通用媒體 URL、公開快照與熱更新 | API／CLI 已實作；發布管理 UI 尚未做 |
+| 前後端獨立交付、公開唯讀入口 | 公開搜尋與私人管理頁由各自的 Nginx 供應 |
+| 發布管理、通用媒體 URL、公開快照與熱更新 | 私人 UI、API 與 CLI 均可選圖、檢查、匯出及啟用 |
 | Nginx、Dockerfile、Compose、正式 WSGI | 已實作、本機容器驗證；未部署 VPS |
 | 私人 MCP | 已實作 token、唯讀工具、Host／Origin 防護；公開版不含 MCP |
 | PostgreSQL、全庫 dict、語意搜尋 | 非第一版必要項目 |
@@ -222,4 +222,4 @@ Nginx 配置維持靜態供應與 API 代理用途，不增加管理面板。初
 - [專案現況與資源評估](archive/personal-meme-assessment-2026-11-23.md)：歷史盤點、估算與測試範圍。
 - [同類方案與部署研究](archive/personal-meme-research-2026-11-23.md)：歷史研究與官方來源，時效資訊須部署時再查。
 
-後端與主庫 migration、容器及操作驗證見 [雙版本後端與發布操作](backend-refactor.md)。未部署 VPS，公開 UI／發布管理 UI 為後續階段。
+後端與主庫 migration、容器及操作驗證見 [雙版本後端與發布操作](backend-refactor.md)。VPS 部署另行規劃。

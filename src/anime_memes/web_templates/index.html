@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>動畫迷因資料庫</title>
+  <title>私人管理｜動畫梗圖館</title>
+  <link rel="stylesheet" href="/static/catalog.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -12,7 +13,8 @@
       <div class="brand">
         <div class="brand-mark">AM</div>
         <div>
-          <h1>動畫迷因資料庫</h1>
+          <span class="mode-name">私人管理</span>
+          <h1>動畫梗圖館</h1>
           <p id="resultCount">載入中</p>
         </div>
       </div>
@@ -22,6 +24,7 @@
         手動新增梗圖
       </button>
 
+      <button id="openPublication" type="button">發布管理</button>
       <label class="field">
         <span>搜尋</span>
         <input id="searchInput" type="search" placeholder="台詞、作品、說話者、OCR">
@@ -122,7 +125,22 @@
     </form>
   </dialog>
 
+  <dialog id="publicationDialog" class="create-dialog" aria-labelledby="publicationTitle">
+    <section class="create-form">
+      <div class="create-header"><h2 id="publicationTitle">發布管理</h2>
+        <form method="dialog"><button autofocus>關閉</button></form>
+      </div>
+      <div class="edit-actions">
+        <button id="checkPublication">檢查</button>
+        <button id="exportPublication" disabled>匯出</button>
+        <button id="activatePublication" class="primary" disabled>啟用此版</button>
+      </div>
+      <p id="publicationStatus" role="status"></p>
+      <div id="publicationReport"></div>
+    </section>
+  </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/publication.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

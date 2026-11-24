@@ -16,7 +16,7 @@
 
 ## 發展方向與文件
 
-後端已拆出本機管理、公開唯讀搜尋、發布工具與私人選用 MCP。公開版由 Nginx 供應縮圖與轉送 API，SQLite／媒體以容器外目錄掛載；公開資料可驗證後切換版本。這輪提供 API／CLI 與容器配置，公開搜尋頁及發布管理 UI 留下一階段，尚未部署 VPS。
+後端已拆出本機管理、公開唯讀搜尋、發布工具與私人選用 MCP。公開版由 Nginx 供應縮圖與轉送 API，SQLite／媒體以容器外目錄掛載；公開資料可驗證後切換版本。私人管理頁可選圖、檢查、匯出及啟用版本，公開搜尋頁支援預覽、分享與取圖。
 
 操作與 API 契約見 [雙版本後端與發布操作](docs/backend-refactor.md)。公開版不提供 Agent 專用接口或 MCP；私人管理版保留既有 UI，另可啟用唯讀 MCP。公開與私人入口不可混用，私人管理端預設只綁 localhost。
 
@@ -60,7 +60,7 @@ python -m venv .venv
 
 OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。清單是直接依賴，尚非完整 lockfile。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
 
-本機 Docker 可用 `docker compose --profile private up -d --build`；公開 API 使用 `--profile public`，須先匯出與啟用發布資料。公開 `/` 為 404，這輪尚未交付公開前端。完整指令、環境變數與私人 MCP 設定見後端操作文件。
+本機 Docker 的[私人管理頁](http://localhost:8765)與[公開搜尋頁](http://localhost:8875)使用獨立入口。首次啟動、隔離資料與換版驗收見[本機操作說明](docs/backend-refactor.md#dockernginx-本機啟動)。
 
 ## 啟動 Web UI
 

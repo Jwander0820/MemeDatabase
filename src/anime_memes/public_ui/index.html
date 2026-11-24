@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>動畫梗圖館</title>
+  <link rel="stylesheet" href="/assets/catalog.css">
+  <link rel="stylesheet" href="/assets/gallery.css">
+  <script defer src="/assets/gallery.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="rail" aria-label="搜尋與篩選">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">AM</div>
+        <div><span class="mode-name">公開搜尋</span><h1>動畫梗圖館</h1>
+          <p id="status" role="status"></p>
+        </div>
+      </div>
+      <form id="filters" role="search">
+        <label class="field"><span>搜尋</span><input id="query" type="search" maxlength="256" placeholder="輸入台詞、作品或角色"></label>
+        <div class="field-grid">
+          <label class="field"><span>標籤</span><select id="tag"><option value="">全部標籤</option></select></label>
+          <label class="field"><span>排序</span><select id="sort"><option value="">自動排序</option><option value="relevance">相關度</option><option value="updated">最近更新</option><option value="title">作品名稱</option></select></label>
+        </div>
+        <button class="primary">搜尋</button>
+      </form>
+    </aside>
+    <section class="content" aria-label="搜尋結果">
+      <div class="meme-grid" id="results"></div>
+      <div class="load-row"><button id="more" hidden>載入更多</button></div>
+    </section>
+  </main>
+  <dialog class="create-dialog" id="preview" aria-labelledby="title">
+    <form method="dialog"><button autofocus>關閉</button></form>
+    <h2 id="title">梗圖詳情</h2>
+    <div id="detail"></div>
+    <p id="feedback" role="status"></p>
+  </dialog>
+</body>
+</html>

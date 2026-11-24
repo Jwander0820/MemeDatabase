@@ -119,6 +119,18 @@ def create_app(
         result = export_release(app.config["DB_PATH"], app.config["RELEASE_ROOT"])
         return jsonify(result), 200 if result["exported"] else 422
 
+    @app.post("/api/publication/activate")
+    def publication_activate():
+        from .releases import activate
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or set(data) != {"version"}:
+            raise ValueError("啟用只接受 version")
+        try:
+            manifest = activate(Path(app.config["RELEASE_ROOT"]), data["version"])
+        except (OSError, sqlite3.Error, KeyError, TypeError, AttributeError):
+            return jsonify(error="無法驗證或寫入發布包，請確認檔案完整及目錄權限"), 422
+        return jsonify(version=manifest["version"], count=manifest["count"])
+
     @app.get("/api/meta")
     def api_meta():
         return jsonify(metadata(g.db))

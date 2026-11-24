@@ -97,6 +97,24 @@ class PublicationTest(unittest.TestCase):
             self.assertEqual(total, public["total"])
             self.assertEqual([r["key"] for r in local], [r["id"] for r in private.search(q, 20)["items"]])
 
+    def test_private_activation_validates_before_switching(self):
+        from src.anime_memes.web import create_app
+        private = create_app(db_path=self.db, release_root=self.releases).test_client()
+        old = self.publish()
+        version = export_release(self.db, self.releases)["version"]
+        route = "/api/publication/activate"
+        for payload in [{}, [], {"version": "../bad"}, {"version": "missing"},
+                        {"version": version, "root": "other"}]:
+            self.assertEqual(private.post(route, json=payload).status_code, 400)
+        self.assertEqual(private.post(route, json={"version": version},
+                                      headers={"Origin": "https://other.example"}).status_code, 403)
+        self.assertEqual(current_version(self.releases), old)
+        self.assertEqual(private.post(route, json={"version": version}).get_json(),
+                         {"version": version, "count": 1})
+        (self.releases / "versions" / old / "public.sqlite3").unlink()
+        self.assertEqual(private.post(route, json={"version": old}).status_code, 422)
+        self.assertEqual(current_version(self.releases), version)
+
     def test_hot_switch_rollback_and_corruption(self):
         old = self.publish()
         old_conn = open_readonly(self.releases / "versions" / old / "public.sqlite3")

@@ -1,0 +1,30 @@
+#filters button, #preview button, .actions a {
+  padding: 9px 14px;
+  border-radius: 6px;
+}
+#filters button { width: 100%; font-weight: 700; }
+#preview { padding: 18px; width: min(620px, calc(100vw - 28px)); overflow-wrap: anywhere; }
+#preview form { float: right; margin: 0 0 10px 10px; }
+#preview h2 { margin: 0 0 12px; }
+#detail { clear: both; }
+#detail img {
+  display: block;
+  width: 100%;
+  max-height: 52dvh;
+  object-fit: contain;
+  background: #d8d0c4;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+#detail p, #feedback { font-size: 14px; }
+#feedback { color: var(--accent-2); }
+dialog:modal, dialog::backdrop { overscroll-behavior: contain; }
+dialog::backdrop { overflow: hidden; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions a {
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  text-decoration: none;
+}
+.actions a:hover { border-color: var(--accent); }

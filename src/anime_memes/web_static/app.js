@@ -178,6 +178,7 @@ async function openEntry(key) {
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   bindDetailForm(item);
+  bindPublication(drawerBody.querySelector("#entryPublication"), item.key);
 }
 
 function detailTemplate(item) {
@@ -205,6 +206,15 @@ function detailTemplate(item) {
         <button type="button" id="deleteEntry" class="danger">${T.deleteEntry}</button>
         <button class="primary" type="submit">${T.save}</button>
       </div>
+    </form>
+    <form id="entryPublication" class="edit-form">
+      <fieldset disabled>
+        <legend>公開設定</legend>
+        <label><input type="checkbox" name="selected"> 納入公開館藏</label>
+        <label class="field">公開原圖網址（選填）<input name="original" type="url" placeholder="https://"></label>
+        <button type="submit">儲存公開設定</button>
+      </fieldset>
+      <output role="status">正在讀取公開設定…</output>
     </form>
     <div class="meta-box">
       Key: ${escapeHtml(item.key)}<br>
