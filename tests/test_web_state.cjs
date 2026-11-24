@@ -116,3 +116,21 @@ test('failed page request can retry the same page', async () => {
   assert.equal(h.run('state.page'), 1);
   assert.equal(h.node('#loadMore').disabled, false);
 });
+
+test('search scope sends field only when there is a query', async () => {
+  const h = await harness();
+  const urls = [];
+  h.fetch(async url => { urls.push(url); return {ok: true, json: async () => ({items: [], total: 0, page: 1})}; });
+  h.node('#searchScope').handlers.change({target: {value: 'work'}});
+  assert.equal(h.node('#searchInput').placeholder, '搜尋作品名稱');
+  assert.equal(urls.length, 0);
+  await h.run('loadEntries(true)');
+  assert.equal(new URLSearchParams(urls[0].split('?')[1]).has('field'), false);
+  assert.equal(h.run('"field" in currentFilter()'), false);
+  h.node('#searchInput').value = '鬼滅';
+  await h.run('loadEntries(true)');
+  assert.equal(new URLSearchParams(urls[1].split('?')[1]).get('field'), 'work');
+  assert.equal(h.run('currentFilter().field'), 'work');
+  h.node('#searchScope').handlers.change({target: {value: ''}});
+  assert.equal(h.run('"field" in currentFilter()'), false);
+});

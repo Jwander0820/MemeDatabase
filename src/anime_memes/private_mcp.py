@@ -27,12 +27,12 @@ class PrivateSearch:
     def __init__(self, db, media_base):
         self.db, self.media_base = Path(db), media_base.rstrip("/")
 
-    def search(self, query: str, limit: int = 5):
+    def search(self, query: str, limit: int = 5, field: str | None = None):
         if not isinstance(limit, int) or not 1 <= limit <= 20:
             raise ValueError("limit 必須介於 1–20")
         with closing(open_readonly(self.db)) as conn:
             conn.execute("BEGIN")
-            rows, total = query_entries(conn, {"q": query, "status": "ready"}, 1, limit)
+            rows, total = query_entries(conn, {"q": query, "field": field, "status": "ready"}, 1, limit)
             return {"items": [private_item(r, self.media_base) for r in rows], "total": total}
 
     def get(self, entry_id: str):
@@ -60,9 +60,14 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
     server = MCPServer("AnimeMemes Private Search")
 
     @server.tool()
-    def search_memes(query: str, limit: int = 5) -> dict:
-        """依台詞、角色、作品或別名搜尋私人 ready 梗圖，回傳少量資料與圖片網址。"""
-        return service.search(query, limit)
+    def search_memes(query: str, limit: int = 5, field: str | None = None) -> dict:
+        """依台詞、角色、作品或別名搜尋私人 ready 梗圖，回傳少量資料與圖片網址。
+
+        query 以空白分隔多詞（AND）；支援 "片語"、-排除詞，以及欄位限定
+        名稱:／角色:／作品:／台詞:／標籤:／別名:，例如 朋友 -作品:"某作品"。
+        field 可選 work／speaker／quote／title／tag／alias，讓沒寫前綴的詞只比對該欄位。
+        """
+        return service.search(query, limit, field)
 
     @server.tool()
     def get_meme(id: str) -> dict:

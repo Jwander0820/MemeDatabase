@@ -53,6 +53,21 @@
   font-size: 15.5px;
 }
 
+.search-form { flex-wrap: wrap; }
+
+.scope-row {
+  order: 5;
+  flex: 0 0 100%;
+  display: flex;
+  gap: 7px;
+  padding-left: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.scope-row::-webkit-scrollbar { display: none; }
+.scope-row .chip { flex: 0 0 auto; }
+
 .sort-select select {
   min-height: 46px;
   border-radius: 999px;

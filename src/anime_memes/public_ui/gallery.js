@@ -175,6 +175,36 @@ function renderTags() {
   tagRow.replaceChildren(favorites, chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
 }
 
+// 搜尋範圍：空字串為全部欄位，其餘對應 API 的 field 參數。
+const SCOPES = [
+  {value: "", label: "不限", placeholder: "搜尋台詞、作品、角色或標籤"},
+  {value: "work", label: "作品", placeholder: "搜尋作品名稱"},
+  {value: "speaker", label: "角色", placeholder: "搜尋角色"},
+  {value: "quote", label: "台詞", placeholder: "搜尋台詞"},
+];
+let activeScope = "";
+
+function renderScope() {
+  const box = byId("scope");
+  box.replaceChildren(...SCOPES.map(item => {
+    const node = element("button", item.label);
+    node.type = "button";
+    node.className = "chip";
+    node.ariaPressed = String(activeScope === item.value);
+    node.onclick = () => setScope(item.value);
+    return node;
+  }));
+  const current = SCOPES.find(item => item.value === activeScope) || SCOPES[0];
+  byId("query").placeholder = current.placeholder;
+}
+
+function setScope(value) {
+  if (value === activeScope) return;
+  activeScope = value;
+  renderScope();
+  if (byId("query").value.trim()) search(true);
+}
+
 async function search(reset) {
   clearTimeout(timer);
   const request = ++listRequest;
@@ -188,9 +218,12 @@ async function search(reset) {
     version = "";
   }
   const params = new URLSearchParams({page: page + 1});
-  for (const [name, value] of [["q", byId("query").value.trim()], ["tag", activeTag], ["sort", byId("sort").value]]) {
+  const query = byId("query").value.trim();
+  for (const [name, value] of [["q", query], ["tag", activeTag], ["sort", byId("sort").value]]) {
     if (value) params.set(name, value);
   }
+  // field 只在有查詢字時才有意義。
+  if (query && activeScope) params.set("field", activeScope);
   if (favoritesOnly) {
     if (localMode) params.set("favorite", "1");
     else params.set("ids", favoriteIds.slice(0, MAX_FAVORITE_QUERY).join(","));
@@ -477,5 +510,6 @@ byId("query").oninput = () => {
 };
 byId("sort").onchange = () => search(true);
 more.onclick = () => search(retryFromStart);
+renderScope();
 search(true);
 showRoute();

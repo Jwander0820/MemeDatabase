@@ -819,3 +819,5 @@ button.view-switch[aria-pressed="true"] { border-color: var(--chip-active); back
   .upload-icon, .upload-field img { width: 72px; height: 72px; }
   .publication-steps { grid-template-columns: 1fr; }
 }
+
+.search-scope { margin-top: 8px; }

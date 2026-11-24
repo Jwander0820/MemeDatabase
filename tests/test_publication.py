@@ -101,6 +101,14 @@ class PublicationTest(unittest.TestCase):
             self.assertEqual([mapping[r["key"]] for r in local], [r["id"] for r in public["items"]])
             self.assertEqual(total, public["total"])
             self.assertEqual([r["key"] for r in local], [r["id"] for r in private.search(q, 20)["items"]])
+        # 搜尋範圍在三個入口行為一致。
+        for q, field in [("烈海王", "speaker"), ("刃牙", "work"), ("刃牙", "quote"), ("烈海王 -作品:刃牙", "")]:
+            local, total = query_entries(self.conn, {"q": q, "field": field}, 1, 24)
+            public = self.client.get("/api/v1/entries", query_string={"q": q, "field": field}).get_json()
+            self.assertEqual([mapping[r["key"]] for r in local], [r["id"] for r in public["items"]])
+            self.assertEqual(total, public["total"])
+            self.assertEqual([r["key"] for r in local], [r["id"] for r in private.search(q, 20, field or None)["items"]])
+        self.assertEqual(self.client.get("/api/v1/entries", query_string={"q": "刃牙", "field": "ocr"}).status_code, 400)
 
     def test_private_activation_validates_before_switching(self):
         from src.anime_memes.web import create_app
@@ -167,11 +175,17 @@ class PublicationTest(unittest.TestCase):
         self.assertFalse(result.get_json()["exported"])
 
     def test_publish_lock_and_private_data_absent_from_snapshot(self):
+        # OCR 不進公開快照，因此其中疑似本地路徑的文字也不阻擋發布。
+        self.conn.execute("UPDATE meme_entries SET ocr_text=? WHERE key='meme_0'", (r"PRIVATE_OCR C:\Users\owner\x.png",))
+        self.conn.commit()
         version = self.publish()
         with closing(open_readonly(self.releases / "versions" / version / "public.sqlite3")) as c:
             tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertEqual(tables, {"metadata", "entries", "entry_tags"})
-        self.assertNotIn(b"PRIVATE_NOTE", (self.releases / "versions" / version / "public.sqlite3").read_bytes())
+            self.assertNotIn("ocr_text", [r[1] for r in c.execute("PRAGMA table_info(entries)")])
+        snapshot = (self.releases / "versions" / version / "public.sqlite3").read_bytes()
+        self.assertNotIn(b"PRIVATE_NOTE", snapshot)
+        self.assertNotIn(b"PRIVATE_OCR", snapshot)
         (self.releases / ".export.lock").touch()
         with self.assertRaises(ValueError):
             export_release(self.db, self.releases)

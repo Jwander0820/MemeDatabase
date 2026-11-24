@@ -38,7 +38,16 @@ const T = {
 
 const STATUS_LABELS = {ready: "可用", needs_review: "待審核", ignored: "已忽略"};
 
+const SEARCH_PLACEHOLDERS = {
+  "": "台詞、作品、角色、標籤",
+  work: "搜尋作品名稱",
+  speaker: "搜尋角色",
+  quote: "搜尋台詞",
+};
+const searchScope = document.querySelector("#searchScope");
+
 const state = {
+  searchField: "",
   page: 1,
   pageSize: 48,
   total: 0,
@@ -103,7 +112,10 @@ function params(page = state.page) {
   search.set("status", statusFilter.value);
   search.set("sort", sortFilter.value);
   search.set("seed", state.randomSeed);
-  if (searchInput.value.trim()) search.set("q", searchInput.value.trim());
+  if (searchInput.value.trim()) {
+    search.set("q", searchInput.value.trim());
+    if (state.searchField) search.set("field", state.searchField);
+  }
   if (state.tag) search.set("tag", state.tag);
   if (favoriteOnly.checked) search.set("favorite", "1");
   if (missingImage.checked) search.set("missing_image", "1");
@@ -292,7 +304,7 @@ function updateBulkBar() {
 function currentFilter() {
   const search = params(1);
   const filter = {};
-  ["status", "q", "tag", "favorite", "missing_image", "no_tags", "published"].forEach((name) => {
+  ["status", "q", "field", "tag", "favorite", "missing_image", "no_tags", "published"].forEach((name) => {
     if (search.has(name)) filter[name] = search.get(name);
   });
   return filter;
@@ -632,6 +644,7 @@ createForm.addEventListener("submit", async (event) => {
     }
     createDialog.close();
     searchInput.value = "";
+    setSearchField("");
     statusFilter.value = data.status;
     sortFilter.value = "updated";
     favoriteOnly.checked = false;
@@ -680,6 +693,21 @@ loadMore.addEventListener("click", () => {
 // 「已公開」「未公開」互斥：勾選其中一個時取消另一個。
 [[publishedOnly, unpublishedOnly], [unpublishedOnly, publishedOnly]].forEach(([el, other]) => {
   el.addEventListener("change", () => { if (el.checked) other.checked = false; });
+});
+
+// 搜尋範圍：更新狀態、radio 勾選與 placeholder。
+function setSearchField(value) {
+  state.searchField = SEARCH_PLACEHOLDERS[value] !== undefined ? value : "";
+  searchInput.placeholder = SEARCH_PLACEHOLDERS[state.searchField];
+  searchScope.querySelectorAll?.('input[name="searchField"]').forEach((radio) => {
+    radio.checked = radio.value === state.searchField;
+  });
+}
+
+searchScope.addEventListener("change", (event) => {
+  setSearchField(event.target.value);
+  // 沒有搜尋字時 field 不會送出，不必重新載入。
+  if (searchInput.value.trim()) loadEntries(true);
 });
 
 [searchInput, statusFilter, sortFilter, favoriteOnly, missingImage, noTags, publishedOnly, unpublishedOnly].forEach((el) => {

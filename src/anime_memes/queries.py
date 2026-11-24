@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import hashlib
 from typing import Any
-from .search import ALIASES_SQL, SCORE_SQL, scorer
+from .search import ALIASES_SQL, SCORE_ARGS, SCORE_SQL, scorer, search_field
 
 def truthy(value):
     return str(value or "").lower() in {"1", "true", "yes", "on"}
@@ -23,8 +23,9 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         where.append("e.status = ?")
         params.append(status)
     q = args.get("q") or ""
+    field = search_field(args.get("field") or None)  # 搜尋範圍：沒寫前綴的詞只比對此欄位
     if q:
-        conn.create_function("meme_score", 7, scorer(q), deterministic=True)
+        conn.create_function("meme_score", SCORE_ARGS, scorer(q, field), deterministic=True)
         where.append(f"{SCORE_SQL} > 0")
     tag = (args.get("tag") or "").strip()
     if tag:

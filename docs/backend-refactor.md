@@ -89,7 +89,7 @@ releases/
 └─ reports/<version>.json         僅管理端使用的檢查紀錄
 ```
 
-公開資料結構目前為第 2 版：entries 新增 `thumbnail_width`、`thumbnail_height`（實際縮圖尺寸），前端據此在圖片載入前預留版面，並依高度做由左到右的瀑布流排列。公開服務只讀取相同結構版本的快照，升級程式後舊版本會被拒絕（公開 API 健康檢查失敗），須重新匯出並啟用一次；R2 大圖以內容雜湊沿用，不會重傳。
+公開資料結構目前為第 3 版。第 2 版在 entries 新增 `thumbnail_width`、`thumbnail_height`（實際縮圖尺寸），前端據此在圖片載入前預留版面，並依高度做由左到右的瀑布流排列；第 3 版（2026-11-25）移除 `ocr_text`，OCR 不再進入公開快照，發布檢查也不再掃描 OCR 文字。公開服務只讀取相同結構版本的快照，升級程式後舊版本會被拒絕（公開 API 健康檢查失敗），須重新匯出並啟用一次；R2 大圖以內容雜湊沿用，不會重傳。
 
 同步至目標發布目錄時，先完整放好 media 與 versions，最後在**目標主機**驗證並啟用，勿把上傳中的檔案直接指定成目前版本，也不要同步覆寫 current.json。
 
@@ -123,9 +123,9 @@ docker compose --profile public up -d
 | GET /health/live | 程序可回應 |
 | GET /health/ready | 已啟用且 schema 相容 |
 
-列表預設每頁 24、最多 60，page 1–10000；sort 為 relevance、updated、title。q 最長 256 字／16 詞。有查詢預設相關度，否則最近更新；保留繁簡、標點、多詞、標籤／別名搜尋規則。不接受 status、favorite、missing_image 或其他管理參數。
+列表預設每頁 24、最多 60，page 1–10000；sort 為 relevance、updated、title。q 最長 256 字／16 詞。有查詢預設相關度，否則最近更新；保留繁簡、標點、多詞、標籤／別名搜尋規則，並支援 `-排除`、`作品:詞` 欄位限定、引號片語與 `field` 搜尋範圍參數（work／speaker／quote／title／tag／alias，見 [DB 與搜尋規格 5.4](database-search-spec.md)）。不接受 status、favorite、missing_image 或其他管理參數。
 
-列表回傳 `{version, items, total, page, page_size}`；單筆 `{version, item}`。item 欄位為 id、display_title、resolved_title、speaker、anime_title、quote_text、tags、search_aliases、thumbnail_url、original_url、updated_at；ocr_text 只參與搜尋，不直接回傳。API 無長時間快取，圖片雜湊 URL 使用一年 immutable 快取。
+列表回傳 `{version, items, total, page, page_size}`；單筆 `{version, item}`。item 欄位為 id、display_title、resolved_title、speaker、anime_title、quote_text、tags、search_aliases、thumbnail_url、original_url、updated_at；OCR 不參與搜尋，也不寫入公開快照（第 3 版起）。API 無長時間快取，圖片雜湊 URL 使用一年 immutable 快取。
 
 錯誤格式為 `{error: {code, message}}`，涵蓋 400 invalid_request、404 not_found、405 method_not_allowed、410 version_expired、503 not_ready。Nginx 限流回傳 429；其預設 HTML 錯誤頁不遵循 API JSON 格式，前端須先判斷 HTTP status。
 
@@ -173,7 +173,7 @@ $env:MEMES_MCP_TOKEN = '<至少32字元的隨機ASCII值>'
 docker compose --profile private --profile mcp up -d --build
 ```
 
-預設 `http://127.0.0.1:8766/mcp`，使用 `Authorization: Bearer TOKEN`，無狀態 Streamable HTTP。僅 search_memes(query, limit=5，最多20) 與 get_meme(id)，查 ready 資料，共用本機搜尋。metadata 有回傳數量與文字長度上限，不回傳 notes、OCR、來源訊息或檔案路徑。未提供／錯誤 token 回 401，錯誤 Host／Origin 回 403，不存在寫入工具。
+預設 `http://127.0.0.1:8766/mcp`，使用 `Authorization: Bearer TOKEN`，無狀態 Streamable HTTP。僅 search_memes(query, limit=5，最多20, field=None) 與 get_meme(id)，查 ready 資料，共用本機搜尋。metadata 有回傳數量與文字長度上限，不回傳 notes、OCR、來源訊息或檔案路徑。未提供／錯誤 token 回 401，錯誤 Host／Origin 回 403，不存在寫入工具。
 
 非 Docker 可 `python -m src.anime_memes.private_mcp`；預設 loopback，依環境設定 MEMES_DB、MEMES_PRIVATE_URL。自行換 port／網域時也必須設定精確的 MEMES_MCP_HOSTS／MEMES_MCP_ORIGINS 清單，勿用萬用允許值。私人管理端沒有新增遠端登入系統，因此 loopback 不可直接改成公開曝光。
 

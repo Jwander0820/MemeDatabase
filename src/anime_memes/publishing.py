@@ -193,7 +193,7 @@ def check(conn, *, r2_enabled=False):
             errors.append("尚非 ready")
         if not row["public_id"]:
             errors.append("缺少公開 ID，請重新設定公開選擇")
-        visible = [row[name] or "" for name in ("display_title", "speaker", "anime_title", "quote_text", "ocr_text")]
+        visible = [row[name] or "" for name in ("display_title", "speaker", "anime_title", "quote_text")]
         visible.extend(r[0] for r in conn.execute("SELECT tag_name FROM entry_tags WHERE entry_key=?", (row["key"],)))
         visible.extend(r[0] for r in conn.execute("SELECT alias_text FROM entry_search_aliases WHERE entry_key=?", (row["key"],)))
         if any(re.search(r"(?i)(?:file://|[a-z]:[\\/]|(?:^|\s)/(?:Users|home|data|mnt|app)/)", value) for value in visible):
@@ -427,9 +427,9 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
                 media_hashes[filename] = hash_value
                 tags = sorted({r[0] for r in source.execute("SELECT tag_name FROM entry_tags WHERE entry_key=?", (row["key"],))})
                 aliases = [r[0] for r in source.execute("SELECT alias_text FROM entry_search_aliases WHERE entry_key=? ORDER BY alias_normalized", (row["key"],))]
-                target.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                target.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                                (row["public_id"], row["display_title"], row["speaker"], row["anime_title"], row["quote_text"],
-                                row["ocr_text"], json.dumps(tags, ensure_ascii=False), json.dumps(aliases, ensure_ascii=False),
+                                json.dumps(tags, ensure_ascii=False), json.dumps(aliases, ensure_ascii=False),
                                 "/media/" + filename, row["public_original_url"] or row["r2_url"], row["updated_at"],
                                 thumb_width, thumb_height))
                 target.executemany("INSERT INTO entry_tags VALUES(?,?)", [(row["public_id"], tag) for tag in tags])

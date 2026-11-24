@@ -75,9 +75,16 @@
         <span>搜尋</span>
         <span class="search-box">
           <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-          <input id="searchInput" type="search" placeholder="台詞、作品、說話者、OCR" autocomplete="off">
+          <input id="searchInput" type="search" placeholder="台詞、作品、角色、標籤" autocomplete="off">
         </span>
       </label>
+      <fieldset class="toggles search-scope" id="searchScope">
+        <legend class="section-label">搜尋範圍</legend>
+        <label class="check-chip"><input type="radio" name="searchField" value="" checked><span>不限</span></label>
+        <label class="check-chip"><input type="radio" name="searchField" value="work"><span>作品</span></label>
+        <label class="check-chip"><input type="radio" name="searchField" value="speaker"><span>角色</span></label>
+        <label class="check-chip"><input type="radio" name="searchField" value="quote"><span>台詞</span></label>
+      </fieldset>
 
       <div class="field-grid">
         <label class="field">

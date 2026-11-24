@@ -189,7 +189,8 @@ def create_app(
         sort = request.args.get("sort") or ("relevance" if q else "updated")
         if sort not in {"relevance", "updated", "title"}:
             raise ValueError("不支援的排序")
-        args = {"status": "ready", "q": q, "tag": request.args.get("tag") or "", "sort": sort,
+        args = {"status": "ready", "q": q, "field": request.args.get("field") or "",
+                "tag": request.args.get("tag") or "", "sort": sort,
                 # 本機簡潔瀏覽的收藏與管理頁共用（entry_favorites）。
                 "favorite": request.args.get("favorite") or ""}
         entries, total = query_entries(g.db, args, page, page_size)

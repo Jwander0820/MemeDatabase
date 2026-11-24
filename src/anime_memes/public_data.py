@@ -6,15 +6,16 @@ import re
 import sqlite3
 from pathlib import Path
 
-from .search import NORMALIZATION_VERSION, scorer
+from .search import NORMALIZATION_VERSION, SCORE_ARGS, scorer, search_field
 
 # 第 2 版：entries 新增縮圖寬高，前端可在圖片載入前預留版面並依高度排列。
-SCHEMA_VERSION = 2
+# 第 3 版：移除 ocr_text；OCR 不參與搜尋，也不回傳，沒有理由放進公開快照。
+SCHEMA_VERSION = 3
 SCHEMA = """
 CREATE TABLE metadata(schema_version INTEGER NOT NULL, normalization_version INTEGER NOT NULL, version TEXT NOT NULL);
 CREATE TABLE entries(
  id TEXT PRIMARY KEY, display_title TEXT, speaker TEXT, anime_title TEXT,
- quote_text TEXT NOT NULL, ocr_text TEXT, tags_json TEXT NOT NULL,
+ quote_text TEXT NOT NULL, tags_json TEXT NOT NULL,
  aliases_json TEXT NOT NULL, thumbnail_url TEXT NOT NULL, original_url TEXT,
  updated_at TEXT NOT NULL, thumbnail_width INTEGER NOT NULL, thumbnail_height INTEGER NOT NULL
 );
@@ -25,7 +26,7 @@ CREATE INDEX idx_public_updated ON entries(updated_at DESC,id);
 """
 FIELDS = ("id", "display_title", "speaker", "anime_title", "quote_text", "thumbnail_url", "original_url", "updated_at",
           "thumbnail_width", "thumbnail_height")
-ALLOWED_ARGS = {"q", "tag", "sort", "page", "page_size", "version", "ids"}
+ALLOWED_ARGS = {"q", "field", "tag", "sort", "page", "page_size", "version", "ids"}
 # 訪客收藏清單一次查詢的上限（收藏存在訪客瀏覽器，以公開 ID 查最新資料）。
 MAX_IDS = 200
 
@@ -45,7 +46,7 @@ def validate_schema(conn: sqlite3.Connection, version: str) -> None:
     if {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")} != expected:
         raise ValueError("公開資料表不符合白名單")
     columns = [r[1] for r in conn.execute("PRAGMA table_info(entries)")]
-    if columns != ["id", "display_title", "speaker", "anime_title", "quote_text", "ocr_text", "tags_json", "aliases_json", "thumbnail_url", "original_url", "updated_at", "thumbnail_width", "thumbnail_height"]:
+    if columns != ["id", "display_title", "speaker", "anime_title", "quote_text", "tags_json", "aliases_json", "thumbnail_url", "original_url", "updated_at", "thumbnail_width", "thumbnail_height"]:
         raise ValueError("公開欄位不符合白名單")
     for table, names in {"metadata": ["schema_version", "normalization_version", "version"], "entry_tags": ["entry_id", "tag"]}.items():
         if [r[1] for r in conn.execute(f"PRAGMA table_info({table})")] != names:
@@ -70,10 +71,11 @@ def search(conn: sqlite3.Connection, args) -> dict:
     if page < 1 or not 1 <= size <= 60 or page > 10000:
         raise ValueError("page 或 page_size 超出範圍")
     q = args.get("q") or ""
-    score_sql = "meme_score(e.display_title,e.speaker,e.anime_title,e.quote_text,e.ocr_text,e.tags_json,e.aliases_json)"
+    field = search_field(args.get("field") or None)
+    score_sql = "meme_score(e.display_title,e.speaker,e.anime_title,e.quote_text,e.tags_json,e.aliases_json)"
     where, params = ["1=1"], []
     if q:
-        conn.create_function("meme_score", 7, scorer(q), deterministic=True)
+        conn.create_function("meme_score", SCORE_ARGS, scorer(q, field), deterministic=True)
         where.append(score_sql + ">0")
     if args.get("tag"):
         where.append("EXISTS(SELECT 1 FROM entry_tags t WHERE t.entry_id=e.id AND t.tag=?)")
