@@ -15,6 +15,7 @@ from .attachments import (
     is_probably_downloadable,
 )
 from .db import init_db
+from .renditions import render_webp, write_atomic
 
 
 def utc_now() -> str:
@@ -206,7 +207,6 @@ def build_thumbnails(
     conn: sqlite3.Connection,
     *,
     thumbnail_dir: str | Path = "data/thumbnails",
-    size: int = 420,
     missing: bool = True,
     force: bool = False,
     limit: int | None = None,
@@ -245,11 +245,8 @@ def build_thumbnails(
             summary["cached"] += 1
             continue
         try:
-            with Image.open(source) as image:
-                image = image.convert("RGB")
-                image.thumbnail((size, size), Image.Resampling.LANCZOS)
-                image.save(output, "WEBP", quality=78, method=6)
-                width, height = image.size
+            data, width, height = render_webp(source, "thumb")
+            write_atomic(output, data)
             conn.execute(
                 """
                 UPDATE attachments

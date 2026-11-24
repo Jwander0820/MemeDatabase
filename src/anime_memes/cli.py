@@ -12,6 +12,7 @@ from .env import getenv, load_dotenv
 from .exporter import default_before, export_and_convert, incremental_after, save_sync_state
 from .ingest import ingest_fixed_export, ocr_review_entries
 from .images import build_thumbnails, download_all_attachments
+from .renditions import build_web_renditions
 from .notion import export_notion_csv
 from .review import export_review_csv, import_review_corrections
 from .tagging import export_tagging_jobs, import_tagging_results
@@ -151,11 +152,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     thumbs = sub.add_parser("build-thumbnails", help="Build local thumbnails for downloaded images")
     thumbs.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
-    thumbs.add_argument("--size", type=int, default=420)
     thumbs.add_argument("--missing", action="store_true", help="Only build missing thumbnails")
     thumbs.add_argument("--force", action="store_true")
     thumbs.add_argument("--limit", type=int)
     thumbs.set_defaults(func=cmd_build_thumbnails)
+
+    media = sub.add_parser("build-media", help="Build 480P thumbnails and 720P web renditions (WebP)")
+    media.add_argument("--kind", choices=["thumb", "web", "all"], default="all")
+    media.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    media.add_argument("--web-dir", default=getenv("ANIME_MEMES_WEB_DIR", "data/web"))
+    media.add_argument("--all-entries", action="store_true", help="Web renditions for all attachments, not only publish-selected")
+    media.add_argument("--missing", action="store_true", help="Only build missing renditions")
+    media.add_argument("--force", action="store_true")
+    media.add_argument("--limit", type=int)
+    media.set_defaults(func=cmd_build_media)
 
     web = sub.add_parser("web", help="Run the local browser/editor UI")
     web.add_argument("--host", default=getenv("ANIME_MEMES_WEB_HOST", "127.0.0.1"))
@@ -543,11 +553,33 @@ def cmd_build_thumbnails(args: argparse.Namespace) -> None:
         summary = build_thumbnails(
             conn,
             thumbnail_dir=args.thumbnail_dir,
-            size=args.size,
             missing=args.missing,
             force=args.force,
             limit=args.limit,
         )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_build_media(args: argparse.Namespace) -> None:
+    summary: dict[str, object] = {}
+    with closing(connect(args.db)) as conn:
+        if args.kind in {"thumb", "all"}:
+            summary["thumb"] = build_thumbnails(
+                conn,
+                thumbnail_dir=args.thumbnail_dir,
+                missing=args.missing,
+                force=args.force,
+                limit=args.limit,
+            )
+        if args.kind in {"web", "all"}:
+            summary["web"] = build_web_renditions(
+                conn,
+                web_dir=args.web_dir,
+                selected_only=not args.all_entries,
+                missing=args.missing,
+                force=args.force,
+                limit=args.limit,
+            )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

@@ -17,6 +17,7 @@ from PIL import Image
 
 from src.anime_memes.db import connect, init_db
 from src.anime_memes.publishing import export_release, update_selection
+from src.anime_memes.r2 import R2_ENV_VARS
 from src.anime_memes.releases import activate
 
 
@@ -42,11 +43,13 @@ class ContainerTest(unittest.TestCase):
                 conn.commit()
                 update_selection(conn, "meme_a", {"publish_selected": True})
             releases = root / "releases"
-            old = export_release(db, releases)["version"]
+            old = export_release(db, releases, store=None)["version"]
             activate(releases, old)
             env = {**os.environ, "PRIVATE_DATA_ROOT": str(root), "RELEASE_ROOT": str(releases),
                    "PRIVATE_PORT": "18865", "PUBLIC_PORT": "18875", "PRIVATE_URL": "http://127.0.0.1:18865",
-                   "ANIME_MEMES_MCP_TOKEN": secrets.token_hex(24)}
+                   "ANIME_MEMES_MCP_TOKEN": secrets.token_hex(24),
+                   # 明確清空 R2 變數：shell 值優先於 compose 讀到的 .env，避免整合測試真的上傳。
+                   **{name: "" for name in R2_ENV_VARS}}
             project = "anime-test-" + uuid.uuid4().hex[:8]
             compose = ["docker", "compose", "-p", project, "--profile", "public", "--profile", "private", "--profile", "mcp"]
 

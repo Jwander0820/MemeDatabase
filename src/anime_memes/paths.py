@@ -22,5 +22,10 @@ def resolve_local(value, kind=None):
             kind = "ATTACHMENT"
     configured = os.environ.get(f"ANIME_MEMES_{kind}_DIR") if kind else None
     if configured:
-        return Path(configured) / PureWindowsPath(value).name
+        base = Path(configured)
+        # .env 常用相對路徑（如 data\attachments）；比照 configured_media_root 以專案根目錄為基準，
+        # 否則 Flask send_file 會改以套件目錄解析。/data 這類有 root 的容器路徑維持原樣。
+        if not (base.drive or base.root):
+            base = ROOT / base
+        return base / PureWindowsPath(value).name
     return native

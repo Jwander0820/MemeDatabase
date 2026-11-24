@@ -65,7 +65,9 @@
 
 取消公開用 `--selected no`，清空原圖網址用 `--original-url ''`。取消選擇或刪除本機項目後，需再次匯出並啟用新版才會從公開搜尋移除；歷史版本與長快取媒體不會因此立即失效，緊急撤回須另停用入口並清理舊版本／CDN。check／export 不合格 exit code 2；其他執行錯誤非零。API 的輸出根目錄由 create_app 的 release_root 或私人 runtime 的 ANIME_MEMES_RELEASE_ROOT 設定；CLI 明確使用 --root。
 
-匯出先用 SQLite backup API 取得一致管理快照，再將選定欄位輸入全新公開庫。縮圖重新解碼／編碼為最長邊 420 px、WebP quality 78，不放大，重建像素去掉 EXIF／ICC。原始縮圖與原圖不被覆蓋。原圖網址可以省略，公開端不代理外部圖片，也不執行縮圖。
+匯出先用 SQLite backup API 取得一致管理快照，再將選定欄位輸入全新公開庫。公開縮圖優先由本地原圖以 480P 預設（長邊 ≤854、短邊 ≤480、WebP quality 78）重新產生，無可用原圖時退回既有縮圖；不放大，重建像素去掉 EXIF／ICC。原始縮圖與原圖不被覆蓋。
+
+若已設定 ANIME_MEMES_R2_* 環境變數，匯出在取得快照前會先為已選取且無手動原圖網址的項目產生 720P WebP，以內容雜湊為物件鍵（HEAD 不存在才 PUT）上傳 R2，並寫回 attachments.r2_key／r2_url；任一上傳失敗則不建立版本，錯誤寫入報告。公開庫 original_url 為手動網址，否則為 R2 網址，皆無則僅縮圖。公開端不代理外部圖片，也不執行縮圖。
 
 ## 發布包與熱更新
 

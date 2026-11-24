@@ -172,6 +172,21 @@ Agent 逐張讀圖並建立 `results.jsonl` 後，匯入待審核候選：
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 export-notion
 ```
 
+## 圖片尺寸與 R2
+
+- 原圖：只存在本機（`data/attachments`），不公開。
+- 480P 縮圖（長邊 ≤854、短邊 ≤480，WebP）：本機縮圖與 VPS 發布包使用；匯出時由本地原圖重新產生，無原圖則退回既有縮圖。
+- 720P 大圖（長邊 ≤1280、短邊 ≤720，WebP，存於 `data/web`）：上傳 R2 作為公開「原圖」。
+
+```bat
+src\commands\build_media.cmd --kind all --missing
+.venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 build-media --kind thumb|web|all [--all-entries] [--missing] [--force]
+```
+
+`--kind` 選擇縮圖、大圖或兩者；縮圖一律處理全部附件，720P 大圖預設只處理發布選取的項目，`--all-entries` 改為全部；`--missing` 只補缺少的檔案；`--force` 強制重新產生。
+
+設定好 `ANIME_MEMES_R2_*`（見 `.env.example`）後，`publication export` 會自動為已選取、且未手動填寫公開原圖網址的項目產生 720P 並上傳 R2（以內容雜湊命名，已存在則略過）；任一上傳失敗則不產生新版本。手動網址優先，其次 R2，皆無則僅發布縮圖。未設定 R2 時行為不變。
+
 ## 專案結構
 
 - `src/anime_memes/`：主要 Python 程式

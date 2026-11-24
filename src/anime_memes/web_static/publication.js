@@ -30,7 +30,7 @@ async function bindPublication(form, key) {
     const settings = await publicationRequest(path, "GET");
     form.elements.selected.checked = settings.publish_selected;
     form.elements.original.value = settings.public_original_url || "";
-    output.textContent = "";
+    output.textContent = settings.r2_url ? "R2 大圖：" + settings.r2_url : "";
     fields.disabled = false;
   } catch (error) {
     output.textContent = "讀取失敗，請重新開啟此圖。" + error.message;
@@ -62,6 +62,11 @@ function renderPublicationReport(report) {
   const summary = document.createElement("strong");
   summary.textContent = `已選取 ${report.count} 筆，${report.valid ? "檢查通過" : "請修正以下錯誤"}`;
   publicationReport.append(summary);
+  for (const message of report.errors || []) {
+    const line = document.createElement("p");
+    line.textContent = "錯誤：" + message;
+    publicationReport.append(line);
+  }
   for (const warning of report.warnings) {
     const line = document.createElement("p");
     line.textContent = warning;
@@ -100,7 +105,9 @@ async function runPublication(action) {
       renderPublicationReport(report);
       exportedVersion = data.version || "";
       exportPublication.disabled = !report.valid || !!exportedVersion;
-      publicationStatus.textContent = exportedVersion ? `已匯出 ${exportedVersion}，等待啟用。` : "檢查完成";
+      const media = data.media;
+      const mediaText = media ? `（已上傳 ${media.uploaded} 張、沿用 ${media.reused} 張至 R2）` : "";
+      publicationStatus.textContent = exportedVersion ? `已匯出 ${exportedVersion}${mediaText}，等待啟用。` : "檢查完成";
     }
   } catch (error) {
     if (error.report) renderPublicationReport(error.report);

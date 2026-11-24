@@ -233,6 +233,7 @@ def init_db(conn: sqlite3.Connection) -> None:
 def migrate_db(conn: sqlite3.Connection) -> None:
     ensure_columns(conn, "meme_entries", {"publish_selected": "INTEGER NOT NULL DEFAULT 0", "public_id": "TEXT"})
     ensure_columns(conn, "attachments", {"public_original_url": "TEXT"})
+    ensure_columns(conn, "attachments", {"web_path": "TEXT", "web_sha256": "TEXT", "r2_key": "TEXT"})
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_public_id ON meme_entries(public_id)")
     ensure_columns(conn, "meme_entries", {"display_title": "TEXT"})
     conn.execute("""CREATE TABLE IF NOT EXISTS entry_search_aliases (

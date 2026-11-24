@@ -12,7 +12,7 @@
 6. Web UI 本地瀏覽、搜尋、編輯與清理
 7. 匯出 Notion CSV
 
-V1 不上傳 R2、不直接呼叫 Notion API、不使用雲端 LLM 標籤。
+匯出發布包時，若設定 ANIME_MEMES_R2_*，會自動上傳 720P 大圖至 R2（未設定則不上傳）；不直接呼叫 Notion API、不使用雲端 LLM 標籤。
 
 ## 資料安全邊界
 
@@ -34,6 +34,8 @@ src/anime_memes/
   db.py           SQLite schema 與 migration
   attachments.py  Discord API refresh / attachment URL 輔助
   images.py       附件下載與縮圖產生
+  renditions.py   480P 縮圖／720P 大圖 WebP 產生
+  r2.py           Cloudflare R2 上傳客戶端（標準函式庫）
   web.py          Flask Web App 與 API
   web_templates/  Web UI HTML
   web_static/     Web UI CSS / JS
@@ -132,6 +134,5 @@ Agent 圖片標籤工作：
 
 ## 後續方向
 
-- R2 同步可使用 `attachments.r2_url` 欄位補上。
 - GitHub Pages 只適合未來唯讀展示版；本地編輯仍需要 Flask 或其他後端。
 - Agent／本地 LLM 標籤走受控 JSONL 候選介面，人工接受後才成為正式標籤。

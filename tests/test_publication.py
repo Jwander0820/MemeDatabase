@@ -2,13 +2,16 @@ from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from src.anime_memes.db import connect, init_db
+from src.anime_memes.r2 import R2_ENV_VARS
 from src.anime_memes.publishing import check_database, export_release, update_selection, original_url
 from src.anime_memes.public_web import create_public_app
 from src.anime_memes.public_data import open_readonly
@@ -18,6 +21,8 @@ from src.anime_memes.queries import query_entries
 
 class PublicationTest(unittest.TestCase):
     def setUp(self):
+        # 隔離開發者 shell 的 R2 設定，避免測試真的上傳。
+        self.enterContext(patch.dict(os.environ, {name: "" for name in R2_ENV_VARS}))
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -70,7 +75,7 @@ class PublicationTest(unittest.TestCase):
         self.assertNotEqual(item["id"], "meme_0")
         image_path = self.releases / "media" / item["thumbnail_url"].split("/")[-1]
         with Image.open(image_path) as im:
-            self.assertEqual(max(im.size), 420)
+            self.assertEqual(im.size, (600, 300))  # 480P 預設不放大
             self.assertFalse(im.getexif())
         self.assertNotIn(b"PRIVATE_IMAGE_METADATA", image_path.read_bytes())
         for path in ["/api/entries", "/mcp", "/public.sqlite3"]:
@@ -200,6 +205,11 @@ class PublicationTest(unittest.TestCase):
         with patch.dict(os.environ, {"ANIME_MEMES_THUMBNAIL_DIR": "/data/thumbnails"}):
             self.assertEqual(str(resolve_local(r"D:\old\data\thumbnails\a.webp", "THUMBNAIL")).replace("\\", "/"), "/data/thumbnails/a.webp")
             self.assertIsNone(resolve_local(r"..\secret.webp", "THUMBNAIL"))
+        from src.anime_memes.paths import ROOT
+        with patch.dict(os.environ, {"ANIME_MEMES_ATTACHMENT_DIR": "data/attachments"}):
+            resolved = resolve_local(r"data\attachments\a.png", "ATTACHMENT")
+            self.assertTrue(resolved.is_absolute())
+            self.assertEqual(resolved, ROOT / "data" / "attachments" / "a.png")
 
     def test_prune_keeps_three_and_active(self):
         old = self.publish()
