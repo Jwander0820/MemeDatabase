@@ -161,7 +161,7 @@ def check_database(db_path):
 
 def prepare_public_media(db_path, store, *, web_dir=None):
     """為發布選取且無手動原圖網址的項目產生 720P 並上傳 R2；可重複執行。"""
-    web_dir = web_dir or os.environ.get("ANIME_MEMES_WEB_DIR") or "data/web"
+    web_dir = web_dir or os.environ.get("MEMES_WEB_DIR") or "data/web"
     summary = {"uploaded": 0, "reused": 0, "skipped": 0, "errors": [], "warnings": []}
     with closing(connect(db_path)) as conn:
         rows = conn.execute("""SELECT e.key,a.id,a.r2_key,a.r2_url FROM meme_entries e

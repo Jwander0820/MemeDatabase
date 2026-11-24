@@ -21,13 +21,13 @@ from urllib.parse import quote
 from .urls import original_url
 
 ENV_NAMES = {
-    "account_id": "ANIME_MEMES_R2_ACCOUNT_ID",
-    "access_key_id": "ANIME_MEMES_R2_ACCESS_KEY_ID",
-    "secret_access_key": "ANIME_MEMES_R2_SECRET_ACCESS_KEY",
-    "bucket": "ANIME_MEMES_R2_BUCKET",
-    "public_base_url": "ANIME_MEMES_R2_PUBLIC_BASE_URL",
+    "account_id": "MEMES_R2_ACCOUNT_ID",
+    "access_key_id": "MEMES_R2_ACCESS_KEY_ID",
+    "secret_access_key": "MEMES_R2_SECRET_ACCESS_KEY",
+    "bucket": "MEMES_R2_BUCKET",
+    "public_base_url": "MEMES_R2_PUBLIC_BASE_URL",
 }
-PREFIX_ENV = "ANIME_MEMES_R2_PREFIX"
+PREFIX_ENV = "MEMES_R2_PREFIX"
 R2_ENV_VARS = (*ENV_NAMES.values(), PREFIX_ENV)
 DEFAULT_PREFIX = "memes/"
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"

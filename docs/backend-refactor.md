@@ -67,7 +67,7 @@
 
 匯出先用 SQLite backup API 取得一致管理快照，再將選定欄位輸入全新公開庫。公開縮圖優先由本地原圖以 480P 預設（長邊 ≤854、短邊 ≤480、WebP quality 78）重新產生，無可用原圖時退回既有縮圖；不放大，重建像素去掉 EXIF／ICC。原始縮圖與原圖不被覆蓋。
 
-若已設定 ANIME_MEMES_R2_* 環境變數，匯出在取得快照前會先為已選取且無手動原圖網址的項目產生 720P WebP，以內容雜湊為物件鍵（HEAD 不存在才 PUT）上傳 R2，並寫回 attachments.r2_key／r2_url；任一上傳失敗則不建立版本，錯誤寫入報告。公開庫 original_url 為手動網址，否則為 R2 網址，皆無則僅縮圖。公開端不代理外部圖片，也不執行縮圖。
+若已設定 MEMES_R2_* 環境變數，匯出在取得快照前會先為已選取且無手動原圖網址的項目產生 720P WebP，以內容雜湊為物件鍵（HEAD 不存在才 PUT）上傳 R2，並寫回 attachments.r2_key／r2_url；任一上傳失敗則不建立版本，錯誤寫入報告。公開庫 original_url 為手動網址，否則為 R2 網址，皆無則僅縮圖。公開端不代理外部圖片，也不執行縮圖。
 
 ## 發布包與熱更新
 
@@ -149,7 +149,7 @@ Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 �
 | PRIVATE_PORT／PUBLIC_PORT | 3636／3637，主機 loopback port（`web` 指令直接執行時預設 3638） |
 | SEARCH_RATE／SEARCH_BURST | 2r/s／10 |
 | PRIVATE_URL | http://127.0.0.1:3636，MCP 回傳給呼叫端的媒體基址 |
-| ANIME_MEMES_MCP_TOKEN | 無預設，至少 32 ASCII 字元、無空白 |
+| MEMES_MCP_TOKEN | 無預設，至少 32 ASCII 字元、無空白 |
 
 Compose 預設公開後端上限 192 MB、Nginx 64 MB、私人後端 384 MB、MCP 192 MB；這些是可調整的限制，並非測得容量保證。各 Python 程序單程序 4 Waitress threads，Nginx 1 worker；Docker 日誌 5 MB × 3 份，含健康檢查與 unless-stopped。不開管理面板；沒有直接對外 TLS 配置，VPS 的 HTTPS／Tunnel 留待部署階段。
 
@@ -159,13 +159,13 @@ Compose 預設公開後端上限 192 MB、Nginx 64 MB、私人後端 384 MB、MC
 
 ```powershell
 # token 請自行安全產生並透過環境注入，不提交實際值。
-$env:ANIME_MEMES_MCP_TOKEN = '<至少32字元的隨機ASCII值>'
+$env:MEMES_MCP_TOKEN = '<至少32字元的隨機ASCII值>'
 docker compose --profile private --profile mcp up -d --build
 ```
 
 預設 `http://127.0.0.1:8766/mcp`，使用 `Authorization: Bearer TOKEN`，無狀態 Streamable HTTP。僅 search_memes(query, limit=5，最多20) 與 get_meme(id)，查 ready 資料，共用本機搜尋。metadata 有回傳數量與文字長度上限，不回傳 notes、OCR、來源訊息或檔案路徑。未提供／錯誤 token 回 401，錯誤 Host／Origin 回 403，不存在寫入工具。
 
-非 Docker 可 `python -m src.anime_memes.private_mcp`；預設 loopback，依環境設定 ANIME_MEMES_DB、ANIME_MEMES_PRIVATE_URL。自行換 port／網域時也必須設定精確的 ANIME_MEMES_MCP_HOSTS／ANIME_MEMES_MCP_ORIGINS 清單，勿用萬用允許值。私人管理端沒有新增遠端登入系統，因此 loopback 不可直接改成公開曝光。
+非 Docker 可 `python -m src.anime_memes.private_mcp`；預設 loopback，依環境設定 MEMES_DB、MEMES_PRIVATE_URL。自行換 port／網域時也必須設定精確的 MEMES_MCP_HOSTS／MEMES_MCP_ORIGINS 清單，勿用萬用允許值。私人管理端沒有新增遠端登入系統，因此 loopback 不可直接改成公開曝光。
 
 ## 驗證紀錄與限制
 

@@ -41,7 +41,7 @@ class PublicationMediaTest(unittest.TestCase):
         self.db = self.root / "admin.sqlite3"
         self.releases = self.root / "releases"
         self.web = self.root / "web"
-        env = patch.dict(os.environ, {"ANIME_MEMES_WEB_DIR": str(self.web)})
+        env = patch.dict(os.environ, {"MEMES_WEB_DIR": str(self.web)})
         env.start()
         self.addCleanup(env.stop)
         # 清空全部 R2 變數（patch.dict 會在測試後還原），避免讀到開發者的真實設定。
@@ -142,7 +142,7 @@ class PublicationMediaTest(unittest.TestCase):
 
     def test_partial_r2_config_reported(self):
         update_selection(self.conn, "meme_0", {"publish_selected": True})
-        with patch.dict(os.environ, {"ANIME_MEMES_R2_BUCKET": "my-bucket"}):
+        with patch.dict(os.environ, {"MEMES_R2_BUCKET": "my-bucket"}):
             report = check_database(self.db)
             self.assertFalse(report["valid"])
             self.assertTrue(report["errors"])

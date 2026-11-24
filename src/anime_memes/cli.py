@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="anime-memes", description="Local anime meme database pipeline")
-    parser.add_argument("--db", default=getenv("ANIME_MEMES_DB", DEFAULT_DB))
+    parser.add_argument("--db", default=getenv("MEMES_DB", DEFAULT_DB))
     sub = parser.add_subparsers(required=True)
 
     init = sub.add_parser("init-db", help="Create or migrate the SQLite database")
@@ -55,8 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("fixed_json")
     ingest.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID", ""))
     ingest.add_argument("--raw-path")
-    ingest.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
-    ingest.add_argument("--tag-rules", default=getenv("ANIME_MEMES_TAG_RULES", "config/tags.taxonomy.json"))
+    ingest.add_argument("--attachment-dir", default=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"))
+    ingest.add_argument("--tag-rules", default=getenv("MEMES_TAG_RULES", "config/tags.taxonomy.json"))
     ingest.add_argument("--download-attachments", action="store_true")
     ingest.add_argument("--ocr", action="store_true")
     ingest.add_argument("--ocr-engine", default="paddle", choices=["paddle", "easyocr", "none"])
@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.set_defaults(func=cmd_ingest)
 
     ocr_review = sub.add_parser("ocr-review", help="Run OCR for low-confidence or review entries")
-    ocr_review.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
+    ocr_review.add_argument("--attachment-dir", default=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"))
     ocr_review.add_argument("--engine", default="paddle", choices=["paddle", "easyocr", "none"])
     ocr_review.add_argument("--device", default="auto", choices=["auto", "cpu", "gpu"])
     ocr_review.add_argument("--confidence-threshold", type=float, default=0.7)
@@ -143,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     tagging_import.set_defaults(func=cmd_import_tagging_results)
 
     download = sub.add_parser("download-attachments", help="Download original Discord attachments")
-    download.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
+    download.add_argument("--attachment-dir", default=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"))
     download.add_argument("--all", action="store_true", help="Download every attachment in the database")
     download.add_argument("--force", action="store_true", help="Redownload files even if they already exist")
     download.add_argument("--retry-failed", action="store_true", help="Retry rows previously marked as failed")
@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     download.set_defaults(func=cmd_download_attachments)
 
     thumbs = sub.add_parser("build-thumbnails", help="Build local thumbnails for downloaded images")
-    thumbs.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    thumbs.add_argument("--thumbnail-dir", default=getenv("MEMES_THUMBNAIL_DIR", "data/thumbnails"))
     thumbs.add_argument("--missing", action="store_true", help="Only build missing thumbnails")
     thumbs.add_argument("--force", action="store_true")
     thumbs.add_argument("--limit", type=int)
@@ -159,8 +159,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     media = sub.add_parser("build-media", help="Build 480P thumbnails and 720P web renditions (WebP)")
     media.add_argument("--kind", choices=["thumb", "web", "all"], default="all")
-    media.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
-    media.add_argument("--web-dir", default=getenv("ANIME_MEMES_WEB_DIR", "data/web"))
+    media.add_argument("--thumbnail-dir", default=getenv("MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    media.add_argument("--web-dir", default=getenv("MEMES_WEB_DIR", "data/web"))
     media.add_argument("--all-entries", action="store_true", help="Web renditions for all attachments, not only publish-selected")
     media.add_argument("--missing", action="store_true", help="Only build missing renditions")
     media.add_argument("--force", action="store_true")
@@ -168,10 +168,10 @@ def build_parser() -> argparse.ArgumentParser:
     media.set_defaults(func=cmd_build_media)
 
     web = sub.add_parser("web", help="Run the local browser/editor UI")
-    web.add_argument("--host", default=getenv("ANIME_MEMES_WEB_HOST", "127.0.0.1"))
-    web.add_argument("--port", type=int, default=int(getenv("ANIME_MEMES_WEB_PORT", "3638")))
-    web.add_argument("--attachment-dir", default=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"))
-    web.add_argument("--thumbnail-dir", default=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"))
+    web.add_argument("--host", default=getenv("MEMES_WEB_HOST", "127.0.0.1"))
+    web.add_argument("--port", type=int, default=int(getenv("MEMES_WEB_PORT", "3638")))
+    web.add_argument("--attachment-dir", default=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"))
+    web.add_argument("--thumbnail-dir", default=getenv("MEMES_THUMBNAIL_DIR", "data/thumbnails"))
     web.set_defaults(func=cmd_web)
 
     publication = sub.add_parser("publication", help="Manage local publication selection and export")
@@ -182,7 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     choose.add_argument("--original-url")
     actions.add_parser("check")
     export_public = actions.add_parser("export")
-    export_public.add_argument("--root", default=getenv("ANIME_MEMES_RELEASE_ROOT", "data/releases"))
+    export_public.add_argument("--root", default=getenv("MEMES_RELEASE_ROOT", "data/releases"))
     publication.set_defaults(func=cmd_publication)
     return parser
 
@@ -326,8 +326,8 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
             fixed_path,
             channel_id=args.channel_id,
             raw_path=str(raw_path),
-            attachment_dir=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
-            tag_rules_path=getenv("ANIME_MEMES_TAG_RULES", "config/tags.taxonomy.json"),
+            attachment_dir=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"),
+            tag_rules_path=getenv("MEMES_TAG_RULES", "config/tags.taxonomy.json"),
             discord_bot_token=args.token,
         )
         conn.execute(
@@ -369,7 +369,7 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
         if not args.skip_attachments:
             attachment_summary = download_all_attachments(
                 conn,
-                attachment_dir=getenv("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
+                attachment_dir=getenv("MEMES_ATTACHMENT_DIR", "data/attachments"),
                 channel_id=args.channel_id,
                 discord_bot_token=args.token,
                 retry_failed=True,
@@ -377,7 +377,7 @@ def cmd_sync_discord(args: argparse.Namespace) -> None:
         if not args.skip_thumbnails:
             thumbnail_summary = build_thumbnails(
                 conn,
-                thumbnail_dir=getenv("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"),
+                thumbnail_dir=getenv("MEMES_THUMBNAIL_DIR", "data/thumbnails"),
                 missing=True,
             )
 

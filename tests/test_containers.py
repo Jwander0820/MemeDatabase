@@ -47,7 +47,7 @@ class ContainerTest(unittest.TestCase):
             activate(releases, old)
             env = {**os.environ, "PRIVATE_DATA_ROOT": str(root), "RELEASE_ROOT": str(releases),
                    "PRIVATE_PORT": "18865", "PUBLIC_PORT": "18875", "PRIVATE_URL": "http://127.0.0.1:18865",
-                   "ANIME_MEMES_MCP_TOKEN": secrets.token_hex(24),
+                   "MEMES_MCP_TOKEN": secrets.token_hex(24),
                    # 明確清空 R2 變數：shell 值優先於 compose 讀到的 .env，避免整合測試真的上傳。
                    **{name: "" for name in R2_ENV_VARS}}
             project = "anime-test-" + uuid.uuid4().hex[:8]
@@ -118,7 +118,7 @@ class ContainerTest(unittest.TestCase):
                 # 驗證私人 MCP 真正經過容器 HTTP 協定。
                 mcp_url = "http://127.0.0.1:8766/mcp"
                 def rpc(method, params, headers=None):
-                    defaults = {"Authorization": "Bearer " + env["ANIME_MEMES_MCP_TOKEN"], "Content-Type": "application/json",
+                    defaults = {"Authorization": "Bearer " + env["MEMES_MCP_TOKEN"], "Content-Type": "application/json",
                                 "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25"}
                     req = urllib.request.Request(mcp_url, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(), headers=headers if headers is not None else defaults)
                     return urllib.request.urlopen(req, timeout=10)

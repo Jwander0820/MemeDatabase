@@ -13,7 +13,7 @@ services:
     profiles: [public]
     build: {context: ., target: public}
     environment:
-      ANIME_MEMES_RELEASE_ROOT: /releases
+      MEMES_RELEASE_ROOT: /releases
     volumes:
       - ${RELEASE_ROOT:-./data/releases}:/releases:ro
     read_only: true
@@ -49,17 +49,17 @@ services:
     profiles: [private]
     build: {context: ., target: private}
     environment:
-      ANIME_MEMES_DB: /data/anime_memes.sqlite3
-      ANIME_MEMES_ATTACHMENT_DIR: /data/attachments
-      ANIME_MEMES_THUMBNAIL_DIR: /data/thumbnails
-      ANIME_MEMES_WEB_DIR: /data/web
-      ANIME_MEMES_RELEASE_ROOT: /releases
-      ANIME_MEMES_R2_ACCOUNT_ID: ${ANIME_MEMES_R2_ACCOUNT_ID:-}
-      ANIME_MEMES_R2_ACCESS_KEY_ID: ${ANIME_MEMES_R2_ACCESS_KEY_ID:-}
-      ANIME_MEMES_R2_SECRET_ACCESS_KEY: ${ANIME_MEMES_R2_SECRET_ACCESS_KEY:-}
-      ANIME_MEMES_R2_BUCKET: ${ANIME_MEMES_R2_BUCKET:-}
-      ANIME_MEMES_R2_PUBLIC_BASE_URL: ${ANIME_MEMES_R2_PUBLIC_BASE_URL:-}
-      ANIME_MEMES_R2_PREFIX: ${ANIME_MEMES_R2_PREFIX:-}
+      MEMES_DB: /data/anime_memes.sqlite3
+      MEMES_ATTACHMENT_DIR: /data/attachments
+      MEMES_THUMBNAIL_DIR: /data/thumbnails
+      MEMES_WEB_DIR: /data/web
+      MEMES_RELEASE_ROOT: /releases
+      MEMES_R2_ACCOUNT_ID: ${MEMES_R2_ACCOUNT_ID:-}
+      MEMES_R2_ACCESS_KEY_ID: ${MEMES_R2_ACCESS_KEY_ID:-}
+      MEMES_R2_SECRET_ACCESS_KEY: ${MEMES_R2_SECRET_ACCESS_KEY:-}
+      MEMES_R2_BUCKET: ${MEMES_R2_BUCKET:-}
+      MEMES_R2_PUBLIC_BASE_URL: ${MEMES_R2_PUBLIC_BASE_URL:-}
+      MEMES_R2_PREFIX: ${MEMES_R2_PREFIX:-}
     volumes:
       - ${PRIVATE_DATA_ROOT:-./data}:/data
       - ${RELEASE_ROOT:-./data/releases}:/releases
@@ -89,10 +89,10 @@ services:
     profiles: [mcp]
     build: {context: ., target: mcp}
     environment:
-      ANIME_MEMES_DB: /data/anime_memes.sqlite3
-      ANIME_MEMES_MCP_TOKEN: ${ANIME_MEMES_MCP_TOKEN:-}
-      ANIME_MEMES_PRIVATE_URL: ${PRIVATE_URL:-http://127.0.0.1:3636}
-      ANIME_MEMES_MCP_BIND: 0.0.0.0
+      MEMES_DB: /data/anime_memes.sqlite3
+      MEMES_MCP_TOKEN: ${MEMES_MCP_TOKEN:-}
+      MEMES_PRIVATE_URL: ${PRIVATE_URL:-http://127.0.0.1:3636}
+      MEMES_MCP_BIND: 0.0.0.0
     volumes:
       - ${PRIVATE_DATA_ROOT:-./data}:/data:ro
     ports: ["127.0.0.1:8766:8766"]

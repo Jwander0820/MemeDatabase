@@ -202,11 +202,11 @@ class PublicationTest(unittest.TestCase):
         import os
         from unittest.mock import patch
         from src.anime_memes.paths import resolve_local
-        with patch.dict(os.environ, {"ANIME_MEMES_THUMBNAIL_DIR": "/data/thumbnails"}):
+        with patch.dict(os.environ, {"MEMES_THUMBNAIL_DIR": "/data/thumbnails"}):
             self.assertEqual(str(resolve_local(r"D:\old\data\thumbnails\a.webp", "THUMBNAIL")).replace("\\", "/"), "/data/thumbnails/a.webp")
             self.assertIsNone(resolve_local(r"..\secret.webp", "THUMBNAIL"))
         from src.anime_memes.paths import ROOT
-        with patch.dict(os.environ, {"ANIME_MEMES_ATTACHMENT_DIR": "data/attachments"}):
+        with patch.dict(os.environ, {"MEMES_ATTACHMENT_DIR": "data/attachments"}):
             resolved = resolve_local(r"data\attachments\a.png", "ATTACHMENT")
             self.assertTrue(resolved.is_absolute())
             self.assertEqual(resolved, ROOT / "data" / "attachments" / "a.png")

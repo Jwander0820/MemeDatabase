@@ -17,7 +17,7 @@ def main(argv=None):
         cmd.add_argument("--threads", type=int, default=4)
     for name in ("validate", "activate", "rollback", "prune"):
         cmd = sub.add_parser(name)
-        cmd.add_argument("--root", default=os.environ.get("ANIME_MEMES_RELEASE_ROOT", "data/releases"))
+        cmd.add_argument("--root", default=os.environ.get("MEMES_RELEASE_ROOT", "data/releases"))
         if name == "prune":
             cmd.add_argument("--service-stopped", action="store_true")
         else:
@@ -30,10 +30,10 @@ def main(argv=None):
             app = create_public_app()
         else:
             from .web import create_app
-            app = create_app(db_path=os.environ.get("ANIME_MEMES_DB", "data/anime_memes.sqlite3"),
-                             attachment_dir=os.environ.get("ANIME_MEMES_ATTACHMENT_DIR", "data/attachments"),
-                             thumbnail_dir=os.environ.get("ANIME_MEMES_THUMBNAIL_DIR", "data/thumbnails"),
-                             release_root=os.environ.get("ANIME_MEMES_RELEASE_ROOT", "data/releases"))
+            app = create_app(db_path=os.environ.get("MEMES_DB", "data/anime_memes.sqlite3"),
+                             attachment_dir=os.environ.get("MEMES_ATTACHMENT_DIR", "data/attachments"),
+                             thumbnail_dir=os.environ.get("MEMES_THUMBNAIL_DIR", "data/thumbnails"),
+                             release_root=os.environ.get("MEMES_RELEASE_ROOT", "data/releases"))
         serve(app, host=args.host, port=args.port, threads=args.threads)
     else:
         from .releases import activate, validate, prune

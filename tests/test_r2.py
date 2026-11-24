@@ -60,11 +60,11 @@ class SignatureTest(unittest.TestCase):
 class ConfigTest(unittest.TestCase):
     def test_from_env_disabled_partial_and_full(self):
         self.assertIsNone(R2Config.from_env({}))
-        with self.assertRaisesRegex(ValueError, "ANIME_MEMES_R2_BUCKET"):
-            R2Config.from_env({"ANIME_MEMES_R2_ACCOUNT_ID": ACCOUNT})
-        env = {"ANIME_MEMES_R2_ACCOUNT_ID": ACCOUNT, "ANIME_MEMES_R2_ACCESS_KEY_ID": "AKID",
-               "ANIME_MEMES_R2_SECRET_ACCESS_KEY": SECRET, "ANIME_MEMES_R2_BUCKET": "memes-public",
-               "ANIME_MEMES_R2_PUBLIC_BASE_URL": "https://img.example.com"}
+        with self.assertRaisesRegex(ValueError, "MEMES_R2_BUCKET"):
+            R2Config.from_env({"MEMES_R2_ACCOUNT_ID": ACCOUNT})
+        env = {"MEMES_R2_ACCOUNT_ID": ACCOUNT, "MEMES_R2_ACCESS_KEY_ID": "AKID",
+               "MEMES_R2_SECRET_ACCESS_KEY": SECRET, "MEMES_R2_BUCKET": "memes-public",
+               "MEMES_R2_PUBLIC_BASE_URL": "https://img.example.com"}
         cfg = R2Config.from_env(env)
         self.assertEqual(cfg.prefix, "memes/")
         self.assertNotIn(SECRET, repr(cfg))

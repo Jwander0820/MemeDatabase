@@ -12,7 +12,7 @@ from .releases import ReleaseMissing, current_version, release_path, version_nam
 
 
 def create_public_app(release_root=None):
-    root = Path(release_root or os.environ.get("ANIME_MEMES_RELEASE_ROOT", "data/releases")).resolve()
+    root = Path(release_root or os.environ.get("MEMES_RELEASE_ROOT", "data/releases")).resolve()
     app = Flask(__name__, static_folder=None)
 
     @app.before_request
