@@ -3,39 +3,85 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>私人管理｜動畫梗圖館</title>
+  <title>私人管理｜迷因資料庫</title>
+  <meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f0f11" media="(prefers-color-scheme: dark)">
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const media = matchMedia("(prefers-color-scheme: dark)");
+      try {
+        const saved = localStorage.getItem("meme-db-theme");
+        if (saved === "light" || saved === "dark") root.dataset.theme = saved;
+      } catch {}
+      const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : media.matches;
+      addEventListener("DOMContentLoaded", () => {
+        const button = document.getElementById("themeToggle");
+        const sync = () => {
+          const dark = isDark();
+          button.setAttribute("aria-pressed", String(dark));
+          button.title = dark ? "切換為淺色模式" : "切換為深色模式";
+          button.setAttribute("aria-label", button.title);
+        };
+        button.addEventListener("click", () => {
+          root.dataset.theme = isDark() ? "light" : "dark";
+          try { localStorage.setItem("meme-db-theme", root.dataset.theme); } catch {}
+          sync();
+        });
+        media.addEventListener("change", sync);
+        sync();
+      });
+    })();
+  </script>
   <link rel="stylesheet" href="/static/catalog.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></symbol>
+  </svg>
   <main class="app-shell">
     <aside class="rail" aria-label="搜尋與篩選">
       <div class="brand">
-        <div class="brand-mark">AM</div>
-        <div>
-          <span class="mode-name">私人管理</span>
-          <h1>動畫梗圖館</h1>
-          <p id="resultCount">載入中</p>
+        <div class="brand-mark" aria-hidden="true">迷</div>
+        <div class="brand-text">
+          <h1>迷因資料庫</h1>
         </div>
+        <button id="themeToggle" class="icon-button ghost theme-toggle" type="button" aria-label="切換深淺色模式"><svg class="icon i-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon i-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
       </div>
 
-      <button id="openCreate" class="create-button primary" type="button">
-        <span aria-hidden="true">＋</span>
-        手動新增梗圖
-      </button>
+      <div class="rail-actions">
+        <button id="openCreate" class="create-button primary" type="button">
+          <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+          新增梗圖
+        </button>
+        <button id="openPublication" type="button">
+          <svg class="icon" aria-hidden="true"><use href="#i-send"/></svg>
+          發布管理
+        </button>
+      </div>
 
-      <button id="openPublication" type="button">發布管理</button>
       <label class="field">
         <span>搜尋</span>
-        <input id="searchInput" type="search" placeholder="台詞、作品、說話者、OCR">
+        <span class="search-box">
+          <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+          <input id="searchInput" type="search" placeholder="台詞、作品、說話者、OCR" autocomplete="off">
+        </span>
       </label>
 
       <div class="field-grid">
         <label class="field">
           <span>狀態</span>
           <select id="statusFilter">
-            <option value="ready">ready</option>
-            <option value="ignored">ignored</option>
+            <option value="ready">可用</option>
+            <option value="needs_review">待審核</option>
+            <option value="ignored">已忽略</option>
             <option value="all">全部</option>
           </select>
         </label>
@@ -51,22 +97,27 @@
         </label>
       </div>
 
-      <div class="toggles">
-        <label><input id="favoriteOnly" type="checkbox"> 收藏</label>
-        <label><input id="missingImage" type="checkbox"> 缺圖片</label>
-        <label><input id="noTags" type="checkbox"> 無標籤</label>
-      </div>
+      <fieldset class="toggles">
+        <legend class="section-label">快速篩選</legend>
+        <label class="check-chip"><input id="favoriteOnly" type="checkbox"><span>★ 收藏</span></label>
+        <label class="check-chip"><input id="missingImage" type="checkbox"><span>缺圖片</span></label>
+        <label class="check-chip"><input id="noTags" type="checkbox"><span>無標籤</span></label>
+      </fieldset>
 
       <section class="tag-panel">
         <div class="panel-heading">
-          <span>標籤</span>
-          <button id="clearTag" type="button">清除</button>
+          <span class="section-label">標籤</span>
+          <button id="clearTag" class="ghost" type="button">清除</button>
         </div>
         <div id="tagList" class="tag-list"></div>
       </section>
     </aside>
 
     <section class="content">
+      <header class="content-head">
+        <h2>館藏</h2>
+        <p id="resultCount" role="status">載入中</p>
+      </header>
       <div id="grid" class="meme-grid" aria-live="polite"></div>
       <div class="load-row">
         <button id="loadMore" type="button">載入更多</button>
@@ -74,28 +125,31 @@
     </section>
   </main>
 
-  <aside id="drawer" class="drawer" aria-hidden="true">
+  <aside id="drawer" class="drawer" aria-hidden="true" aria-label="梗圖詳情">
     <div class="drawer-bar">
-      <button id="closeDrawer" type="button" aria-label="關閉">×</button>
-      <button id="favoriteButton" type="button">☆</button>
+      <button id="closeDrawer" class="icon-button ghost" type="button" aria-label="關閉">×</button>
+      <strong class="drawer-title">梗圖詳情</strong>
+      <button id="favoriteButton" class="icon-button favorite-button" type="button" aria-label="收藏">☆</button>
     </div>
     <div id="drawerBody" class="drawer-body"></div>
   </aside>
+  <div id="scrim" class="scrim" aria-hidden="true"></div>
 
   <dialog id="createDialog" class="create-dialog" aria-labelledby="createTitle">
     <form id="createForm" class="create-form" enctype="multipart/form-data">
       <div class="create-header">
         <div>
-          <p class="create-kicker">MANUAL ARCHIVE</p>
-          <h2 id="createTitle">手動新增梗圖</h2>
+          <p class="create-kicker">手動建檔</p>
+          <h2 id="createTitle">新增梗圖</h2>
           <p>圖片會存入本機館藏，之後可沿用 R2 與 Notion 匯出流程。</p>
         </div>
-        <button id="closeCreate" class="icon-button" type="button" aria-label="關閉">×</button>
+        <button id="closeCreate" class="icon-button ghost" type="button" aria-label="關閉">×</button>
       </div>
 
       <label class="upload-field" for="createImage">
         <input id="createImage" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required>
         <img id="createPreview" alt="圖片預覽">
+        <span class="upload-icon" aria-hidden="true"><svg class="icon"><use href="#i-image"/></svg></span>
         <span class="upload-copy">
           <strong>選擇梗圖圖片</strong>
           <small>JPG、PNG、WebP 或 GIF，最大 50 MB</small>
@@ -106,12 +160,12 @@
         <label class="field"><span>作品名稱</span><input name="anime_title" autocomplete="off"></label>
         <label class="field"><span>說話者</span><input name="speaker" autocomplete="off"></label>
         <label class="field create-wide"><span>圖片台詞</span><textarea name="quote_text" placeholder="輸入圖片中的主要台詞"></textarea></label>
-        <label class="field create-wide"><span>標籤（逗號分隔）</span><input name="tags" placeholder="吐槽, 名場面"></label>
+        <label class="field"><span>標籤（逗號分隔）</span><input name="tags" placeholder="吐槽, 名場面"></label>
         <label class="field"><span>狀態</span>
           <select name="status">
-            <option value="ready">ready</option>
-            <option value="needs_review">needs_review</option>
-            <option value="ignored">ignored</option>
+            <option value="ready">可用</option>
+            <option value="needs_review">待審核</option>
+            <option value="ignored">已忽略</option>
           </select>
         </label>
         <label class="field create-wide"><span>備註</span><textarea name="notes" placeholder="選填，例如圖片來源或待確認事項"></textarea></label>
@@ -127,13 +181,18 @@
 
   <dialog id="publicationDialog" class="create-dialog" aria-labelledby="publicationTitle">
     <section class="create-form">
-      <div class="create-header"><h2 id="publicationTitle">發布管理</h2>
-        <form method="dialog"><button autofocus>關閉</button></form>
+      <div class="create-header">
+        <div>
+          <p class="create-kicker">公開館藏</p>
+          <h2 id="publicationTitle">發布管理</h2>
+          <p>依序檢查、匯出新版本，再啟用讓公開頁切換到這一版。</p>
+        </div>
+        <form method="dialog"><button class="icon-button ghost" aria-label="關閉" autofocus>×</button></form>
       </div>
-      <div class="edit-actions">
-        <button id="checkPublication">檢查</button>
-        <button id="exportPublication" disabled>匯出</button>
-        <button id="activatePublication" class="primary" disabled>啟用此版</button>
+      <div class="publication-steps">
+        <button id="checkPublication"><span class="step-no">1</span>檢查</button>
+        <button id="exportPublication" disabled><span class="step-no">2</span>匯出</button>
+        <button id="activatePublication" class="primary" disabled><span class="step-no">3</span>啟用此版</button>
       </div>
       <p id="publicationStatus" role="status"></p>
       <div id="publicationReport"></div>

@@ -12,6 +12,10 @@ let listRequest = 0;
 let detailRequest = 0;
 let timer;
 let retryFromStart = true;
+let activeTag = "";
+let knownTags = [];
+const tagRow = byId("tags");
+const empty = byId("empty");
 
 function element(name, text) {
   const node = document.createElement(name);
@@ -56,6 +60,25 @@ function card(item) {
   return link;
 }
 
+function renderTags() {
+  const tags = knownTags.slice();
+  if (activeTag && !tags.some(item => item.name === activeTag)) tags.push({name: activeTag});
+  const chip = (label, value, count) => {
+    const node = element("button", label);
+    node.type = "button";
+    node.className = "chip";
+    node.ariaPressed = String(activeTag === value);
+    if (count !== undefined) node.append(" ", element("small", String(count)));
+    node.onclick = () => {
+      activeTag = activeTag === value ? "" : value;
+      renderTags();
+      search(true);
+    };
+    return node;
+  };
+  tagRow.replaceChildren(chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
+}
+
 async function search(reset) {
   clearTimeout(timer);
   const request = ++listRequest;
@@ -65,12 +88,12 @@ async function search(reset) {
     version = "";
   }
   const params = new URLSearchParams({page: page + 1});
-  for (const [name, id] of [["q", "query"], ["tag", "tag"], ["sort", "sort"]]) {
-    const value = byId(id).value.trim();
+  for (const [name, value] of [["q", byId("query").value.trim()], ["tag", activeTag], ["sort", byId("sort").value]]) {
     if (value) params.set(name, value);
   }
   if (version) params.set("version", version);
   more.hidden = true;
+  empty.hidden = true;
   statusLine.textContent = "載入中…";
   try {
     const data = await readApi("entries", params);
@@ -78,18 +101,15 @@ async function search(reset) {
     if (tagsVersion !== data.version) {
       const meta = await readApi("meta", new URLSearchParams({version: data.version}));
       if (request !== listRequest) return;
-      const tag = byId("tag");
-      const selected = tag.value;
-      tag.replaceChildren(new Option("全部標籤", ""));
-      for (const item of meta.tags) tag.add(new Option(item.name + "（" + item.count + "）", item.name));
-      if (selected && !meta.tags.some(item => item.name === selected)) tag.add(new Option(selected, selected));
-      tag.value = selected;
+      knownTags = meta.tags;
+      renderTags();
       tagsVersion = data.version;
     }
     version = data.version;
     page = data.page;
     results.append(...data.items.map(card));
     statusLine.textContent = data.total ? `已顯示 ${results.childElementCount}／${data.total} 張` : "查無結果";
+    empty.hidden = data.total !== 0;
     more.textContent = "載入更多";
     more.hidden = results.childElementCount >= data.total;
     retryFromStart = false;
@@ -129,47 +149,79 @@ async function pngBlob(url) {
   }
 }
 
+function facts(rows) {
+  const list = element("dl");
+  list.className = "facts";
+  for (const [label, value] of rows) {
+    if (value) list.append(element("dt", label), element("dd", value));
+  }
+  return list;
+}
+
 function renderDetail(item, request) {
   const detail = byId("detail");
   const url = item.original_url || new URL(item.thumbnail_url, location.href).href;
+  // 預設只載入本站縮圖；外部大圖（R2 720P 或手填網址）要等訪客明確點選才請求，避免每次開啟詳情都消耗外部主機流量。
   const image = element("img");
   image.alt = item.resolved_title;
-  const caption = element("p", item.original_url ? "原圖預覽" : "僅提供縮圖");
   image.referrerPolicy = "no-referrer";
+  const caption = element("figcaption");
+  const note = element("span", item.original_url ? "目前顯示縮圖" : "僅提供縮圖");
+  caption.append(note);
   image.onerror = () => {
     if (request !== detailRequest) return;
-    image.onerror = null;
-    if (item.original_url) {
-      caption.textContent = "原圖無法載入，顯示本站縮圖。";
-      image.src = item.thumbnail_url;
-    } else {
-      caption.textContent = "縮圖無法載入，請稍後再試。";
-    }
+    note.textContent = "縮圖無法載入，請稍後再試。";
   };
-  image.src = url;
+  image.src = item.thumbnail_url;
+  if (item.original_url) {
+    const loadOriginal = button("載入大圖", () => {
+      loadOriginal.disabled = true;
+      note.textContent = "大圖載入中…";
+      const full = new Image();
+      full.referrerPolicy = "no-referrer";
+      full.onload = () => {
+        if (request !== detailRequest) return;
+        image.onerror = null;
+        image.src = full.src;
+        note.textContent = "大圖";
+        loadOriginal.remove();
+      };
+      full.onerror = () => {
+        if (request !== detailRequest) return;
+        note.textContent = "大圖無法載入，繼續顯示縮圖。";
+        loadOriginal.disabled = false;
+      };
+      full.src = item.original_url;
+    });
+    loadOriginal.className = "load-original";
+    caption.append(loadOriginal);
+  }
+  byId("media").replaceChildren(image, caption);
   byId("title").textContent = item.resolved_title;
   const actions = element("div");
   actions.className = "actions";
-  function action(label, fn, message) {
-    actions.append(button(label, async () => {
+  function action(label, fn, message, primary) {
+    const node = button(label, async () => {
       try {
         await fn();
         if (request === detailRequest) feedback.textContent = message;
       } catch {
         if (request === detailRequest) feedback.textContent = "瀏覽器或圖片來源限制了這項操作，可手動複製網址或下載本站縮圖。";
       }
-    }));
+    });
+    if (primary) node.className = "primary";
+    actions.append(node);
   }
+  action("複製圖片", () => navigator.clipboard.write([new ClipboardItem({"image/png": pngBlob(url)})]), "已複製圖片，可直接貼上", true);
   action("複製頁面連結", () => navigator.clipboard.writeText(location.href), "已複製頁面連結");
   action("複製圖片連結", () => navigator.clipboard.writeText(url), "已複製圖片連結");
-  action("複製圖片", () => navigator.clipboard.write([new ClipboardItem({"image/png": pngBlob(url)})]), "已複製圖片");
   if (item.original_url) {
-    const original = element("a", "開啟原圖");
+    const original = element("a", "開啟大圖");
     original.href = url;
     original.target = "_blank";
     original.rel = "noreferrer";
     actions.append(original);
-    action("下載原圖", async () => {
+    action("下載大圖", async () => {
       const blob = await imageBlob(url);
       const download = element("a");
       download.href = URL.createObjectURL(blob);
@@ -182,9 +234,23 @@ function renderDetail(item, request) {
   thumb.href = item.thumbnail_url;
   thumb.download = item.id + ".webp";
   actions.append(thumb);
-  detail.replaceChildren(image, caption,
-    element("p", [item.anime_title, item.speaker, item.quote_text].filter(Boolean).join(" · ")),
-    element("p", item.tags.join("、")), actions);
+  const tags = element("div");
+  tags.className = "detail-tags";
+  tags.append(...item.tags.map(tag => {
+    const chip = button(tag, () => {
+      activeTag = tag;
+      byId("query").value = "";
+      renderTags();
+      dialog.close();
+      search(true);
+    });
+    chip.className = "chip";
+    chip.title = "篩選標籤：" + tag;
+    return chip;
+  }));
+  detail.replaceChildren(
+    facts([["作品", item.anime_title], ["角色", item.speaker], ["台詞", item.quote_text]]),
+    tags, actions);
 }
 
 async function showRoute(useLatest = false) {
@@ -196,6 +262,7 @@ async function showRoute(useLatest = false) {
   }
   if (!dialog.open) dialog.showModal();
   byId("title").textContent = "梗圖詳情";
+  byId("media").replaceChildren();
   byId("detail").replaceChildren();
   feedback.textContent = "載入中…";
   const params = new URLSearchParams();
@@ -225,7 +292,7 @@ byId("query").oninput = () => {
   more.hidden = true;
   timer = setTimeout(() => search(true), 300);
 };
-byId("tag").onchange = byId("sort").onchange = () => search(true);
+byId("sort").onchange = () => search(true);
 more.onclick = () => search(retryFromStart);
 search(true);
 showRoute();

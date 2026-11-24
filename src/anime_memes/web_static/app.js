@@ -36,6 +36,8 @@ const T = {
   decisionRefreshFailed: "審核已完成，清單更新失敗，請重新整理",
 };
 
+const STATUS_LABELS = {ready: "可用", needs_review: "待審核", ignored: "已忽略"};
+
 const state = {
   page: 1,
   pageSize: 48,
@@ -73,6 +75,7 @@ const closeCreate = document.querySelector("#closeCreate");
 const cancelCreate = document.querySelector("#cancelCreate");
 const saveCreate = document.querySelector("#saveCreate");
 const toast = document.querySelector("#toast");
+const scrim = document.querySelector("#scrim");
 let createPreviewUrl = "";
 
 function params(page = state.page) {
@@ -133,10 +136,16 @@ async function loadMeta() {
 }
 
 function renderGrid() {
-  grid.innerHTML = "";
-  resultCount.textContent = `${state.items.length} / ${state.total}`;
+  grid.innerHTML = state.total ? "" : `
+    <div class="empty">
+      <div class="empty-mark" aria-hidden="true">?</div>
+      <strong>沒有符合條件的梗圖</strong>
+      <p>調整搜尋字詞、狀態或標籤篩選再試一次。</p>
+    </div>`;
+  resultCount.textContent = state.total ? `已載入 ${state.items.length}／${state.total} 筆` : "0 筆";
   state.items.forEach((item) => grid.appendChild(card(item)));
   loadMore.disabled = state.items.length >= state.total;
+  loadMore.hidden = state.items.length >= state.total;
 }
 
 function card(item) {
@@ -145,13 +154,17 @@ function card(item) {
   node.tabIndex = 0;
   const image = item.thumbnail_url || item.image_url;
   const tags = item.tags.slice(0, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+  const badges = [
+    item.favorite ? `<span class="badge fav" aria-label="\u5df2\u6536\u85cf">\u2605</span>` : "",
+    item.status && item.status !== "ready" ? `<span class="badge status-${attr(item.status)}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span>` : "",
+  ].join("");
   node.innerHTML = `
-    ${image ? `<img src="${attr(image)}" alt="">` : `<div class="missing-image">${T.missingImage}</div>`}
+    <div class="card-media">
+      ${image ? `<img src="${attr(image)}" alt="" loading="lazy">` : `<div class="missing-image">${T.missingImage}</div>`}
+      ${badges ? `<div class="card-badges">${badges}</div>` : ""}
+    </div>
     <div class="card-body">
-      <div class="card-title">
-        <span>${escapeHtml(item.anime_title || T.unknownTitle)}</span>
-        <span>${item.favorite ? "\u2605" : ""}</span>
-      </div>
+      <div class="card-title">${escapeHtml(item.anime_title || T.unknownTitle)}</div>
       <div class="card-speaker">${escapeHtml(item.speaker || T.unknownSpeaker)}</div>
       <p class="card-quote">${escapeHtml(item.quote_text || "")}</p>
       <div class="card-tags">${tags}</div>
@@ -174,6 +187,7 @@ async function openEntry(key) {
   const item = await response.json();
   state.selected = item;
   favoriteButton.textContent = item.favorite ? "\u2605" : "\u2606";
+  favoriteButton.setAttribute("aria-pressed", String(Boolean(item.favorite)));
   drawerBody.innerHTML = detailTemplate(item);
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
@@ -184,48 +198,59 @@ async function openEntry(key) {
 function detailTemplate(item) {
   const image = item.image_url || item.thumbnail_url;
   const suggestions = suggestionTemplate(item.tag_suggestions || []);
+  const statusOptions = ["ready", "needs_review", "ignored"].map((value) =>
+    `<option value="${value}" ${item.status === value ? "selected" : ""}>${STATUS_LABELS[value]}</option>`).join("");
+  const size = item.image_width && item.image_height ? `${item.image_width} × ${item.image_height}` : "";
+  const meta = [
+    ["Key", `<code>${escapeHtml(item.key)}</code>`],
+    [T.sourceTime, escapeHtml(item.source_timestamp || "")],
+    [T.file, escapeHtml(item.file_name || "")],
+    [T.link, item.attachment_url ? `<a href="${attr(item.attachment_url)}" target="_blank" rel="noreferrer">${T.openOriginal}</a>` : ""],
+    [T.download, escapeHtml(item.download_status || "")],
+    [T.size, escapeHtml(size)],
+    ["OCR", escapeHtml(item.ocr_status || "")],
+  ].filter(([, value]) => value).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("");
   return `
-    ${image ? `<img class="drawer-image" src="${attr(image)}" alt="">` : `<div class="missing-image">${T.noPreview}</div>`}
+    <figure class="drawer-stage">
+      ${image ? `<img class="drawer-image" src="${attr(image)}" alt="">` : `<div class="missing-image">${T.noPreview}</div>`}
+    </figure>
     <div class="card-tags" id="detailTags">${item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
     ${suggestions}
-    <form class="edit-form" id="editForm">
-      <label class="field"><span>${T.title}</span><input name="anime_title" value="${attr(item.anime_title || "")}"></label>
-      <label class="field"><span>${T.speaker}</span><input name="speaker" value="${attr(item.speaker || "")}"></label>
+    <form class="edit-form panel" id="editForm">
+      <h3>基本資料</h3>
+      <div class="field-grid">
+        <label class="field"><span>${T.title}</span><input name="anime_title" value="${attr(item.anime_title || "")}"></label>
+        <label class="field"><span>${T.speaker}</span><input name="speaker" value="${attr(item.speaker || "")}"></label>
+      </div>
       <label class="field"><span>${T.quote}</span><textarea name="quote_text">${escapeHtml(item.quote_text || "")}</textarea></label>
-      <label class="field"><span>${T.manualTags}</span><input name="tags" value="${attr((item.manual_tags || []).join(", "))}"></label>
-      <label class="field"><span>${T.status}</span>
-        <select name="status">
-          <option value="ready" ${item.status === "ready" ? "selected" : ""}>ready</option>
-          <option value="ignored" ${item.status === "ignored" ? "selected" : ""}>ignored</option>
-          <option value="needs_review" ${item.status === "needs_review" ? "selected" : ""}>needs_review</option>
-        </select>
-      </label>
+      <div class="field-grid">
+        <label class="field"><span>${T.manualTags}</span><input name="tags" value="${attr((item.manual_tags || []).join(", "))}"></label>
+        <label class="field"><span>${T.status}</span><select name="status">${statusOptions}</select></label>
+      </div>
       <label class="field"><span>${T.notes}</span><textarea name="notes">${escapeHtml(item.notes || "")}</textarea></label>
       <div class="edit-actions">
-        <button type="button" id="copyQuote">${T.copyQuote}</button>
         <button type="button" id="deleteEntry" class="danger">${T.deleteEntry}</button>
+        <span class="spacer"></span>
+        <button type="button" id="copyQuote">${T.copyQuote}</button>
         <button class="primary" type="submit">${T.save}</button>
       </div>
     </form>
-    <form id="entryPublication" class="edit-form">
+    <form id="entryPublication" class="panel">
       <fieldset disabled>
         <legend>公開設定</legend>
         <label><input type="checkbox" name="selected"> 納入公開館藏</label>
-        <label class="field">公開原圖網址（選填）<input name="original" type="url" placeholder="https://"></label>
+        <label class="field">公開原圖網址（選填，留空則使用 R2 的 720P）<input name="original" type="url" placeholder="https://"></label>
         <button type="submit">儲存公開設定</button>
       </fieldset>
       <output role="status">正在讀取公開設定…</output>
     </form>
-    <div class="meta-box">
-      Key: ${escapeHtml(item.key)}<br>
-      ${T.sourceTime}: ${escapeHtml(item.source_timestamp || "")}<br>
-      ${T.file}: ${escapeHtml(item.file_name || "")}<br>
-      ${T.link}: ${item.attachment_url ? `<a href="${attr(item.attachment_url)}" target="_blank" rel="noreferrer">${T.openOriginal}</a><br>` : ""}
-      ${T.download}: ${escapeHtml(item.download_status || "")}<br>
-      ${T.size}: ${escapeHtml(String(item.image_width || ""))} x ${escapeHtml(String(item.image_height || ""))}<br>
-      OCR: ${escapeHtml(item.ocr_status || "")}<br>
-      ${item.ocr_text ? `${T.ocrText}:<br>${escapeHtml(item.ocr_text)}` : ""}
-    </div>
+    <details class="meta-box panel">
+      <summary>檔案與來源資訊</summary>
+      <dl class="meta-list">
+        ${meta}
+      </dl>
+      ${item.ocr_text ? `<p class="ocr-text"><strong>${T.ocrText}</strong><br>${escapeHtml(item.ocr_text)}</p>` : ""}
+    </details>
   `;
 }
 
@@ -343,6 +368,7 @@ favoriteButton.addEventListener("click", async () => {
     if (state.selected?.key === item.key) {
       state.selected.favorite = result.favorite;
       favoriteButton.textContent = result.favorite ? "\u2605" : "\u2606";
+      favoriteButton.setAttribute("aria-pressed", String(Boolean(result.favorite)));
     }
     await loadEntries(true);
   } catch {
@@ -353,6 +379,11 @@ favoriteButton.addEventListener("click", async () => {
 });
 
 closeDrawer.addEventListener("click", closeDetail);
+scrim.addEventListener("click", closeDetail);
+globalThis.addEventListener?.("keydown", (event) => {
+  if (event.key !== "Escape" || !state.selected || document.querySelector("dialog[open]")) return;
+  closeDetail();
+});
 
 openCreate.addEventListener("click", () => {
   createError.textContent = "";
@@ -426,6 +457,7 @@ function closeDetail() {
   drawer.setAttribute("aria-hidden", "true");
   state.selected = null;
   favoriteButton.textContent = "\u2606";
+  favoriteButton.setAttribute("aria-pressed", "false");
   drawerBody.innerHTML = "";
 }
 
