@@ -22,6 +22,15 @@ def main(argv=None):
             cmd.add_argument("--service-stopped", action="store_true")
         else:
             cmd.add_argument("version")
+    default_root = os.environ.get("MEMES_RELEASE_ROOT", "data/releases")
+    cmd = sub.add_parser("bundle")
+    cmd.add_argument("--root", default=default_root)
+    cmd.add_argument("--output", required=True)
+    cmd.add_argument("version")
+    cmd = sub.add_parser("install-bundle")
+    cmd.add_argument("--root", default=default_root)
+    cmd.add_argument("--activate", action="store_true")
+    cmd.add_argument("bundle")
     args = parser.parse_args(argv)
     if args.command in {"public", "private"}:
         from waitress import serve
@@ -35,6 +44,14 @@ def main(argv=None):
                              thumbnail_dir=os.environ.get("MEMES_THUMBNAIL_DIR", "data/thumbnails"),
                              release_root=os.environ.get("MEMES_RELEASE_ROOT", "data/releases"))
         serve(app, host=args.host, port=args.port, threads=args.threads)
+    elif args.command in {"bundle", "install-bundle"}:
+        from .release_bundle import build_bundle, install_bundle
+        root = Path(args.root).resolve()
+        if args.command == "bundle":
+            result = build_bundle(root, args.version, Path(args.output))
+        else:
+            result = install_bundle(root, Path(args.bundle), activate=args.activate)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         from .releases import activate, validate, prune
         root = Path(args.root).resolve()

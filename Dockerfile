@@ -4,7 +4,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install -r requirements.txt && useradd --uid 10001 --create-home app
 RUN mkdir -p src/anime_memes && touch src/__init__.py src/anime_memes/__init__.py
-COPY src/anime_memes/text.py src/anime_memes/search.py src/anime_memes/urls.py src/anime_memes/public_data.py src/anime_memes/releases.py src/anime_memes/public_web.py src/anime_memes/runtime.py ./src/anime_memes/
+COPY src/anime_memes/text.py src/anime_memes/search.py src/anime_memes/urls.py src/anime_memes/public_data.py src/anime_memes/releases.py src/anime_memes/release_bundle.py src/anime_memes/public_web.py src/anime_memes/runtime.py ./src/anime_memes/
 
 FROM base AS public
 USER 10001

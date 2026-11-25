@@ -113,6 +113,25 @@ docker compose --profile public up -d
 
 保留最新三個版本及目前啟用版本，其餘版本與不再引用的媒體才刪除。檢查報告另行保留。不要在服務啟動時自動清理，也不建立午夜排程。
 
+### 推送到 VPS
+
+私人管理端只留在本機；VPS 只跑公開 profile。本機匯出後可把單一版本打包成 tar.gz，傳到 VPS 安裝：
+
+```powershell
+.venv\Scripts\python.exe -m src.anime_memes.runtime bundle --root data/releases --output bundle.tar.gz VERSION
+.venv\Scripts\python.exe -m src.anime_memes.runtime install-bundle --root /releases [--activate] /bundle.tar.gz
+```
+
+bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite3` 與該版本引用的 `media/<sha256>.webp`，不含 reports 與 current.json。install-bundle 在寫入任何檔案前先檢查全部成員（僅允許白名單內的一般檔案、單一版本、無重複、無絕對路徑／`..`／連結），解壓到 `.incoming-*` 暫存目錄，已存在的版本拒絕覆寫，已存在的媒體需雜湊與檔名相符才略過，最後呼叫 validate；驗證失敗會移除剛安裝的版本資料夾。只有加上 `--activate` 才會切換 current.json，且一律經 `releases.activate` 原子寫入，不會被直接覆寫。
+
+`scripts/push_release.ps1` 串起整個流程（本機打包、scp、ssh 以公開映像執行 install-bundle、清除暫存檔），每步檢查結束碼：
+
+```powershell
+.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/animememes/releases [-Activate] [-DryRun]
+```
+
+前提：VPS 已有公開映像（預設 `animememes-public-api`）與發布目錄，且該目錄允許 UID 10001 寫入；SSH 認證使用你既有的 ssh 設定，腳本不處理密碼或 token。`-DryRun` 只印出命令，不執行任何步驟。
+
 ## 公開搜尋契約
 
 | 接口 | 用途 |
