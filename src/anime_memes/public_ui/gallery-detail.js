@@ -182,6 +182,7 @@ function renderDetail(item, request) {
       : withFallback(pngBlob);
     // ClipboardItem 直接接收 Promise，Safari 才會保留使用者點擊的授權。
     await navigator.clipboard.write([new ClipboardItem({"image/png": source})]);
+    recordUsage(item.id);
     if (!showingLarge && item.original_url) return "已複製縮圖；按「載入原始圖片」後可複製原始圖片";
     return usedThumb ? "原始圖片受來源限制，已改為複製縮圖" : "";
   }, "已複製圖片，可直接貼上", {primary: true});
@@ -195,6 +196,7 @@ function renderDetail(item, request) {
     download.download = downloadName(item.resolved_title || item.id, blob.type);
     download.click();
     setTimeout(() => URL.revokeObjectURL(download.href), 60000);
+    recordUsage(item.id);
     if (usedThumb) return "原始圖片受來源限制，已改為下載縮圖；可在圖片上按右鍵（手機長按）另存";
     return "";
   }, "已開始下載");

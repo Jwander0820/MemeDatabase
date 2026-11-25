@@ -4,14 +4,17 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function gallery(withObserver = false) {
+function gallery(withObserver = false, storage = undefined) {
   const nodes = new Map();
   const pending = [];
-  function element() {
-    return {value: '', childElementCount: 0, addEventListener() {},
+  const created = [];
+  function element(tag) {
+    const made = {tag, value: '', childElementCount: 0, addEventListener() {},
       replaceChildren() { this.childElementCount = 0; },
       append(...items) { this.childElementCount += items.length; },
       add() {}};
+    created.push(made);
+    return made;
   }
   function node(id) {
     if (!nodes.has(id)) nodes.set(id, element());
@@ -24,20 +27,22 @@ function gallery(withObserver = false) {
   } : {};
   const context = vm.createContext({
     ...extra,
+    ...(storage ? {localStorage: storage} : {}),
     document: {getElementById: node, createElement: element},
     window: {addEventListener() {}}, location: {hash: ''},
     clearTimeout() {}, URLSearchParams, Option: class {},
     fetch(url) { return new Promise(resolve => pending.push({url, resolve})); }
   });
   // 與 HTML 相同的載入順序；各檔共用同一個全域作用域。
-  for (const name of ['infinite-scroll.js', 'gallery.js', 'gallery-favorites.js', 'gallery-detail.js', 'gallery-init.js']) {
+  for (const name of ['infinite-scroll.js', 'gallery.js', 'gallery-favorites.js', 'gallery-usage.js', 'gallery-detail.js', 'gallery-init.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/public_ui', name), 'utf8'), context, {filename: name});
   }
   function respond(request, data, status = 200) {
     request.resolve({ok: status === 200, status, json: async () => data});
     return new Promise(resolve => setImmediate(resolve));
   }
-  return {node, pending, respond, observers,
+  return {node, pending, respond, observers, created,
+    run: code => vm.runInContext(code, context),
     search: reset => vm.runInContext('search(' + reset + ')', context),
     setScope: value => vm.runInContext('setScope(' + JSON.stringify(value) + ')', context)};
 }
@@ -117,4 +122,100 @@ test('捲到底自動載入下一頁，失敗後不自動重試並顯示重試�
   await g.respond(retry, {version: 'v1', page: 3, total: 3, items: [item('c')]});
   assert.equal(g.node('more').hidden, true);
   assert.equal(g.node('loadHint').textContent, '已經到底了');
+});
+
+function memoryStorage(initial = {}) {
+  const data = {...initial};
+  return {data, getItem: key => (key in data ? data[key] : null), setItem(key, value) { data[key] = String(value); }};
+}
+const today = () => {
+  const now = new Date();
+  const pad = value => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+const entry = id => ({id, resolved_title: id, tags: []});
+
+test('recordUsage 與 topUsed 依次數再依最近排序，並限制最多 100 筆', () => {
+  const storage = memoryStorage();
+  const g = gallery(false, storage);
+  g.run("var tick = 0; Date.now = () => ++tick");
+  g.run("recordUsage('a'); recordUsage('b'); recordUsage('b'); recordUsage('c')");
+  assert.deepEqual(Array.from(g.run('topUsed(5)')), ['b', 'c', 'a']);
+  assert.deepEqual(Array.from(g.run('topUsed(1)')), ['b']);
+  for (let i = 0; i < 120; i += 1) g.run(`recordUsage('x${i}')`);
+  const saved = JSON.parse(storage.data['meme-db-usage']);
+  assert.equal(Object.keys(saved).length, 100);
+  assert.ok(saved.b, '次數高的保留');
+  assert.ok(saved.x119, '剛記錄的保留');
+  assert.equal(saved.x0, undefined, '次數最少且最舊的被淘汰');
+});
+
+test('首頁先請求常用單筆再請求每日隨機，並剔除重複的 id', async () => {
+  const usage = {a: {count: 3, last: 1}, gone: {count: 2, last: 1}};
+  const g = gallery(false, memoryStorage({'meme-db-usage': JSON.stringify(usage), 'meme-db-favorites': JSON.stringify(['f1'])}));
+  const urls = g.pending.map(request => request.url);
+  assert.equal(urls[0], '/api/v1/entries/a?');
+  assert.equal(urls[1], '/api/v1/entries/gone?');
+  assert.equal(urls[2], '/api/v1/entries/f1?');
+  const list = new URLSearchParams(urls[3].split('?')[1]);
+  assert.equal(list.get('sort'), 'random');
+  assert.equal(list.get('seed'), today());
+  const [a, gone, f1, random] = g.pending.splice(0);
+  await g.respond(a, {item: entry('a')});
+  await g.respond(gone, null, 404);
+  await g.respond(f1, {item: entry('f1')});
+  await g.respond(random, {version: 'v1', page: 1, total: 4, items: [entry('a'), entry('x'), entry('f1'), entry('y')]});
+  await g.respond(g.pending.shift(), {version: 'v1', tags: []});
+  assert.equal(g.node('results').childElementCount, 4, '2 張常用 + 2 張不重複的隨機');
+  assert.match(g.node('status').textContent, /首頁推薦：常用 2 張＋每日隨機/);
+  assert.match(g.node('status').textContent, /已顯示 4／4 張/);
+  assert.ok(g.created.some(node => node.className === 'badge-pinned' && node.textContent === '常用'));
+});
+
+test('有搜尋字或選標籤時不帶 sort=random', () => {
+  const g = gallery();
+  g.pending.length = 0;
+  g.node('query').value = '烈海王';
+  g.search(true);
+  const searched = new URLSearchParams(g.pending.shift().url.split('?')[1]);
+  assert.equal(searched.has('sort'), false);
+  assert.equal(searched.has('seed'), false);
+  g.node('query').value = '';
+  g.run("activeTag = '貓'");
+  g.search(true);
+  const tagged = new URLSearchParams(g.pending.shift().url.split('?')[1]);
+  assert.equal(tagged.has('sort'), false);
+  assert.equal(tagged.get('tag'), '貓');
+});
+
+test('最近新增 chip 送出 sort=created 並與排序選單同步', () => {
+  const g = gallery();
+  g.pending.length = 0;
+  const chip = () => g.created.filter(node => node.tag === 'button' && node.textContent === '最近新增').pop();
+  g.run('renderTags()');
+  assert.equal(chip().ariaPressed, 'false');
+  chip().onclick();
+  assert.equal(g.node('sort').value, 'created');
+  assert.equal(new URLSearchParams(g.pending.shift().url.split('?')[1]).get('sort'), 'created');
+  assert.equal(chip().ariaPressed, 'true');
+  g.node('sort').value = 'title';
+  g.run('renderTags()');
+  assert.equal(chip().ariaPressed, 'false', '選單改成其他值時 chip 取消');
+  g.node('sort').value = 'created';
+  g.node('sort').onchange();
+  assert.equal(chip().ariaPressed, 'true', '選單選最近新增時 chip 亮起');
+  g.pending.length = 0;
+  chip().onclick();
+  assert.equal(g.node('sort').value, '', '再點一次回到首頁推薦');
+  assert.equal(new URLSearchParams(g.pending.pop().url.split('?')[1]).get('sort'), 'random');
+});
+
+test('localStorage 拋出例外時首頁與使用紀錄不會壞', async () => {
+  const broken = {getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }};
+  const g = gallery(false, broken);
+  g.run("recordUsage('a')");
+  assert.deepEqual(Array.from(g.run('topUsed(5)')), []);
+  await g.respond(g.pending.shift(), {version: 'v1', page: 1, total: 1, items: [entry('a')]});
+  await g.respond(g.pending.shift(), {version: 'v1', tags: []});
+  assert.equal(g.node('status').textContent, '已顯示 1／1 張');
 });

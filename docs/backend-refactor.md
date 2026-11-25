@@ -55,6 +55,15 @@
 
 管理庫結構版本以 `PRAGMA user_version` 記錄（`src/anime_memes/db.py` 的 `MIGRATIONS`；與公開庫的 SCHEMA_VERSION 無關）。`init_db` 只執行版本號大於目前值的遷移，每個遷移與版本號更新在同一交易內，失敗會回滾、版本不前進。版本 1 為基準（原本 `migrate_db` 的全部冪等步驟），舊資料庫 user_version 為 0，第一次啟動會自動套用並標記為 1，結構不變。新增遷移時只能在清單尾端追加下一個版本、不可修改已發布的遷移、需能在單一交易內完成（不自行 commit）。若資料庫版本高於程式支援的最新版，`init_db` 會丟出 RuntimeError 拒絕啟動，請更新程式。
 
+### 時間格式規範
+
+管理庫所有名稱以 `_at` 結尾的時間欄位（`updated_at`、`created_at`、`exported_at`、`last_success_at` 等，完整清單由 `db.iso_time_columns` 掃描 schema 取得），一律為 ISO 8601 UTC 毫秒格式 `YYYY-MM-DDTHH:MM:SS.sss+00:00`，例如 `2026-11-25T04:17:54.434+00:00`。統一格式後字串排序即等於時間排序（管理首頁依 `meme_entries.updated_at` 排序），過去混用 `2026-11-25 16:18:47`（SQLite `CURRENT_TIMESTAMP`）、`...T...+00:00` 與 `+08:00` 造成排序錯亂。
+
+- 強制方式：遷移版本 2 把既有資料轉成標準格式（時間點不變，`+08:00` 會換算成 UTC），並為每個時間欄位建立 `trg_iso_<表>_<欄位>_ins`／`_upd` 觸發器（`AFTER INSERT`、`AFTER UPDATE OF 欄位`）。任何寫入者（含外部匯入工具、SCHEMA 的 `DEFAULT CURRENT_TIMESTAMP`）寫入非標準格式時，會被改寫為標準格式；無法解析的值保持原樣。SCHEMA 的 DEFAULT 不修改，以維持新舊庫結構一致。
+- 程式寫入：SQL 用 `db.ISO_NOW_SQL`（`strftime('%Y-%m-%dT%H:%M:%f+00:00','now')`），Python 用 `db.utc_now_iso()`，兩者格式完全相同。比較時間請用同一格式或 `julianday()`。
+- 外部工具寫入時應直接使用標準格式，不必依賴觸發器。
+- 例外：`discord_messages.timestamp`、`timestamp_edited` 是 Discord 匯出的原始資料（offset 各異），Discord 同步會拿它們與新匯出的值比對來判斷訊息是否被編輯，轉換會讓下次同步誤判所有訊息被編輯，故保持原樣。`discord_sync_state.covered_through` 與 `export_runs.after_value`／`before_value` 是日期（YYYY-MM-DD）而非時間，也不轉換。
+
 私人 `POST /api/publication/activate` 只接受 `{"version":"版本號"}`，驗證發布包後切換並回傳 version、count。
 
 匯出成功回傳 `exported: true`、`version`、`report`；資料錯誤回傳 422 與 `exported: false`，整批阻擋；不自動啟用。缺縮圖、非 ready、非法原圖網址、公開文字疑似本地路徑等列為錯誤；無原圖網址是允許的縮圖限定發布。空選取集合可以匯出，報告警示將清空公開館藏。
@@ -97,7 +106,7 @@ releases/
 └─ reports/<version>.json         僅管理端使用的檢查紀錄
 ```
 
-公開資料結構目前為第 3 版。第 2 版在 entries 新增 `thumbnail_width`、`thumbnail_height`（實際縮圖尺寸），前端據此在圖片載入前預留版面，並依高度做由左到右的瀑布流排列；第 3 版（2026-11-25）移除 `ocr_text`，OCR 不再進入公開快照，發布檢查也不再掃描 OCR 文字。公開服務只讀取相同結構版本的快照，升級程式後舊版本會被拒絕（公開 API 健康檢查失敗），須重新匯出並啟用一次；R2 大圖以內容雜湊沿用，不會重傳。
+公開資料結構目前為第 4 版。第 2 版在 entries 新增 `thumbnail_width`、`thumbnail_height`（實際縮圖尺寸），前端據此在圖片載入前預留版面，並依高度做由左到右的瀑布流排列；第 3 版（2026-11-25）移除 `ocr_text`，OCR 不再進入公開快照，發布檢查也不再掃描 OCR 文字。公開服務只讀取相同結構版本的快照，升級程式後舊版本會被拒絕（公開 API 健康檢查失敗），須重新匯出並啟用一次；第 4 版新增 `created_at`（管理庫建立時間，供「最近新增」排序，API 會回傳）與 `home_random`（1＝可進首頁隨機，匯出時依 `MEMES_HOME_EXCLUDED_TAGS` 計算，不回傳）並建立 `idx_public_created` 索引，**升級後需重新匯出並啟用一次**；R2 大圖以內容雜湊沿用，不會重傳。
 
 同步至目標發布目錄時，先完整放好 media 與 versions，最後在**目標主機**驗證並啟用，勿把上傳中的檔案直接指定成目前版本，也不要同步覆寫 current.json。
 
@@ -146,15 +155,15 @@ bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite
 
 | 接口 | 用途 |
 |---|---|
-| GET /api/v1/entries | q、tag、sort、page、page_size、version |
+| GET /api/v1/entries | q、tag、sort、seed、page、page_size、version |
 | GET /api/v1/entries/{id} | 單筆，僅接受 version |
 | GET /api/v1/meta | 正式標籤與數量，僅接受 version |
 | GET /health/live | 程序可回應 |
 | GET /health/ready | 已啟用且 schema 相容 |
 
-列表預設每頁 24、最多 60，page 1–10000；sort 為 relevance、updated、title。q 最長 256 字／16 詞。有查詢預設相關度，否則最近更新；保留繁簡、標點、多詞、標籤／別名搜尋規則，並支援 `-排除`、`作品:詞` 欄位限定、引號片語與 `field` 搜尋範圍參數（work／speaker／quote／title／tag／alias，見 [DB 與搜尋規格 5.4](database-search-spec.md)）。不接受 status、favorite、missing_image 或其他管理參數。
+列表預設每頁 24、最多 60，page 1–10000；sort 為 relevance、updated、created（最近新增，依建立時間）、title、random。`sort=random` 必須帶 `seed`（1–32 字元，僅 `A-Za-z0-9_-`，否則 400），順序為 `sha256(seed:id)`，同 seed 分頁穩定不重複；沒有 q、tag、ids 時只取 `home_random=1`，排除標籤預設為 `content_sexual_innuendo`、`content_perverted`（環境變數 `MEMES_HOME_EXCLUDED_TAGS` 以逗號分隔覆寫），有任何篩選則不排除。本機瀏覽 `/api/v1/entries` 語意相同（沒有 q、tag、favorite 時排除，依 entry_tags 的 tag_id 判斷）；管理 API `/api/entries` 新增 `sort=created`，random 維持原行為、不做首頁排除。q 最長 256 字／16 詞。有查詢預設相關度，否則最近更新；保留繁簡、標點、多詞、標籤／別名搜尋規則，並支援 `-排除`、`作品:詞` 欄位限定、引號片語與 `field` 搜尋範圍參數（work／speaker／quote／title／tag／alias，見 [DB 與搜尋規格 5.4](database-search-spec.md)）。不接受 status、favorite、missing_image 或其他管理參數。
 
-列表回傳 `{version, items, total, page, page_size}`；單筆 `{version, item}`。item 欄位為 id、display_title、resolved_title、speaker、anime_title、quote_text、tags、search_aliases、thumbnail_url、original_url、updated_at；OCR 不參與搜尋，也不寫入公開快照（第 3 版起）。API 無長時間快取，圖片雜湊 URL 使用一年 immutable 快取。
+列表回傳 `{version, items, total, page, page_size}`；單筆 `{version, item}`。item 欄位為 id、display_title、resolved_title、speaker、anime_title、quote_text、tags、search_aliases、thumbnail_url、original_url、updated_at、created_at；OCR 不參與搜尋，也不寫入公開快照（第 3 版起）。API 無長時間快取，圖片雜湊 URL 使用一年 immutable 快取。
 
 錯誤格式為 `{error: {code, message}}`，涵蓋 400 invalid_request、404 not_found、405 method_not_allowed、410 version_expired、503 not_ready。Nginx 限流回傳 429；其預設 HTML 錯誤頁不遵循 API JSON 格式，前端須先判斷 HTTP status。
 

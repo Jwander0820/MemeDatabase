@@ -221,9 +221,9 @@ class SingleScoreTest(unittest.TestCase):
         conn.executescript(pd.SCHEMA)
         for i in range(self.N):
             quote = f"烈海王{i}" if i % 3 == 0 else f"路人{i}"
-            conn.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            conn.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                          (f"{i:032x}", None, "角色", "刃牙" if i % 2 else "Abc", quote, "[]", "[]",
-                          "t", None, f"2026-01-{i + 1:02d}", 1, 1))
+                          "t", None, f"2026-01-{i + 1:02d}", 1, 1, f"2026-01-{i + 1:02d}", 1))
             if i % 2 == 0:
                 conn.execute("INSERT INTO entry_tags VALUES(?,?)", (f"{i:032x}", "復活"))
         matched = [i for i in range(self.N) if i % 3 == 0]

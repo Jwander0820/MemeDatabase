@@ -207,6 +207,22 @@
 .card-fav:hover { border: 0; background: var(--media-overlay-hover); }
 .card-fav[aria-pressed="true"] { color: var(--star-bright); }
 
+/* 首頁置頂的「常用」小標籤，放在卡片左上角。 */
+.badge-pinned {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--on-media);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
 /* 觸控裝置沒有滑鼠懸停，星號一律顯示。 */
 @media (hover: none) { .card-fav { opacity: 1; } }
 

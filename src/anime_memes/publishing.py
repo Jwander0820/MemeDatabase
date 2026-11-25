@@ -428,11 +428,14 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
                 media_hashes[filename] = hash_value
                 tags = sorted({r[0] for r in source.execute("SELECT tag_name FROM entry_tags WHERE entry_key=?", (row["key"],))})
                 aliases = [r[0] for r in source.execute("SELECT alias_text FROM entry_search_aliases WHERE entry_key=? ORDER BY alias_normalized", (row["key"],))]
-                target.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                excluded = settings.home_random_excluded_tags()
+                tag_ids = {r[0] for r in source.execute("SELECT tag_id FROM entry_tags WHERE entry_key=? AND tag_id IS NOT NULL", (row["key"],))}
+                home_random = 0 if tag_ids & set(excluded) else 1
+                target.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                (row["public_id"], row["display_title"], row["speaker"], row["anime_title"], row["quote_text"],
                                 json.dumps(tags, ensure_ascii=False), json.dumps(aliases, ensure_ascii=False),
                                 "/media/" + filename, row["public_original_url"] or row["r2_url"], row["updated_at"],
-                                thumb_width, thumb_height))
+                                thumb_width, thumb_height, row["created_at"], home_random))
                 target.executemany("INSERT INTO entry_tags VALUES(?,?)", [(row["public_id"], tag) for tag in tags])
             target.commit()
         manifest = {"schema_version": SCHEMA_VERSION, "normalization_version": NORMALIZATION_VERSION,

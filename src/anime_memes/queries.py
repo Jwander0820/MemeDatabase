@@ -42,6 +42,10 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         params.append(tag)
     if truthy(args.get("favorite")):
         where.append("f.entry_key IS NOT NULL")
+    excluded = tuple(args.get("exclude_tag_ids") or ())  # 首頁隨機：由本機瀏覽傳入要排除的標籤 id
+    if excluded:
+        where.append(f"NOT EXISTS (SELECT 1 FROM entry_tags ex WHERE ex.entry_key = e.key AND ex.tag_id IN ({','.join('?' * len(excluded))}))")
+        params.extend(excluded)
     published = str(args.get("published") or "").strip()
     if published in {"0", "1"}:
         where.append("e.publish_selected = ?")
@@ -75,6 +79,7 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         conn.create_function("shuffle_key", 1, lambda key: hashlib.sha256(f"{seed}:{key}".encode()).hexdigest(), deterministic=True)
     order_by = {
         "random": "shuffle_key(e.key), e.key",
+        "created": "e.created_at DESC, e.key",
         "source_old": "m.timestamp ASC, e.key",
         "source_new": "m.timestamp DESC, e.key",
         "title": "e.anime_title COLLATE NOCASE, e.key",
@@ -131,6 +136,7 @@ def _query_scored(conn, args, where_sql, params, page, page_size):
         conn.create_function("shuffle_key", 1, lambda key: hashlib.sha256(f"{seed}:{key}".encode()).hexdigest(), deterministic=True)
     order_by = {
         "random": "shuffle_key(e.key), e.key",
+        "created": "e.created_at DESC, e.key",
         "source_old": "m.timestamp ASC, e.key",
         "source_new": "m.timestamp DESC, e.key",
         "title": "e.anime_title COLLATE NOCASE, e.key",

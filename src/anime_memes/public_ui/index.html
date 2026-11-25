@@ -15,6 +15,7 @@
   <script defer src="/assets/infinite-scroll.js"></script>
   <script defer src="/assets/gallery.js"></script>
   <script defer src="/assets/gallery-favorites.js"></script>
+  <script defer src="/assets/gallery-usage.js"></script>
   <script defer src="/assets/gallery-detail.js"></script>
   <script defer src="/assets/gallery-init.js"></script>
 </head>
@@ -56,7 +57,7 @@
       <p id="status" role="status"></p>
       <label class="sort-select">
         <span class="sr-only">排序</span>
-        <select id="sort"><option value="">自動排序</option><option value="relevance">相關度</option><option value="updated">最近更新</option><option value="title">作品名稱</option></select>
+        <select id="sort"><option value="" title="無搜尋時為常用圖片加每日隨機，有搜尋時依相關度">首頁推薦</option><option value="relevance">相關度</option><option value="updated">最近更新</option><option value="created">最近新增</option><option value="title">作品名稱</option></select>
       </label>
     </div>
     <div class="meme-grid" id="results"></div>

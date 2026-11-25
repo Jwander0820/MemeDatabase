@@ -9,13 +9,13 @@ from typing import Any
 
 from flask import Blueprint, abort, g, jsonify, request, send_file, send_from_directory
 
-from . import public_data
+from . import public_data, settings
 from .queries import fetch_entry, query_entries, ready_tag_counts
 from .web_common import error_response, serialize_entry
 
 LOCAL_BROWSE_VERSION = "local"
 # 本機瀏覽沒有 ids，但多了 favorite（與管理頁共用 entry_favorites）。
-BROWSE_ENTRIES_ARGS = (public_data.ALLOWED_ARGS - {"ids"}) | {"favorite"}
+BROWSE_ENTRIES_ARGS = (public_data.ALLOWED_ARGS - {"ids"}) | {"favorite"}  # 含 seed
 
 browse_bp = Blueprint("browse", __name__)
 _public_ui_dir = Path(__file__).with_name("public_ui")
@@ -47,6 +47,7 @@ def browse_item(item: dict[str, Any]) -> dict[str, Any]:
         "thumbnail_url": item.get("thumbnail_url") or (image if image and image.startswith("/media/") else None),
         "original_url": image if image and image.startswith("/media/") else None,
         "updated_at": item.get("updated_at"),
+        "created_at": item.get("created_at"),
         "favorite": bool(item.get("favorite")),
         # 原圖寬高與縮圖等比例，前端只用來預留版面比例。
         "thumbnail_width": item.get("image_width"),
@@ -87,11 +88,15 @@ def browse_entries():
         raise ValueError("page 或 page_size 超出範圍")
     q = (request.args.get("q") or "").strip()
     sort = request.args.get("sort") or ("relevance" if q else "updated")
-    if sort not in {"relevance", "updated", "title"}:
+    if sort not in {"relevance", "updated", "created", "title", "random"}:
         raise ValueError("不支援的排序")
     args = {"status": "ready", "q": q, "field": request.args.get("field") or "",
             "tag": request.args.get("tag") or "", "sort": sort,
             "favorite": request.args.get("favorite") or ""}
+    if sort == "random":
+        args["seed"] = public_data.read_seed(request.args)
+        if not q and not args["tag"] and not args["favorite"]:
+            args["exclude_tag_ids"] = settings.home_random_excluded_tags()  # 與公開 API 相同的首頁排除規則
     entries, total = query_entries(g.db, args, page, page_size)
     return jsonify({"items": [browse_item(serialize_entry(row)) for row in entries],
                     "page": page, "page_size": page_size, "total": total, "version": LOCAL_BROWSE_VERSION})

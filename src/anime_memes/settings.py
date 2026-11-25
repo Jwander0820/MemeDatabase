@@ -45,6 +45,17 @@ def tag_rules() -> str:
     return os.environ.get("MEMES_TAG_RULES", DEFAULT_TAG_RULES)
 
 
+DEFAULT_HOME_EXCLUDED_TAGS = ("content_sexual_innuendo", "content_perverted")
+
+
+def home_random_excluded_tags() -> tuple[str, ...]:
+    """首頁隨機排除的標籤 id；MEMES_HOME_EXCLUDED_TAGS（逗號分隔）可覆寫，設為空字串表示不排除。"""
+    raw = os.environ.get("MEMES_HOME_EXCLUDED_TAGS")
+    if raw is None:
+        return DEFAULT_HOME_EXCLUDED_TAGS
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 def configured_media_dir(kind: str) -> str | None:
     """kind 為 ATTACHMENT／THUMBNAIL／WEB；有設定 MEMES_{kind}_DIR 才回傳，否則 None（不套預設）。"""
     return os.environ.get(f"MEMES_{kind}_DIR") or None

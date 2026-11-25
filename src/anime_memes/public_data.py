@@ -1,6 +1,7 @@
 """公開資料契約與查詢；僅依賴標準庫及共用搜尋規則。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -10,23 +11,28 @@ from .search import NORMALIZATION_VERSION, SCORE_ARGS, scorer, search_field
 
 # 第 2 版：entries 新增縮圖寬高，前端可在圖片載入前預留版面並依高度排列。
 # 第 3 版：移除 ocr_text；OCR 不參與搜尋，也不回傳，沒有理由放進公開快照。
-SCHEMA_VERSION = 3
+# 第 4 版：entries 新增 created_at（建立時間，供「最近新增」排序）與 home_random（1＝可進首頁隨機；
+#   匯出時依 MEMES_HOME_EXCLUDED_TAGS 排除標籤計算，不對外回傳）。
+SCHEMA_VERSION = 4
 SCHEMA = """
 CREATE TABLE metadata(schema_version INTEGER NOT NULL, normalization_version INTEGER NOT NULL, version TEXT NOT NULL);
 CREATE TABLE entries(
  id TEXT PRIMARY KEY, display_title TEXT, speaker TEXT, anime_title TEXT,
  quote_text TEXT NOT NULL, tags_json TEXT NOT NULL,
  aliases_json TEXT NOT NULL, thumbnail_url TEXT NOT NULL, original_url TEXT,
- updated_at TEXT NOT NULL, thumbnail_width INTEGER NOT NULL, thumbnail_height INTEGER NOT NULL
+ updated_at TEXT NOT NULL, thumbnail_width INTEGER NOT NULL, thumbnail_height INTEGER NOT NULL,
+ created_at TEXT NOT NULL, home_random INTEGER NOT NULL
 );
 CREATE TABLE entry_tags(entry_id TEXT NOT NULL REFERENCES entries(id), tag TEXT NOT NULL,
  PRIMARY KEY(entry_id,tag));
 CREATE INDEX idx_public_tag ON entry_tags(tag,entry_id);
 CREATE INDEX idx_public_updated ON entries(updated_at DESC,id);
+CREATE INDEX idx_public_created ON entries(created_at DESC,id);
 """
 FIELDS = ("id", "display_title", "speaker", "anime_title", "quote_text", "thumbnail_url", "original_url", "updated_at",
-          "thumbnail_width", "thumbnail_height")
-ALLOWED_ARGS = {"q", "field", "tag", "sort", "page", "page_size", "version", "ids"}
+          "thumbnail_width", "thumbnail_height", "created_at")
+ALLOWED_ARGS = {"q", "field", "tag", "sort", "page", "page_size", "version", "ids", "seed"}
+SEED_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,32}")
 # 訪客收藏清單一次查詢的上限（收藏存在訪客瀏覽器，以公開 ID 查最新資料）。
 MAX_IDS = 200
 
@@ -46,7 +52,7 @@ def validate_schema(conn: sqlite3.Connection, version: str) -> None:
     if {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")} != expected:
         raise ValueError("公開資料表不符合白名單")
     columns = [r[1] for r in conn.execute("PRAGMA table_info(entries)")]
-    if columns != ["id", "display_title", "speaker", "anime_title", "quote_text", "tags_json", "aliases_json", "thumbnail_url", "original_url", "updated_at", "thumbnail_width", "thumbnail_height"]:
+    if columns != ["id", "display_title", "speaker", "anime_title", "quote_text", "tags_json", "aliases_json", "thumbnail_url", "original_url", "updated_at", "thumbnail_width", "thumbnail_height", "created_at", "home_random"]:
         raise ValueError("公開欄位不符合白名單")
     for table, names in {"metadata": ["schema_version", "normalization_version", "version"], "entry_tags": ["entry_id", "tag"]}.items():
         if [r[1] for r in conn.execute(f"PRAGMA table_info({table})")] != names:
@@ -81,6 +87,18 @@ def int_param(args, name: str, default: int) -> int:
         raise ValueError(f"{name} 必須是整數") from None
 
 
+def shuffle_key(seed: str, key: str) -> str:
+    """隨機排序鍵：同 seed 順序固定，換 seed 順序改變（公開與本機瀏覽共用）。"""
+    return hashlib.sha256(f"{seed}:{key}".encode()).hexdigest()
+
+
+def read_seed(args) -> str:
+    seed = args.get("seed")
+    if not seed or not SEED_PATTERN.fullmatch(str(seed)):
+        raise ValueError("sort=random 需要 seed（1–32 字元，僅限英數、底線與連字號）")
+    return str(seed)
+
+
 def search(conn: sqlite3.Connection, args) -> dict:
     unknown = set(args) - ALLOWED_ARGS
     if unknown:
@@ -108,7 +126,12 @@ def search(conn: sqlite3.Connection, args) -> dict:
         else:
             where.append("0")  # 空的收藏清單：不回傳任何結果
     sort = args.get("sort") or ("relevance" if q else "updated")
-    orders = {"updated": "e.updated_at DESC,e.id", "title": "e.anime_title COLLATE NOCASE,e.id",
+    if sort == "random":
+        seed = read_seed(args)
+        conn.create_function("shuffle_key", 1, lambda key: shuffle_key(seed, key), deterministic=True)
+        if not q and not args.get("tag") and "ids" not in args:
+            where.append("e.home_random=1")  # 首頁隨機：沒有任何篩選時才排除；主動篩選仍找得到
+    orders = {"updated": "e.updated_at DESC,e.id", "created": "e.created_at DESC,e.id", "random": "shuffle_key(e.id),e.id", "title": "e.anime_title COLLATE NOCASE,e.id",
               "relevance": (score_sql + " DESC,e.updated_at DESC,e.id") if q else "e.updated_at DESC,e.id"}
     if sort not in orders:
         raise ValueError("不支援的排序")

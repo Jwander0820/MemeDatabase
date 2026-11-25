@@ -51,7 +51,7 @@ async function readApi(path, params) {
 
 const sameName = (a, b) => Boolean(a && b) && a.trim().toLowerCase() === b.trim().toLowerCase();
 
-function card(item) {
+function card(item, {pinned = false} = {}) {
   // 卡片本體是連結；星號按鈕放在連結外面（連結裡不可再放按鈕）。
   const node = element("article");
   node.className = "card";
@@ -84,7 +84,58 @@ function card(item) {
   }
   link.append(image, body);
   node.append(link, favoriteButton(item, {compact: true}));
+  if (pinned) {
+    const badge = element("span", "常用");
+    badge.className = "badge-pinned";
+    node.append(badge);
+  }
   return node;
+}
+
+// ---------- 首頁推薦 ----------
+// 沒有搜尋字、標籤、收藏篩選且排序為「首頁推薦」時：前幾張是這位訪客常用的圖，其後是每日固定的隨機排列。
+const PINNED_COUNT = 5;
+let homeMode = false;
+let homeSeed = "";
+let pinnedIds = new Set();
+let pinnedShown = 0;
+// 後端已回傳（含被剔除的重複圖）的張數，用來判斷是否還有下一頁。
+let fetched = 0;
+
+const isHomeMode = () => !byId("query").value.trim() && !activeTag && !favoritesOnly && !byId("sort").value;
+
+// 訪客當地時間的 YYYY-MM-DD；跨日後下次進首頁就換一種排列。
+function localDate() {
+  const now = new Date();
+  const pad = value => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+// 取得「常用」圖片：使用紀錄優先，不足再用收藏補；失敗或已下架的略過，永不拋出例外。
+async function loadPinned() {
+  const single = id => {
+    const params = new URLSearchParams();
+    if (version) params.set("version", version);
+    return readApi("entries/" + encodeURIComponent(id), params).then(data => data.item, () => null);
+  };
+  const ids = topUsed(PINNED_COUNT);
+  // 先同步送出單筆請求，之後才處理需要等待的收藏清單。
+  const usedRequests = ids.map(single);
+  const need = PINNED_COUNT - ids.length;
+  let extra = [];
+  if (need > 0) {
+    if (localMode) {
+      try {
+        const data = await readApi("entries", new URLSearchParams({favorite: "1", sort: "updated", page_size: String(PINNED_COUNT)}));
+        extra = (data.items || []).filter(item => !ids.includes(item.id)).slice(0, need).map(item => Promise.resolve(item));
+      } catch {}
+    } else {
+      extra = favoriteIds.filter(id => !ids.includes(id)).slice(0, need).map(single);
+    }
+  }
+  const items = (await Promise.all([...usedRequests, ...extra])).filter(Boolean);
+  const seen = new Set();
+  return items.filter(item => !seen.has(item.id) && seen.add(item.id));
 }
 
 function applyMode(meta) {
@@ -122,7 +173,18 @@ function renderTags() {
     renderTags();
     search(true);
   };
-  tagRow.replaceChildren(favorites, chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
+  // 「最近新增」與排序選單同步：選中即排序為 created，再點一次回到首頁推薦。
+  const sortSelect = byId("sort");
+  const recent = element("button", "最近新增");
+  recent.type = "button";
+  recent.className = "chip";
+  recent.ariaPressed = String(sortSelect.value === "created");
+  recent.onclick = () => {
+    sortSelect.value = sortSelect.value === "created" ? "" : "created";
+    renderTags();
+    search(true);
+  };
+  tagRow.replaceChildren(favorites, recent, chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
   syncTagScroll();
 }
 
@@ -208,21 +270,34 @@ async function search(reset) {
     if (masonry) masonry.reset();
     else results.replaceChildren();
     shown = 0;
+    fetched = 0;
     page = 0;
     version = "";
+    homeMode = isHomeMode();
+    homeSeed = localDate();
+    pinnedIds = new Set();
+    pinnedShown = 0;
   }
   const params = new URLSearchParams({page: page + 1});
   const query = byId("query").value.trim();
-  for (const [name, value] of [["q", query], ["tag", activeTag], ["sort", byId("sort").value]]) {
-    if (value) params.set(name, value);
-  }
-  // field 只在有查詢字時才有意義。
-  if (query && activeScope) params.set("field", activeScope);
-  if (favoritesOnly) {
-    if (localMode) params.set("favorite", "1");
-    else params.set("ids", favoriteIds.slice(0, MAX_FAVORITE_QUERY).join(","));
+  if (homeMode) {
+    // 首頁：每日固定的隨機排列；後端會自動排除特定標籤。
+    params.set("sort", "random");
+    params.set("seed", homeSeed);
+  } else {
+    for (const [name, value] of [["q", query], ["tag", activeTag], ["sort", byId("sort").value]]) {
+      if (value) params.set(name, value);
+    }
+    // field 只在有查詢字時才有意義。
+    if (query && activeScope) params.set("field", activeScope);
+    if (favoritesOnly) {
+      if (localMode) params.set("favorite", "1");
+      else params.set("ids", favoriteIds.slice(0, MAX_FAVORITE_QUERY).join(","));
+    }
   }
   if (version) params.set("version", version);
+  // 常用圖片只在首頁第一頁取得；先送出單筆請求，再送出隨機列表請求，兩者並行。
+  const pinnedRequest = reset && homeMode ? loadPinned() : null;
   more.hidden = true;
   empty.hidden = true;
   statusLine.textContent = "載入中…";
@@ -231,24 +306,43 @@ async function search(reset) {
   hasMore = false;
   loadHint.textContent = scroller && !reset ? "載入中…" : "";
   try {
-    const data = await readApi("entries", params);
+    const [data, pinned] = await Promise.all([readApi("entries", params), pinnedRequest]);
     if (request !== listRequest) return;
     if (tagsVersion !== data.version) {
       const meta = await readApi("meta", new URLSearchParams({version: data.version}));
       if (request !== listRequest) return;
       knownTags = meta.tags;
+      const wasLocal = localMode;
       applyMode(meta);
       renderTags();
       tagsVersion = data.version;
+      // 本機模式要到這裡才知道；使用紀錄與收藏的來源不同，首頁需以本機模式重新取得。
+      if (!wasLocal && localMode && homeMode) {
+        search(true);
+        return;
+      }
     }
     version = data.version;
     page = data.page;
-    const cards = data.items.map(card);
+    fetched += data.items.length;
+    const pinnedItems = pinned || [];
+    for (const item of pinnedItems) pinnedIds.add(item.id);
+    pinnedShown += pinnedItems.length;
+    // 隨機列表剔除已放在最前面的「常用」圖片。
+    const cards = [
+      ...pinnedItems.map(item => card(item, {pinned: true})),
+      ...data.items.filter(item => !pinnedIds.has(item.id)).map(item => card(item)),
+    ];
     if (masonry) masonry.append(cards);
     else results.append(...cards);
     shown += cards.length;
-    statusLine.textContent = data.total ? `已顯示 ${shown}／${data.total} 張` : "查無結果";
-    empty.hidden = data.total !== 0;
+    if (data.total || shown) {
+      const prefix = homeMode && pinnedShown ? `首頁推薦：常用 ${pinnedShown} 張＋每日隨機　` : "";
+      statusLine.textContent = `${prefix}已顯示 ${shown}／${Math.max(data.total, shown)} 張`;
+    } else {
+      statusLine.textContent = "查無結果";
+    }
+    empty.hidden = data.total !== 0 || shown !== 0;
     byId("emptyTitle").textContent = favoritesOnly ? "還沒有收藏的梗圖" : "找不到符合的梗圖";
     byId("emptyHint").textContent = favoritesOnly ? "點卡片右上角的星號，常用的圖就會出現在這裡。" : "換個關鍵字，或試試其他標籤。";
     // 收藏的圖若已下架就查不到；只在沒有其他篩選時才能準確判斷少了幾張。
@@ -256,11 +350,11 @@ async function search(reset) {
       const asked = Math.min(favoriteIds.length, MAX_FAVORITE_QUERY);
       if (asked > data.total) statusLine.textContent += `（另有 ${asked - data.total} 張收藏已下架）`;
     }
-    hasMore = shown < data.total;
+    hasMore = fetched < data.total;
     more.textContent = "載入更多";
     // 有自動載入時不顯示按鈕；全部載完則在列表底部顯示提示（查無結果不顯示）。
     more.hidden = !hasMore || Boolean(scroller);
-    loadHint.textContent = !hasMore && data.total ? "已經到底了" : "";
+    loadHint.textContent = !hasMore && shown ? "已經到底了" : "";
     retryFromStart = false;
   } catch (error) {
     if (request !== listRequest) return;
