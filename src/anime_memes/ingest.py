@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from . import settings
 from .attachments import (
     attachment_path,
     download_attachment,
@@ -24,8 +25,8 @@ def ingest_fixed_export(
     *,
     channel_id: str = "",
     raw_path: str | None = None,
-    attachment_dir: str | Path = "data/attachments",
-    tag_rules_path: str | Path = "config/tags.taxonomy.json",
+    attachment_dir: str | Path = settings.DEFAULT_ATTACHMENT_DIR,
+    tag_rules_path: str | Path = settings.DEFAULT_TAG_RULES,
     download_attachments: bool = False,
     run_ocr: bool = False,
     ocr_engine: str = "paddle",
@@ -436,7 +437,7 @@ def clamp(value: float) -> float:
 def ocr_review_entries(
     conn: sqlite3.Connection,
     *,
-    attachment_dir: str | Path = "data/attachments",
+    attachment_dir: str | Path = settings.DEFAULT_ATTACHMENT_DIR,
     engine: str = "paddle",
     device: str = "auto",
     confidence_threshold: float = 0.7,

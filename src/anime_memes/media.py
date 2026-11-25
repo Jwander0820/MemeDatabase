@@ -1,10 +1,12 @@
 """本機媒體路徑與受限刪除操作。"""
 from __future__ import annotations
+
 import sqlite3
 from pathlib import Path
 from typing import Any
+from . import settings
 from .paths import resolve_local
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = settings.ROOT
 
 def media_path(conn: sqlite3.Connection, attachment_id: str, column: str) -> Path | None:
     if column not in {"local_path", "thumbnail_path"}:

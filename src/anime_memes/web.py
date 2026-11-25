@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from flask import Flask, abort, g, jsonify, request, send_file, send_from_directory
 
+from . import settings
 from . import management
 from .queries import query_entries, fetch_entry, metadata
 from .media import media_path, resolve_media_path, configured_media_root, safe_delete_media_file, file_exists
@@ -16,7 +17,7 @@ from .db import connect, init_db
 from .tagging import decide_tag_suggestion, list_tag_suggestions
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = settings.ROOT
 MAX_MANUAL_UPLOAD_BYTES = 50 * 1024 * 1024
 LOCAL_BROWSE_VERSION = "local"
 
@@ -26,8 +27,8 @@ def run_web_app(
     db_path: str | Path,
     host: str = "127.0.0.1",
     port: int = 3638,
-    attachment_dir: str | Path = "data/attachments",
-    thumbnail_dir: str | Path = "data/thumbnails",
+    attachment_dir: str | Path = settings.DEFAULT_ATTACHMENT_DIR,
+    thumbnail_dir: str | Path = settings.DEFAULT_THUMBNAIL_DIR,
 ) -> None:
     app = create_app(
         db_path=db_path,
@@ -40,10 +41,10 @@ def run_web_app(
 
 def create_app(
     *,
-    db_path: str | Path = "data/anime_memes.sqlite3",
-    attachment_dir: str | Path = "data/attachments",
-    thumbnail_dir: str | Path = "data/thumbnails",
-    release_root: str | Path = "data/releases",
+    db_path: str | Path = settings.DEFAULT_DB,
+    attachment_dir: str | Path = settings.DEFAULT_ATTACHMENT_DIR,
+    thumbnail_dir: str | Path = settings.DEFAULT_THUMBNAIL_DIR,
+    release_root: str | Path = settings.DEFAULT_RELEASE_ROOT,
 ) -> Flask:
     template_dir = Path(__file__).with_name("web_templates")
     static_dir = Path(__file__).with_name("web_static")

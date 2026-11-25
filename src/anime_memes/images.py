@@ -7,6 +7,7 @@ from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
+from . import settings
 from .attachments import (
     OCR_UNSUPPORTED_SUFFIXES,
     attachment_path,
@@ -45,7 +46,7 @@ def reject_invalid_image(conn: sqlite3.Connection, attachment_id: str, path: Pat
 def download_all_attachments(
     conn: sqlite3.Connection,
     *,
-    attachment_dir: str | Path = "data/attachments",
+    attachment_dir: str | Path = settings.DEFAULT_ATTACHMENT_DIR,
     channel_id: str | None = None,
     discord_bot_token: str | None = None,
     force: bool = False,
@@ -206,7 +207,7 @@ def update_attachment_download(
 def build_thumbnails(
     conn: sqlite3.Connection,
     *,
-    thumbnail_dir: str | Path = "data/thumbnails",
+    thumbnail_dir: str | Path = settings.DEFAULT_THUMBNAIL_DIR,
     missing: bool = True,
     force: bool = False,
     limit: int | None = None,

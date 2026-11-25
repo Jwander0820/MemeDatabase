@@ -2,7 +2,9 @@
 from pathlib import Path, PureWindowsPath
 import os
 
-ROOT = Path(__file__).resolve().parents[2]
+from . import settings
+
+ROOT = settings.ROOT
 
 
 def resolve_local(value, kind=None):

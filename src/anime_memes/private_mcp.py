@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+from . import settings
 from .public_data import open_readonly
 from .queries import query_entries, fetch_entry
 
@@ -56,7 +57,7 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
     parsed = urlsplit(media_base)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("私人媒體網址格式錯誤")
-    service = PrivateSearch(db or os.environ.get("MEMES_DB", "data/anime_memes.sqlite3"), media_base)
+    service = PrivateSearch(db or settings.db_path(), media_base)
     server = MCPServer("AnimeMemes Private Search")
 
     @server.tool()

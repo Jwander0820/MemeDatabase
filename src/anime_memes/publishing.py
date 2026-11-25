@@ -14,6 +14,7 @@ import uuid
 
 from PIL import Image, UnidentifiedImageError
 
+from . import settings
 from .db import connect
 from .public_data import SCHEMA, SCHEMA_VERSION, open_readonly
 from .releases import digest, validate, version_name
@@ -23,7 +24,7 @@ from .r2 import R2Config, R2Error, store_from_env
 from .renditions import UNSUPPORTED_SUFFIXES, ensure_web_rendition, is_video, render_webp, sha256_bytes
 from .urls import original_url
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = settings.ROOT
 _DEFAULT_STORE = object()  # 代表「由環境變數建立 R2 儲存」
 
 
@@ -232,7 +233,7 @@ def check_database(db_path):
 
 def prepare_public_media(db_path, store, *, web_dir=None):
     """為發布選取且無手動原圖網址的項目產生 720P 並上傳 R2；可重複執行。"""
-    web_dir = web_dir or os.environ.get("MEMES_WEB_DIR") or "data/web"
+    web_dir = web_dir or settings.web_dir()
     summary = {"uploaded": 0, "reused": 0, "skipped": 0, "errors": [], "warnings": []}
     with closing(connect(db_path)) as conn:
         rows = conn.execute("""SELECT e.key,a.id,a.r2_key,a.r2_url FROM meme_entries e

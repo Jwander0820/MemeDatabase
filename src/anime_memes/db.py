@@ -5,6 +5,8 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
+from . import settings
+
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -331,7 +333,7 @@ def ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]
 
 
 def sync_default_taxonomy(conn: sqlite3.Connection) -> None:
-    taxonomy_path = Path(__file__).resolve().parents[2] / "config" / "tags.taxonomy.json"
+    taxonomy_path = settings.TAXONOMY_PATH
     from .tags import load_taxonomy, sync_taxonomy
 
     sync_taxonomy(conn, load_taxonomy(taxonomy_path))

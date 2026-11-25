@@ -1,18 +1,18 @@
 """公開唯讀 WSGI app；沒有管理、OCR 或模板 import。"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import sqlite3
 
 from flask import Flask, abort, g, jsonify, request
 
+from . import settings
 from .public_data import open_readonly, search, serialize, validate_schema
 from .releases import ReleaseMissing, current_version, release_path, version_name
 
 
 def create_public_app(release_root=None):
-    root = Path(release_root or os.environ.get("MEMES_RELEASE_ROOT", "data/releases")).resolve()
+    root = Path(release_root or settings.release_root()).resolve()
     app = Flask(__name__, static_folder=None)
 
     @app.before_request

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
+from . import settings
 from .attachments import OCR_UNSUPPORTED_SUFFIXES
 from .paths import resolve_local
 
@@ -146,7 +147,7 @@ def ensure_web_rendition(
     conn: sqlite3.Connection,
     attachment_id: str,
     *,
-    web_dir: str | Path = "data/web",
+    web_dir: str | Path = settings.DEFAULT_WEB_DIR,
     force: bool = False,
 ) -> tuple[Path, str]:
     """確保附件有 720P 網頁版；不 commit，由呼叫端負責。"""
@@ -179,7 +180,7 @@ def ensure_web_rendition(
 def build_web_renditions(
     conn: sqlite3.Connection,
     *,
-    web_dir: str | Path = "data/web",
+    web_dir: str | Path = settings.DEFAULT_WEB_DIR,
     selected_only: bool = True,
     missing: bool = True,
     force: bool = False,

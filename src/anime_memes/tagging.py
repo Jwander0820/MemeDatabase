@@ -9,10 +9,11 @@ from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
+from . import settings
 from .tags import DEFAULT_TAXONOMY_PATH, load_taxonomy, sync_taxonomy, taxonomy_indexes
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = settings.ROOT
 SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 

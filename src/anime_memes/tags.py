@@ -8,8 +8,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from . import settings
 
-ROOT = Path(__file__).resolve().parents[2]
+
+ROOT = settings.ROOT
 DEFAULT_TAXONOMY_PATH = ROOT / "config" / "tags.taxonomy.json"
 
 
