@@ -23,6 +23,7 @@
 | 入口 | 內容 |
 |---|---|
 | [文件索引](docs/README.md) | 現行規格、操作手冊與歷史文件的閱讀入口 |
+| [VPS 部署手冊](docs/vps-deployment.md) | Cloudflare Tunnel、VPS 首次部署、日常更新與維運 |
 | [整體規格](docs/personal-meme-platform-spec.md) | UI、API、部署、資源限制及分階段驗收 |
 | [DB 與搜尋規格](docs/database-search-spec.md) | 新欄位、替代詞、搜尋規則與資料遷移 |
 | [Agent 標籤操作手冊](docs/agent-image-tagging-guide.md) | 已有的圖片標籤匯出、匯入與審核流程 |

@@ -1,3 +1,7 @@
+# 固定專案名稱：映像名稱一律是 animememes-<服務>，不受資料夾名稱影響（scripts/push_release.ps1 依此預設映像名）。
+# 測試以 -p 指定其他專案名稱時，映像與容器名稱各自獨立，不會覆蓋正在使用的映像。
+name: animememes
+
 x-common: &common
   restart: unless-stopped
   logging:
@@ -15,12 +19,20 @@ services:
     environment:
       MEMES_RELEASE_ROOT: /releases
     volumes:
-      - ${RELEASE_ROOT:-./data/releases}:/releases:ro
+      # 目錄不存在時直接失敗，不讓 Docker 自動建立 root 擁有的目錄（之後 UID 10001 無法安裝發布包）。
+      # Linux Docker Engine 會遵守；Docker Desktop 可能仍自動建立，部署時一律先建立目錄並 chown（docs/vps-deployment.md）。
+      - type: bind
+        source: ${RELEASE_ROOT:-./data/releases}
+        target: /releases
+        read_only: true
+        bind: {create_host_path: false}
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 192m
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready')"]
+      # 用 live 而非 ready：首次部署還沒有啟用版本時 ready 是 503，若以它判斷健康，Nginx 會一直等不到而無法啟動。
+      # 是否已有啟用版本請另外檢查 /health/ready。
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/live')"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -37,10 +49,14 @@ services:
       NGINX_ENVSUBST_FILTER: SEARCH_
       NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: ""
     volumes:
-      - ${RELEASE_ROOT:-./data/releases}/media:/srv/media:ro
+      - type: bind
+        source: ${RELEASE_ROOT:-./data/releases}/media
+        target: /srv/media
+        read_only: true
+        bind: {create_host_path: false}
     mem_limit: 64m
     healthcheck:
-      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/ready"]
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/live"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -104,3 +120,17 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+  cloudflared:
+    # VPS 對外入口：cloudflared 主動連出到 Cloudflare，主機不需開放任何連入 port。
+    # Cloudflare 控制台的公開主機名稱指向 http://public-nginx:8080（見 docs/vps-deployment.md）。
+    <<: *common
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.0}
+    command: [tunnel, --no-autoupdate, run]
+    environment:
+      # Tunnel token 是秘密：只放在 VPS 的 .env，不可提交。
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      public-nginx: {condition: service_healthy}
+    read_only: true
+    mem_limit: 128m

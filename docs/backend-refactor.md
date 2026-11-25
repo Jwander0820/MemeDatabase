@@ -134,6 +134,8 @@ bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite
 
 前提：VPS 已有公開映像（預設 `animememes-public-api`）與發布目錄，且該目錄允許 UID 10001 寫入；SSH 認證使用你既有的 ssh 設定，腳本不處理密碼或 token。`-DryRun` 只印出命令，不執行任何步驟。
 
+完整的 VPS 首次部署、Cloudflare Tunnel 設定與日常維運見 [VPS 部署手冊](vps-deployment.md)。
+
 ## 公開搜尋契約
 
 | 接口 | 用途 |

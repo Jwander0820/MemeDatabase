@@ -86,6 +86,18 @@ class ContainerTest(unittest.TestCase):
                     self.assertLessEqual(im.width, 640)
                     self.assertLessEqual(im.height, 480)
                 self.assertIn("/assets/gallery.js", http("/")[2].decode())
+                # 安全標頭：頁面、靜態檔與 API 都要有，API 的 nosniff 不可重複。
+                page_headers = http("/")[1]
+                self.assertIn("frame-ancestors 'none'", page_headers["Content-Security-Policy"])
+                self.assertEqual(page_headers["X-Frame-Options"], "DENY")
+                self.assertIn("Content-Security-Policy", http("/assets/gallery.js")[1])
+                self.assertEqual(http("/api/v1/entries")[1]["X-Content-Type-Options"], "nosniff")
+                self.assertIn("Content-Security-Policy", http("/", private=True)[1])
+                # 私人管理端擋外部 Host（DNS rebinding）。
+                rebinding = urllib.request.Request("http://127.0.0.1:18865/api/entries", headers={"Host": "evil.example:18865"})
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(rebinding, timeout=10)
+                self.assertEqual(caught.exception.code, 403)
                 for path in ["/assets/gallery.js", "/assets/gallery.css", "/assets/catalog.css"]:
                     self.assertEqual(http(path)[0], 200)
                 self.assertEqual(http("/assets/catalog.css")[2], http("/static/catalog.css", private=True)[2])
