@@ -31,11 +31,15 @@ def main():
     parser.add_argument("output", type=Path, nargs="?",
                         default=Path(__file__).resolve().parents[1] / "data/web-meme-import/review.html")
     parser.add_argument("--approved", type=Path)
+    parser.add_argument("--local-root", type=Path)
     args = parser.parse_args()
     rows = read_rows(args.candidates)
     approved = read_rows(args.approved) if args.approved else []
     def key_for(row):
-        return json.dumps([row.get("source_page"), row.get("image_url")], ensure_ascii=False, separators=(",", ":"))
+        parts = [row.get("source_page"), row.get("image_url")]
+        if row.get("local_path"):
+            parts.append(row.get("local_path"))
+        return json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
 
     keys = [key_for(row) for row in rows]
     if len(keys) != len(set(keys)):
@@ -51,11 +55,13 @@ def main():
         selected.append(key)
         edits[key] = {f: row[f] for f in ("source_page", "caption", "subject", "display_title", "speaker", "tags")
                       if f in row and row[f] != originals[key].get(f)}
+    local_root_uri = args.local_root.resolve().as_uri().rstrip("/") + "/" if args.local_root else ""
     values = {
         "__BATCH_ITEMS__": encode(rows),
         "__APPROVED_KEYS__": encode(selected),
         "__INITIAL_EDITS__": encode(edits),
         "__BATCH_ID__": hashlib.sha256(encode(keys).encode()).hexdigest()[:20],
+        "__LOCAL_ROOT_URI__": encode(local_root_uri),
     }
     page = re.sub("|".join(values), lambda m: values[m.group()], template.read_text(encoding="utf-8"))
     args.output.parent.mkdir(parents=True, exist_ok=True)

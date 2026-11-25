@@ -15,9 +15,7 @@ from .db import connect, init_db
 from .management import create_manual_entry, source_page_url
 
 
-def fetch_image(url):
-    with urlopen(Request(url, headers={"User-Agent": "MemeDatabase/1.0"}), timeout=25) as response:
-        data = response.read(32 * 1024 * 1024 + 1)
+def _validate_image_bytes(data, filename_stem):
     if len(data) > 32 * 1024 * 1024:
         raise ValueError("圖片超過 32 MiB")
     stream = BytesIO(data)
@@ -30,7 +28,25 @@ def fetch_image(url):
     with Image.open(stream) as img:
         img.load()
     stream.seek(0)
-    return FileStorage(stream, filename=f"web-meme.{suffix}")
+    return FileStorage(stream, filename=f"{filename_stem}.{suffix}")
+
+
+def fetch_image(url):
+    with urlopen(Request(url, headers={"User-Agent": "MemeDatabase/1.0"}), timeout=25) as response:
+        data = response.read(32 * 1024 * 1024 + 1)
+    return _validate_image_bytes(data, "web-meme")
+
+
+def read_local_image(local_root, rel_path):
+    root = Path(local_root).resolve()
+    target = (root / rel_path).resolve()
+    if root not in target.parents:
+        raise ValueError("本機路徑超出指定根目錄")
+    if not target.is_file():
+        raise ValueError(f"找不到本機圖片：{rel_path}")
+    if target.stat().st_size > 32 * 1024 * 1024:
+        raise ValueError("圖片超過 32 MiB")
+    return _validate_image_bytes(target.read_bytes(), "local-meme")
 
 
 def import_approved(args):
@@ -57,9 +73,15 @@ def import_approved(args):
                 if not isinstance(row, dict):
                     raise ValueError("每行須為 JSON 物件")
                 url = source_page_url(row.get("image_url"))
-                if not url:
-                    raise ValueError("缺少圖片直連")
-                if url in seen:
+                local_rel = row.get("local_path")
+                local_root = getattr(args, "local_root", None)
+                if url:
+                    dedup_key = url
+                elif isinstance(local_rel, str) and local_rel.strip() and local_root:
+                    dedup_key = f"local:{local_rel}"
+                else:
+                    raise ValueError("缺少圖片直連或本機路徑")
+                if dedup_key in seen:
                     result.update(status="duplicate")
                     continue
                 tags = row.get("tags")
@@ -72,14 +94,15 @@ def import_approved(args):
                     if value is not None and not isinstance(value, str):
                         raise ValueError(f"{src} 須為文字或 null")
                     form[dest] = value or ""
-                with closing(fetch_image(url)) as upload:
+                loader = fetch_image(url) if url else read_local_image(local_root, local_rel)
+                with closing(loader) as upload:
                     if args.apply:
                         entry = create_manual_entry(conn, form, upload, args.attachment_dir, args.thumbnail_dir,
                                                     web_image_url=url)
                         result.update(status="imported", key=entry["key"])
                     else:
                         result.update(status="ready")
-                seen.add(url)
+                seen.add(dedup_key)
             except HTTPError as exc:
                 result.update(status="error", error=f"HTTP {exc.code}")
                 exc.close()

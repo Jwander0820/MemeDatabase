@@ -272,9 +272,12 @@
 
   <script>
     const DEFAULT_ITEMS = __BATCH_ITEMS__;
+    const LOCAL_ROOT_URI = __LOCAL_ROOT_URI__;
 
     const STORAGE_KEY = "meme_review___BATCH_ID__";
-    const keyFor = item => JSON.stringify([item.source_page ?? null, item.image_url ?? null]);
+    const keyFor = item => item.local_path
+      ? JSON.stringify([item.source_page ?? null, item.image_url ?? null, item.local_path])
+      : JSON.stringify([item.source_page ?? null, item.image_url ?? null]);
     const edits = JSON.parse(localStorage.getItem(STORAGE_KEY + "_edits") || "null") ?? __INITIAL_EDITS__;
     const originalKeys = DEFAULT_ITEMS.map(keyFor);
     const allItems = DEFAULT_ITEMS.map((item, i) => ({...item, ...edits[originalKeys[i]]}));
@@ -344,6 +347,7 @@
             item.caption,
             item.description,
             item.usage,
+            item.local_path,
             ...(item.tags || [])
           ].join(" ").toLowerCase();
           return hay.includes(q);
@@ -380,10 +384,16 @@
             return ["http:", "https:"].includes(url.protocol) ? url.href : "";
           } catch { return ""; }
         };
+        const localUrl = path => {
+          if (!path || !LOCAL_ROOT_URI) return "";
+          return LOCAL_ROOT_URI + String(path).split("/").map(encodeURIComponent).join("/");
+        };
         const source = webUrl(item.source_page);
         const image = webUrl(item.image_url);
-        const imgHtml = image
-          ? `<img src="${esc(image)}" alt="${esc(item.description)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.replaceWith('圖片載入失敗，可開啟下方出處查閱')">`
+        const localImg = localUrl(item.local_path);
+        const imgSrc = image || localImg;
+        const imgHtml = imgSrc
+          ? `<img src="${esc(imgSrc)}" alt="${esc(item.description)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.replaceWith('圖片載入失敗，可開啟下方出處或本機路徑查閱')">`
           : "未提供圖片直連";
         return `
           <article class="card ${isSel ? "is-selected" : ""}" data-key="${esc(key)}">
@@ -417,6 +427,7 @@
               <div class="links">
                 <div>圖片出處 · ${source ? `<a href="${esc(source)}" target="_blank" rel="noopener noreferrer">${esc(source)}</a>` : "待補來源頁"}</div>
                 <div>圖片直連 · ${image ? `<a href="${esc(image)}" target="_blank" rel="noopener noreferrer">${esc(image)}</a>` : "未提供"}</div>
+                ${item.local_path ? `<div>本機路徑 · ${localImg ? `<a href="${esc(localImg)}" target="_blank" rel="noopener noreferrer">${esc(item.local_path)}</a>` : esc(item.local_path)}</div>` : ""}
               </div>
             </div>
           </article>

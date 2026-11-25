@@ -52,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     web_import.add_argument("--apply", action="store_true")
     web_import.add_argument("--attachment-dir", type=Path, default=settings.attachment_dir())
     web_import.add_argument("--thumbnail-dir", type=Path, default=settings.thumbnail_dir())
+    web_import.add_argument("--local-root", type=Path)
     web_import.set_defaults(func=cmd_import_web_memes)
 
     convert = sub.add_parser("convert", help="Prune raw DiscordChatExporter JSON")

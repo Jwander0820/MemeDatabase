@@ -35,8 +35,9 @@ Antigravity 將 `--actor` 改為 `antigravity`。若已知實際視覺模型，�
 2. 綜合圖片、台詞與 metadata；圖片必須提供必要的視覺證據。
 3. 依 taxonomy 的描述、visual cues、正例與反例選擇標籤。
 4. 遵守每個 category 的 `max_per_entry` 及總數上限。
-5. 不確定時省略標籤；不得創造新 ID 或改用中文 label。
-6. 每個工作都輸出一行；沒有適用標籤時輸出空 `suggestions`。
+5. 不確定時省略標籤；**寧願少打也不要為了湊數而硬選標籤**；不得創造新 ID 或改用中文 label。
+6. 以下標籤已認定為無效並停用，**禁止使用**：`多人對話`（`visual_multi_person`）、`髒話`（`content_profanity`）、`誇張表情`（`visual_exaggerated_expression`）、`表情特寫`（`visual_close_up`）、`文字密集`（`visual_text_heavy`）。
+7. 每個工作都輸出一行；沒有適用標籤時輸出空 `suggestions`。
 
 ### 3. 寫出結果 JSONL
 
