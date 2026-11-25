@@ -134,5 +134,6 @@ Agent 圖片標籤工作：
 
 ## 後續方向
 
+- 前端開發與視覺調整請遵循 `docs/ui-brand-and-colors.md` 定義的四階濃淡紫主色（`#F5F0FF`、`#DDD0FE`、`#B69DF8`、`#2B1854`）與無障礙對比規範。
 - GitHub Pages 只適合未來唯讀展示版；本地編輯仍需要 Flask 或其他後端。
 - Agent／本地 LLM 標籤走受控 JSONL 候選介面，人工接受後才成為正式標籤。

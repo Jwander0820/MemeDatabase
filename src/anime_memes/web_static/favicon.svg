@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="迷因資料庫 M↻E">
+  <title>迷因資料庫</title>
+  <defs>
+    <clipPath id="panel">
+      <rect x="4" y="4" width="56" height="56" rx="13"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#panel)">
+    <rect x="4" y="4" width="28" height="28" fill="#F5F0FF"/>
+    <rect x="32" y="4" width="28" height="28" fill="#DDD0FE"/>
+    <rect x="4" y="32" width="28" height="28" fill="#B69DF8"/>
+    <rect x="32" y="32" width="28" height="28" fill="#2B1854"/>
+    <path d="M32 4V60M4 32H60" stroke="#1F1638" stroke-width="4"/>
+  </g>
+  <rect x="4" y="4" width="56" height="56" rx="13" fill="none" stroke="#1F1638" stroke-width="4"/>
+  <g fill="none" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 24V12H24V24M18 12V22.5" stroke="#1F1638"/>
+    <path d="M52 12H40V24H52M40 18H50.5" stroke="#1F1638"/>
+    <path d="M12 52V40H24V52M18 40V50.5" stroke="#1F1638"/>
+    <path d="M52 40H40V52H52M40 46H50.5" stroke="#EDE4FF"/>
+  </g>
+</svg>

@@ -6,6 +6,7 @@
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: saturate(1.4) blur(12px);
+  transition: transform 200ms ease;
 }
 
 /* 搜尋表單下方多了範圍列，整體置中會讓品牌與按鈕偏離搜尋框；改為頂端對齊，再讓各元素對齊 46px 的搜尋框那一行。 */
@@ -57,23 +58,57 @@
 
 .search-form { flex-wrap: wrap; }
 
-.scope-row {
+/* 搜尋範圍是搜尋框的設定，做成貼在搜尋框下方的分段切換，選取用中性滑塊而非主色，和下方的標籤篩選區隔。 */
+.scope-line {
   order: 5;
   flex: 0 0 100%;
-  display: flex;
-  gap: 7px;
-  padding-left: 4px;
+  min-width: 0;
+}
+
+.scope-row {
+  display: inline-flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--seg-track);
   overflow-x: auto;
   scrollbar-width: none;
 }
 
 .scope-row::-webkit-scrollbar { display: none; }
-.scope-row .chip { flex: 0 0 auto; }
+
+.scope-row .chip {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 3px 14px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.scope-row .chip:hover { border-color: transparent; background: transparent; color: var(--ink); }
+
+.scope-row .chip[aria-pressed="true"] {
+  border-color: var(--line);
+  background: var(--seg-thumb);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 排序移到結果列右側，搜尋列只留搜尋框與按鈕。 */
+.sort-select { flex: 0 0 auto; }
 
 .sort-select select {
-  min-height: 46px;
+  width: auto;
+  min-height: 34px;
+  padding: 5px 34px 5px 14px;
+  border-color: var(--line);
   border-radius: 999px;
-  padding-left: 16px;
+  background-color: transparent;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
 .search-submit {
@@ -83,6 +118,7 @@
 }
 
 .tag-strip {
+  position: relative;
   max-width: 1480px;
   margin: 0 auto;
   padding: 0 24px 12px;
@@ -93,11 +129,51 @@
   gap: 7px;
   overflow-x: auto;
   scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
-  mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
 }
 
 .tag-row::-webkit-scrollbar { display: none; }
+
+/* 兩端淡出只在該方向還有標籤時出現（由 gallery.js 依捲動位置切換 can-prev／can-next）。 */
+.tag-strip.can-next .tag-row {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 64px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 64px), transparent);
+}
+
+.tag-strip.can-prev .tag-row {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 64px);
+  mask-image: linear-gradient(90deg, transparent, #000 64px);
+}
+
+.tag-strip.can-prev.can-next .tag-row {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 64px, #000 calc(100% - 64px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 64px, #000 calc(100% - 64px), transparent);
+}
+
+/* 左右捲動鈕只給滑鼠使用者；觸控直接滑動即可。 */
+.tag-scroll {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  display: none;
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-color: var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.tag-scroll:hover { border-color: var(--chip-hover-line); background: var(--surface); color: var(--ink); }
+.tag-prev { left: 24px; }
+.tag-next { right: 24px; }
+.tag-prev .icon { transform: rotate(180deg); }
+
+@media (hover: hover) and (pointer: fine) {
+  .tag-strip.can-prev .tag-prev, .tag-strip.can-next .tag-next { display: inline-flex; }
+}
 .chip-fav[aria-pressed="true"] { border-color: #e0a800; background: #e0a800; color: #18181b; }
 
 /* ---------- 卡片收藏 ---------- */
@@ -135,7 +211,15 @@
 @media (hover: none) { .card-fav { opacity: 1; } }
 
 .tag-row:empty { display: none; }
-.tag-row .chip:last-child { margin-right: 40px; }
+
+/* 公開頁卡片：作品與角色只佔一行，過長以省略號截斷，避免「·」換到行首。 */
+.card-speaker {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-speaker:empty { display: none; }
 
 .content {
   max-width: 1480px;
@@ -146,7 +230,9 @@
 .results-head {
   display: flex;
   align-items: center;
-  min-height: 28px;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
   margin-bottom: 12px;
 }
 
@@ -171,7 +257,8 @@
   height: min(720px, calc(100dvh - 40px));
   max-height: none;
   padding: 0;
-  border: 0;
+  /* 深色模式左側舞台與遮罩後的背景幾乎同色，靠外框劃出彈窗邊界。 */
+  border: 1px solid var(--card-line);
   border-radius: 20px;
   background: var(--surface);
   color: var(--ink);
@@ -322,23 +409,31 @@
     padding: 12px 16px 10px;
   }
 
-  .brand-mark { width: 36px; height: 36px; font-size: 19px; }
+  .brand-mark { width: 36px; height: 36px; }
   .brand h1 { font-size: 17px; }
+
+  /* 往下捲時整個頂欄移出畫面，往上捲再出現（gallery.js 切換 is-hidden）；用 transform 不影響版面，不會跳動。 */
+  .topbar.is-hidden { transform: translateY(-100%); }
 
   .search-form { flex-basis: 100%; max-width: none; order: 2; }
   .topbar .theme-toggle { order: 1; }
   .admin-link { order: 1; }
-  .search-form input, .sort-select select, .search-submit { min-height: 42px; }
-  .sort-select { width: 112px; flex: 0 0 auto; }
+  /* iOS 在字級小於 16px 的欄位聚焦時會自動放大畫面。 */
+  .search-form input { min-height: 44px; font-size: 16px; }
+  .sort-select select { min-height: 36px; font-size: 16px; }
   .search-submit { display: none; }
 
   .tag-strip { padding: 0 16px 10px; }
   .content { padding: 14px 16px 0; }
 
+  /* 窄欄卡片只留標題與出處，讓圖片佔主要面積。 */
+  .card-tags { display: none; }
+
   .viewer {
     width: 100vw;
     height: 100dvh;
     margin: 0;
+    border: 0;
     border-radius: 0;
   }
 
@@ -348,5 +443,16 @@
   }
 
   .viewer-media img { max-height: 48dvh; }
-  .viewer-info { padding: 20px 16px 24px; }
+  .viewer-media figcaption { min-height: 36px; padding: 4px 12px; font-size: 12px; }
+  .viewer-media .load-original { min-height: 28px; padding: 3px 12px; font-size: 12.5px; }
+  .viewer-info { padding: 18px 16px 24px; }
+
+  /* 手機把操作列提到標題正下方，矮螢幕也不必捲動就能複製；提示訊息緊接在操作列下。 */
+  .viewer-info #detail { display: contents; }
+  .viewer-info h2 { order: 0; margin-bottom: 12px; }
+  .viewer-info .actions { order: 1; }
+  .viewer-info #feedback { order: 2; margin: 8px 0 4px; }
+  .viewer-info .facts { order: 3; margin-top: 8px; }
+  .viewer-info .detail-tags { order: 4; }
+  .viewer-info #detail > button { order: 1; }
 }

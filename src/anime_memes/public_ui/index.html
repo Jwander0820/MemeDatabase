@@ -7,6 +7,7 @@
   <meta name="description" content="搜尋台詞、作品、角色與標籤，快速找到想用的梗圖。">
   <meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f0f11" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <script>
     (() => {
       const root = document.documentElement;
@@ -49,11 +50,12 @@
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
   </svg>
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" id="home" href="/" aria-label="迷因資料庫首頁">
-        <span class="brand-mark" aria-hidden="true">迷</span>
+        <img class="brand-mark" src="/assets/favicon.svg" alt="" width="44" height="44" aria-hidden="true">
         <div class="brand-text"><h1>迷因資料庫</h1></div>
       </a>
       <form id="filters" class="search-form" role="search">
@@ -62,23 +64,26 @@
           <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
           <input id="query" type="search" maxlength="256" placeholder="搜尋台詞、作品、角色或標籤" autocomplete="off" enterkeyhint="search">
         </label>
-        <label class="sort-select">
-          <span class="sr-only">排序</span>
-          <select id="sort"><option value="">自動排序</option><option value="relevance">相關度</option><option value="updated">最近更新</option><option value="title">作品名稱</option></select>
-        </label>
         <button class="primary search-submit">搜尋</button>
-        <div id="scope" class="scope-row" role="group" aria-label="搜尋範圍"></div>
+        <div class="scope-line"><div id="scope" class="scope-row" role="group" aria-label="搜尋範圍"></div></div>
       </form>
       <a id="adminLink" class="admin-link" href="/" hidden>管理</a>
       <button id="themeToggle" class="icon-button ghost theme-toggle" type="button" aria-label="切換深淺色模式"><svg class="icon i-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon i-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
     </div>
-    <nav class="tag-strip" aria-label="依標籤篩選">
+    <nav class="tag-strip" id="tagStrip" aria-label="依標籤篩選">
+      <!-- 滑鼠使用者的左右捲動鈕；鍵盤可直接 Tab 經過每個標籤，因此不納入 Tab 順序。 -->
+      <button class="tag-scroll tag-prev" id="tagPrev" type="button" tabindex="-1" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
       <div class="tag-row" id="tags"></div>
+      <button class="tag-scroll tag-next" id="tagNext" type="button" tabindex="-1" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
     </nav>
   </header>
   <main class="content" aria-label="搜尋結果">
     <div class="results-head">
       <p id="status" role="status"></p>
+      <label class="sort-select">
+        <span class="sr-only">排序</span>
+        <select id="sort"><option value="">自動排序</option><option value="relevance">相關度</option><option value="updated">最近更新</option><option value="title">作品名稱</option></select>
+      </label>
     </div>
     <div class="meme-grid" id="results"></div>
     <div class="empty" id="empty" hidden>

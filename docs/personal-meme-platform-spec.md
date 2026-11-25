@@ -218,6 +218,7 @@ Nginx 配置維持靜態供應與 API 代理用途，不增加管理面板。初
 
 ## 16. 相關文件
 
+- [品牌圖示與前端色彩規範](ui-brand-and-colors.md)：`M↻E` 四格漫圖示與四階濃淡紫主色規範。
 - [DB 與搜尋規格](database-search-spec.md)：詳細資料模型與搜尋驗收。
 - [專案現況與資源評估](archive/personal-meme-assessment-2026-11-23.md)：歷史盤點、估算與測試範圍。
 - [同類方案與部署研究](archive/personal-meme-research-2026-11-23.md)：歷史研究與官方來源，時效資訊須部署時再查。

@@ -128,6 +128,8 @@ async function readApi(path, params) {
   return response.json();
 }
 
+const sameName = (a, b) => Boolean(a && b) && a.trim().toLowerCase() === b.trim().toLowerCase();
+
 function card(item) {
   // 卡片本體是連結；星號按鈕放在連結外面（連結裡不可再放按鈕）。
   const node = element("article");
@@ -147,13 +149,16 @@ function card(item) {
   body.className = "card-body";
   const title = element("strong", item.resolved_title);
   title.className = "card-title";
-  const source = element("div", [item.anime_title, item.speaker].filter(Boolean).join(" · "));
+  // 同一個名字不重複出現：標題已含角色名就不再列角色，標籤略過與作品／角色同名者。
+  const speaker = item.speaker && !(item.resolved_title || "").includes(item.speaker) ? item.speaker : "";
+  const source = element("div", [item.anime_title, speaker].filter(Boolean).join(" · "));
   source.className = "card-speaker";
   body.append(title, source);
-  if (item.tags.length) {
+  const tagNames = item.tags.filter(tag => !sameName(tag, item.anime_title) && !sameName(tag, item.speaker));
+  if (tagNames.length) {
     const tags = element("div");
     tags.className = "card-tags";
-    tags.append(...item.tags.slice(0, 3).map(tag => element("span", tag)));
+    tags.append(...tagNames.slice(0, 3).map(tag => element("span", tag)));
     body.append(tags);
   }
   link.append(image, body);
@@ -197,6 +202,50 @@ function renderTags() {
     search(true);
   };
   tagRow.replaceChildren(favorites, chip("全部", ""), ...tags.map(item => chip(item.name, item.name, item.count)));
+  syncTagScroll();
+}
+
+// ---------- 標籤列捲動 ----------
+// 標籤很多時只能左右捲動；依捲動位置切換兩端淡出與捲動鈕。
+const tagStrip = byId("tagStrip");
+function syncTagScroll() {
+  if (!tagStrip.classList) return; // 單元測試的假 DOM 沒有 classList
+  const max = tagRow.scrollWidth - tagRow.clientWidth;
+  tagStrip.classList.toggle("can-prev", tagRow.scrollLeft > 1);
+  tagStrip.classList.toggle("can-next", tagRow.scrollLeft < max - 1);
+}
+tagRow.addEventListener("scroll", syncTagScroll, {passive: true});
+if (typeof ResizeObserver === "function") new ResizeObserver(syncTagScroll).observe(tagRow);
+// 只有直向滾輪的滑鼠也能捲動：直向滾動轉成橫向，捲到盡頭後交還給頁面。
+tagRow.addEventListener("wheel", event => {
+  if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+  const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+  const max = tagRow.scrollWidth - tagRow.clientWidth;
+  const next = Math.min(max, Math.max(0, tagRow.scrollLeft + delta));
+  if (Math.abs(next - tagRow.scrollLeft) < 1) return;
+  event.preventDefault();
+  tagRow.scrollLeft = next;
+}, {passive: false});
+for (const [id, direction] of [["tagPrev", -1], ["tagNext", 1]]) {
+  byId(id).onclick = () => {
+    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    tagRow.scrollBy({left: direction * tagRow.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth"});
+  };
+}
+
+// ---------- 手機頂欄收合 ----------
+// 往下捲時收起頂欄、往上捲時再出現；is-hidden 只在窄螢幕的 CSS 生效，焦點在頂欄內時不收。
+const topbar = document.querySelector?.(".topbar");
+if (topbar?.classList) {
+  let lastScrollY = window.scrollY;
+  window.addEventListener("scroll", () => {
+    const y = window.scrollY;
+    if (Math.abs(y - lastScrollY) < 8) return;
+    const hide = y > lastScrollY && y > topbar.offsetHeight && !topbar.contains(document.activeElement);
+    topbar.classList.toggle("is-hidden", hide);
+    lastScrollY = y;
+  }, {passive: true});
+  topbar.addEventListener("focusin", () => topbar.classList.remove("is-hidden"));
 }
 
 // 搜尋範圍：空字串為全部欄位，其餘對應 API 的 field 參數。

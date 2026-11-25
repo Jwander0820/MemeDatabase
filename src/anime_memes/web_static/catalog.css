@@ -12,13 +12,21 @@
   --line-strong: #cbc8bf;
   --card-line: var(--line);
   --card-line-hover: var(--line-strong);
-  --brand: #ffd23f;
-  --brand-ink: #18181b;
-  --primary: #18181b;
-  --primary-ink: #ffffff;
-  --primary-hover: #34343a;
-  --focus: #2f6bff;
-  --link: #2850d8;
+  /* 品牌四階濃淡紫主色（詳見 docs/ui-brand-and-colors.md） */
+  --lilac-50: #f5f0ff;
+  --lilac-100: #ede4ff;
+  --lilac-200: #ddd0fe;
+  --lilac-400: #b69df8;
+  --lilac-900: #2b1854;
+  --lilac-ink: #1f1638;
+  --brand: var(--lilac-200);
+  --brand-ink: var(--lilac-900);
+  /* 淺色：深夜紫黑為主操作與選取色；焦點框用深紫，確保在紙白底上對比足夠。 */
+  --primary: var(--lilac-900);
+  --primary-ink: var(--lilac-50);
+  --primary-hover: #3b2370;
+  --focus: var(--lilac-900);
+  --link: #5b3cc4;
   --danger: #c2272d;
   --danger-soft: #fdecec;
   --success: #1f7a4d;
@@ -27,8 +35,13 @@
   --media-bg: #e9e7e1;
   --stage: #111113;
   --chip: #efede7;
-  --chip-active: #18181b;
-  --chip-active-ink: #ffffff;
+  --chip-active: var(--lilac-900);
+  --chip-active-ink: var(--lilac-50);
+  --chip-hover-line: var(--lilac-400);
+  --chip-hover-bg: var(--lilac-50);
+  /* 分段切換（搜尋範圍）：軌道與選取滑塊，刻意不用主色，和標籤篩選區隔。 */
+  --seg-track: var(--chip);
+  --seg-thumb: var(--surface);
   --scrim: rgba(17, 17, 19, 0.55);
   --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.06), 0 1px 1px rgba(24, 24, 27, 0.04);
   --shadow-md: 0 8px 24px rgba(24, 24, 27, 0.10), 0 2px 6px rgba(24, 24, 27, 0.06);
@@ -54,11 +67,11 @@
     --line-strong: #3f3f46;
     --card-line: #38383f;
     --card-line-hover: #52525b;
-    --primary: #ffd23f;
-    --primary-ink: #18181b;
-    --primary-hover: #ffdd6b;
-    --focus: #7aa2ff;
-    --link: #8fb0ff;
+    --primary: var(--lilac-200);
+    --primary-ink: var(--lilac-900);
+    --primary-hover: var(--lilac-400);
+    --focus: var(--lilac-400);
+    --link: var(--lilac-200);
     --danger: #f0686d;
     --danger-soft: #3a1d1f;
     --success: #5fd39a;
@@ -67,8 +80,12 @@
     --media-bg: #232327;
     --stage: #09090b;
     --chip: #26262b;
-    --chip-active: #ffd23f;
-    --chip-active-ink: #18181b;
+    --chip-active: var(--lilac-200);
+    --chip-active-ink: var(--lilac-900);
+    --chip-hover-line: color-mix(in srgb, var(--lilac-400) 60%, transparent);
+    --chip-hover-bg: color-mix(in srgb, var(--lilac-400) 12%, #26262b);
+    --seg-track: var(--surface-2);
+    --seg-thumb: #3a3a41;
     --scrim: rgba(0, 0, 0, 0.66);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -89,11 +106,11 @@
   --line-strong: #3f3f46;
   --card-line: #38383f;
   --card-line-hover: #52525b;
-  --primary: #ffd23f;
-  --primary-ink: #18181b;
-  --primary-hover: #ffdd6b;
-  --focus: #7aa2ff;
-  --link: #8fb0ff;
+  --primary: var(--lilac-200);
+  --primary-ink: var(--lilac-900);
+  --primary-hover: var(--lilac-400);
+  --focus: var(--lilac-400);
+  --link: var(--lilac-200);
   --danger: #f0686d;
   --danger-soft: #3a1d1f;
   --success: #5fd39a;
@@ -102,8 +119,12 @@
   --media-bg: #232327;
   --stage: #09090b;
   --chip: #26262b;
-  --chip-active: #ffd23f;
-  --chip-active-ink: #18181b;
+  --chip-active: var(--lilac-200);
+  --chip-active-ink: var(--lilac-900);
+  --chip-hover-line: color-mix(in srgb, var(--lilac-400) 60%, transparent);
+  --chip-hover-bg: color-mix(in srgb, var(--lilac-400) 12%, #26262b);
+  --seg-track: var(--surface-2);
+  --seg-thumb: #3a3a41;
   --scrim: rgba(0, 0, 0, 0.66);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -160,19 +181,10 @@ a { color: var(--link); }
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   flex: 0 0 auto;
-  width: 42px;
-  height: 42px;
-  border: 2px solid #18181b;
-  border-radius: 11px;
-  background: var(--brand);
-  color: var(--brand-ink);
-  box-shadow: 3px 3px 0 #18181b;
-  font-size: 22px;
-  font-weight: 900;
-  line-height: 1;
+  width: 44px;
+  height: 44px;
   transform: rotate(-4deg);
 }
 
@@ -344,7 +356,7 @@ textarea { min-height: 88px; resize: vertical; }
   white-space: nowrap;
 }
 
-.chip:hover { border-color: var(--line-strong); background: var(--chip); }
+.chip:hover { border-color: var(--chip-hover-line); background: var(--chip-hover-bg); }
 
 .chip small {
   color: var(--muted);

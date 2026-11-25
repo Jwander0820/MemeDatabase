@@ -83,7 +83,7 @@ class LocalBrowseTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"/assets/gallery.js", page.data)
         page.close()
-        for name in ("gallery.js", "gallery.css", "catalog.css"):
+        for name in ("gallery.js", "gallery.css", "catalog.css", "favicon.svg"):
             response = self.client.get("/assets/" + name)
             self.assertEqual(response.status_code, 200, name)
             response.close()

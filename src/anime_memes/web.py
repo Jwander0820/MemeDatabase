@@ -169,7 +169,7 @@ def create_app(
 
     @app.get("/assets/<path:name>")
     def browse_assets(name: str):
-        if name == "catalog.css":
+        if name in {"catalog.css", "favicon.svg"}:
             return send_from_directory(static_dir, name)
         return send_from_directory(public_ui_dir, name)
 
