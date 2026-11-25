@@ -277,8 +277,9 @@ button.view-switch[aria-pressed="true"] { border-color: var(--chip-active); back
 }
 
 .tag-suggest li:hover, .tag-suggest li[aria-selected="true"] { background: var(--surface-3); }
-.tag-suggest strong { font-size: 14px; }
-.tag-suggest small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* 標籤名稱不換行；右側說明（最近使用・分類・張數）太長時以省略號截斷，避免把名稱擠成兩行。 */
+.tag-suggest strong { flex: 0 0 auto; font-size: 14px; white-space: nowrap; }
+.tag-suggest small { min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tag-input-hint {
   margin: 4px 0 0;
