@@ -249,6 +249,8 @@ class PipelineTest(unittest.TestCase):
                     VALUES('meme_a1', '嗆人', 'auto');
                     """
                 )
+                # 真正的舊資料庫沒有版本號（user_version=0）；上面先 init_db 過，這裡還原成舊庫狀態。
+                conn.execute("PRAGMA user_version = 0")
                 conn.commit()
                 init_db(conn)
                 migrated = conn.execute(

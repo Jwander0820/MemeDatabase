@@ -47,6 +47,8 @@
 | POST /api/publication/check | 一致快照檢查，逐項 errors／warnings |
 | POST /api/publication/export | 無參數或空物件；匯出至服務設定目錄，禁止指定任意路徑 |
 
+管理庫結構版本以 `PRAGMA user_version` 記錄（`src/anime_memes/db.py` 的 `MIGRATIONS`；與公開庫的 SCHEMA_VERSION 無關）。`init_db` 只執行版本號大於目前值的遷移，每個遷移與版本號更新在同一交易內，失敗會回滾、版本不前進。版本 1 為基準（原本 `migrate_db` 的全部冪等步驟），舊資料庫 user_version 為 0，第一次啟動會自動套用並標記為 1，結構不變。新增遷移時只能在清單尾端追加下一個版本、不可修改已發布的遷移、需能在單一交易內完成（不自行 commit）。若資料庫版本高於程式支援的最新版，`init_db` 會丟出 RuntimeError 拒絕啟動，請更新程式。
+
 私人 `POST /api/publication/activate` 只接受 `{"version":"版本號"}`，驗證發布包後切換並回傳 version、count。
 
 匯出成功回傳 `exported: true`、`version`、`report`；資料錯誤回傳 422 與 `exported: false`，整批阻擋；不自動啟用。缺縮圖、非 ready、非法原圖網址、公開文字疑似本地路徑等列為錯誤；無原圖網址是允許的縮圖限定發布。空選取集合可以匯出，報告警示將清空公開館藏。

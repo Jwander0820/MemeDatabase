@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from . import settings
 
@@ -227,12 +228,41 @@ def backup_database(db_path: str | Path, backup_dir: str | Path) -> Path | None:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    migrate_db(conn)
+    run_migrations(conn)
     sync_default_taxonomy(conn)
     conn.commit()
 
 
+def run_migrations(conn: sqlite3.Connection) -> None:
+    """依序執行 user_version 之後尚未套用的遷移；每個遷移與版本號在同一交易內完成。"""
+    current = conn.execute("PRAGMA user_version").fetchone()[0]
+    latest = max((version for version, _ in MIGRATIONS), default=0)
+    if current > latest:
+        raise RuntimeError(
+            f"資料庫結構版本 {current} 比此程式支援的版本 {latest} 新，"
+            "可能由較新版程式建立；請更新程式後再啟動，避免舊程式改壞資料庫。"
+        )
+    for version, migration in MIGRATIONS:
+        if version <= current:
+            continue
+        conn.commit()
+        conn.execute("BEGIN")
+        try:
+            migration(conn)
+            conn.execute(f"PRAGMA user_version = {int(version)}")
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+
+
 def migrate_db(conn: sqlite3.Connection) -> None:
+    """執行所有尚未套用的遷移（保留舊名稱）。"""
+    run_migrations(conn)
+
+
+def _migration_1_baseline(conn: sqlite3.Connection) -> None:
     ensure_columns(conn, "meme_entries", {"publish_selected": "INTEGER NOT NULL DEFAULT 0", "public_id": "TEXT"})
     ensure_columns(conn, "attachments", {"public_original_url": "TEXT"})
     ensure_columns(conn, "attachments", {"web_path": "TEXT", "web_sha256": "TEXT", "r2_key": "TEXT"})
@@ -323,6 +353,18 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+# 管理庫結構遷移清單（以 PRAGMA user_version 記錄已套用版本；與公開庫的 SCHEMA_VERSION 無關）。
+# 新增遷移的規則：
+# - 只能在清單尾端追加新版本，版本號連續遞增。
+# - 不可修改已發布的遷移；結構變更一律用新版本表達。
+# - 每個遷移必須能在單一交易內完成（不可自行 commit，也不可使用 executescript）。
+# - 版本 1 為基準：既有資料庫 user_version 皆為 0，故保持冪等。
+MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
+    (1, _migration_1_baseline),
+]
+ADMIN_SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 
 def ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
