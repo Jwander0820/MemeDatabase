@@ -18,7 +18,7 @@
 兩種資料查詢共用 search 的正規化與計分；releases 處理版本驗證、切換與清理。
 ```
 
-`web.py` 保留原管理入口及查詢函式匯入相容性，管理 HTTP 路由轉呼叫管理操作；不再包含搜尋 SQL、上傳交易或刪除流程。管理 HTML 不使用模板注入。公開服務由 runtime 的 public 模式啟動，沒有 import 管理／圖片／OCR 模組，也沒有管理或 MCP 路由。
+`web.py` 只負責組裝 Flask app（設定、初始化資料庫、請求前後處理、全域錯誤處理、`/` 與健康檢查）並註冊三個 Blueprint，同時重新匯出舊名稱以維持匯入相容性；不再包含 SQL、搜尋、上傳交易或刪除流程。路由分工如下：`web_publication.py`（發布選取、檢查、匯出、啟用、清除）、`web_admin.py`（管理 API 與媒體路由，轉呼叫 management／tagging）、`web_browse.py`（本機瀏覽 `/browse` 與 `/api/v1/*`）；共用的來源檢查、媒體回應與條目序列化在 `web_common.py`。本機瀏覽與公開 API 共用同一份驗證規則：允許參數取自 `public_data.ALLOWED_ARGS`（本機去掉 `ids`、多一個 `favorite`），未知參數與超出範圍的 `page`／`page_size` 一律回 400，錯誤格式為 `{"error": {"code", "message"}}`，由 `tests/test_web_contract.py` 守門。管理 HTML 不使用模板注入。公開服務由 runtime 的 public 模式啟動，沒有 import 管理／圖片／OCR 模組，也沒有管理或 MCP 路由。
 
 本機保留 `.venv` 完整環境。部署依賴分為：
 

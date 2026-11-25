@@ -15,6 +15,13 @@ def metadata(conn):
     statuses = [dict(r) for r in conn.execute("SELECT status,COUNT(*) AS count FROM meme_entries GROUP BY status ORDER BY status")]
     return {"tags": tags, "statuses": statuses}
 
+
+def ready_tag_counts(conn: sqlite3.Connection) -> list[dict]:
+    """只計算狀態為 ready 的條目的標籤數量，供本機瀏覽 meta 使用。"""
+    return [dict(r) for r in conn.execute("""SELECT t.tag_name AS name, COUNT(DISTINCT t.entry_key) AS count
+        FROM entry_tags t JOIN meme_entries e ON e.key=t.entry_key WHERE e.status='ready'
+        GROUP BY t.tag_name ORDER BY count DESC, t.tag_name""")]
+
 def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int) -> tuple[list[sqlite3.Row], int]:
     where = ["1=1"]
     params: list[Any] = []
