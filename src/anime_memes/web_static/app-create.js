@@ -61,7 +61,7 @@ createForm.addEventListener("submit", async (event) => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      createError.textContent = data.error || T.createFailed;
+      createError.textContent = errorMessage(data, T.createFailed);
       return;
     }
     createDialog.close();

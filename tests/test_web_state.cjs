@@ -18,17 +18,22 @@ async function harness({observer = false} = {}) {
       handlers: {}, classList: {add() {}, remove() {}},
       addEventListener(type, handler) { this.handlers[type] = handler; },
       setAttribute() {}, appendChild() {},
+      querySelector(selector) { return node(`${selector}@child`); },
     });
     return nodes.get(selector);
   }
   let handler = async url => ({ok: true, json: async () => url === '/api/meta'
     ? {tags: []} : {items: [], page: 1, total: 0}});
   const context = vm.createContext({
-    document: {querySelector: node, createElement: () => node(Symbol()), querySelectorAll: () => []},
+    document: {querySelector: selector => (selector === 'dialog[open]' ? null : node(selector)), createElement: () => node(Symbol()), querySelectorAll: () => []},
     fetch: (...args) => handler(...args), URLSearchParams, setTimeout: () => 0, clearTimeout() {},
   });
   context.window = context;
   context.requestAnimationFrame = () => 0;
+  const listeners = {};
+  context.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };
+  context.bindPublication = () => {};
+  context.confirm = () => true;
   let trigger = null;
   if (observer) {
     // 假的 IntersectionObserver：測試用 trigger() 模擬哨兵進入視窗。
@@ -46,7 +51,26 @@ async function harness({observer = false} = {}) {
   await new Promise(resolve => setImmediate(resolve));
   // Rendering itself is unchanged; tests exercise the actual event and request state logic.
   vm.runInContext('renderGrid = () => {};', context);
-  return {node, run: code => vm.runInContext(code, context), fetch: fn => { handler = fn; }, trigger: () => trigger()};
+  return {
+    node, run: code => vm.runInContext(code, context), fetch: fn => { handler = fn; }, trigger: () => trigger(),
+    context,
+    key(event) {
+      const full = {preventDefault() { this.prevented = true; }, target: {tagName: 'BODY'}, ...event};
+      (listeners.keydown || []).forEach(fn => fn(full));
+      return full;
+    },
+  };
+}
+
+const entryResponse = key => ({ok: true, json: async () => ({key, tags: [], manual_tags: [], tag_suggestions: []})});
+
+// 讓 state 處於「已載入 items、正在檢視第一筆」的狀態。
+async function openedHarness(keys, total = keys.length) {
+  const h = await harness();
+  h.run(`state.items = ${JSON.stringify(keys.map(key => ({key})))}; state.total = ${total};`);
+  h.fetch(async url => entryResponse(decodeURIComponent(url.split('/').pop())));
+  await h.run(`openEntry(${JSON.stringify(keys[0])})`);
+  return h;
 }
 
 test('favorite keeps all draft fields and ignores double clicks', async () => {
@@ -218,4 +242,98 @@ test('infinite scroll loads the next page and does not retry after a failure', a
   assert.equal(h.run('state.loadFailed'), false);
   assert.equal(h.run('state.items.length'), 3);
   assert.equal(h.run('state.page'), 3);
+});
+
+test('errorMessage reads both the string and the {code, message} error formats', async () => {
+  const h = await harness();
+  assert.equal(h.run('errorMessage({error: "舊格式"}, "預設")'), '舊格式');
+  assert.equal(h.run('errorMessage({error: {code: "bad", message: "新格式"}}, "預設")'), '新格式');
+  assert.equal(h.run('errorMessage({}, "預設")'), '預設');
+  assert.equal(h.run('errorMessage(null, "預設")'), '預設');
+  assert.equal(h.run('errorMessage({error: {code: "x"}}, "預設")'), '預設');
+});
+
+test('openEntry discards a slow response that is no longer the latest', async () => {
+  const h = await harness();
+  const pending = {};
+  h.fetch(url => { pending[url.split('/').pop()] = deferred(); return pending[url.split('/').pop()].promise; });
+  const a = h.run('openEntry("A")');
+  const b = h.run('openEntry("B")');
+  pending.B.resolve(entryResponse('B'));
+  await b;
+  pending.A.resolve(entryResponse('A'));
+  await a;
+  assert.equal(h.run('state.selected.key'), 'B');
+});
+
+test('openEntry network failure shows a toast and does not reject', async () => {
+  const h = await harness();
+  h.fetch(async () => { throw new Error('network'); });
+  await h.run('openEntry("A")');
+  assert.equal(h.node('#toast').textContent, '詳情載入失敗，請重試');
+  assert.equal(h.run('state.selected'), null);
+});
+
+test('ArrowRight moves to the next entry; ignored in inputs and with modifiers', async () => {
+  const h = await openedHarness(['a', 'b', 'c']);
+  assert.equal(h.node('#prevEntry').disabled, true);
+  assert.equal(h.node('#entryPosition').textContent, '1 / 3');
+  h.key({key: 'ArrowRight', target: {tagName: 'INPUT'}});
+  h.key({key: 'ArrowRight', target: {tagName: 'TEXTAREA'}});
+  h.key({key: 'ArrowRight', ctrlKey: true});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.run('state.selected.key'), 'a');
+  const event = h.key({key: 'ArrowRight'});
+  assert.equal(event.prevented, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.run('state.selected.key'), 'b');
+  assert.equal(h.node('#entryPosition').textContent, '2 / 3');
+  assert.equal(h.node('#prevEntry').disabled, false);
+  h.key({key: 'ArrowLeft'});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.run('state.selected.key'), 'a');
+});
+
+test('stepping past the last loaded entry loads the next page first; end of list disables next', async () => {
+  const h = await openedHarness(['a', 'b'], 3);
+  await h.run('stepEntry(1)');
+  assert.equal(h.run('state.selected.key'), 'b');
+  assert.equal(h.node('#nextEntry').disabled, false);
+  const urls = [];
+  h.fetch(async url => {
+    urls.push(url);
+    if (url.startsWith('/api/entries?')) return {ok: true, json: async () => ({items: [{key: 'c'}], total: 3, page: 2})};
+    return entryResponse(decodeURIComponent(url.split('/').pop()));
+  });
+  await h.run('stepEntry(1)');
+  assert.ok(urls[0].startsWith('/api/entries?'));
+  assert.equal(new URLSearchParams(urls[0].split('?')[1]).get('page'), '2');
+  assert.equal(h.run('state.selected.key'), 'c');
+  assert.equal(h.node('#nextEntry').disabled, true);
+  await h.run('stepEntry(1)');
+  assert.equal(h.run('state.selected.key'), 'c');
+});
+
+test('unsaved edits trigger confirm; declining keeps the current entry', async () => {
+  const h = await harness();
+  const field = {name: 'quote_text', value: 'original'};
+  h.node('#editForm').elements = [field];
+  h.run('state.items = [{key: "a"}, {key: "b"}]; state.total = 2;');
+  h.fetch(async url => entryResponse(decodeURIComponent(url.split('/').pop())));
+  await h.run('openEntry("a")');
+  let asked = 0;
+  h.context.confirm = () => { asked += 1; return false; };
+  await h.run('stepEntry(1)');
+  assert.equal(asked, 0);
+  assert.equal(h.run('state.selected.key'), 'b');
+  await h.run('stepEntry(-1)');
+  assert.equal(h.run('state.selected.key'), 'a');
+  field.value = 'edited';
+  await h.run('stepEntry(1)');
+  assert.equal(asked, 1);
+  assert.equal(h.run('state.selected.key'), 'a');
+  h.context.confirm = () => { asked += 1; return true; };
+  await h.run('stepEntry(1)');
+  assert.equal(asked, 2);
+  assert.equal(h.run('state.selected.key'), 'b');
 });

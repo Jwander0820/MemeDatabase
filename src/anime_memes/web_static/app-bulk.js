@@ -83,7 +83,7 @@ async function bulkSetPublished(selected) {
       body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || "批次更新失敗，請重試");
+    if (!response.ok) throw new Error(errorMessage(data, "批次更新失敗，請重試"));
     const skipped = data.skipped_videos?.length ? `，略過影片 ${data.skipped_videos.length} 張` : "";
     showToast(`已${verb} ${data.matched} 張（實際變更 ${data.changed} 張${skipped}）`);
     if (typeof invalidatePublication === "function") invalidatePublication();

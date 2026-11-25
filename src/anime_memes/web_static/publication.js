@@ -23,7 +23,7 @@ async function publicationRequest(path, method, data) {
   const response = await fetch(path, options);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body.error || `請求失敗（HTTP ${response.status}）`);
+    const error = new Error(errorMessage(body, `請求失敗（HTTP ${response.status}）`));
     error.report = body.report;
     throw error;
   }

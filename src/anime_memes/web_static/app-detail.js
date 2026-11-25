@@ -1,11 +1,22 @@
 async function openEntry(key) {
-  const response = await fetch(`/api/entries/${encodeURIComponent(key)}`);
-  if (!response.ok) {
-    closeDetail();
-    await loadEntries(true);
-    return;
+  const requestId = ++state.detailRequest;
+  try {
+    const response = await fetch(`/api/entries/${encodeURIComponent(key)}`);
+    if (requestId !== state.detailRequest) return;
+    if (!response.ok) {
+      closeDetail();
+      await loadEntries(true);
+      return;
+    }
+    const item = await response.json();
+    if (requestId !== state.detailRequest) return;
+    renderDetail(item);
+  } catch {
+    if (requestId === state.detailRequest) showToast("詳情載入失敗，請重試");
   }
-  const item = await response.json();
+}
+
+function renderDetail(item) {
   state.selected = item;
   favoriteButton.textContent = item.favorite ? "\u2605" : "\u2606";
   favoriteButton.setAttribute("aria-pressed", String(Boolean(item.favorite)));
@@ -22,7 +33,91 @@ async function openEntry(key) {
   }
   bindDetailForm(item);
   bindPublication(drawerBody.querySelector("#entryPublication"), item.key);
+  markCurrentCard(true);
+  updateDrawerNav();
 }
+
+// 表單目前的「名稱→值」快照；tag-input 的實際欄位是同名的隱藏 input，值已是逗號串。
+function formValues() {
+  const form = document.querySelector("#editForm");
+  const values = {};
+  for (const element of Array.from(form?.elements || [])) {
+    if (element.name) values[element.name] = element.type === "checkbox" ? String(element.checked) : String(element.value);
+  }
+  return values;
+}
+
+function hasUnsavedChanges() {
+  if (!state.formSnapshot) return false;
+  const now = formValues();
+  const before = state.formSnapshot;
+  const names = new Set([...Object.keys(before), ...Object.keys(now)]);
+  return [...names].some((name) => before[name] !== now[name]);
+}
+
+// 標示目前開啟的卡片（關閉時移除）；scroll 為 true 時捲到可見範圍。
+function markCurrentCard(scroll = false) {
+  const key = state.selected?.key;
+  let current = null;
+  document.querySelectorAll(".card").forEach((cardNode) => {
+    const isCurrent = key !== undefined && cardNode.dataset?.key === key;
+    cardNode.classList.toggle("is-current", isCurrent);
+    if (isCurrent) current = cardNode;
+  });
+  if (scroll) current?.scrollIntoView?.({block: "nearest"});
+}
+
+function currentIndex() {
+  const key = state.selected?.key;
+  return key === undefined ? -1 : state.items.findIndex((entry) => entry.key === key);
+}
+
+function updateDrawerNav() {
+  const index = currentIndex();
+  const hasMore = state.items.length < state.total;
+  prevEntry.disabled = index <= 0 || state.stepping;
+  nextEntry.disabled = index < 0 || (index >= state.items.length - 1 && !hasMore) || state.stepping;
+  entryPosition.textContent = index < 0 ? "" : `${index + 1} / ${state.total.toLocaleString("en-US")}`;
+}
+
+async function stepEntry(delta) {
+  if (!state.selected || state.stepping) return;
+  const index = currentIndex();
+  if (index < 0) return;
+  const target = index + delta;
+  if (target < 0) return;
+  if (target >= state.items.length && state.items.length >= state.total) return;
+  if (hasUnsavedChanges() && !confirm("目前的修改尚未儲存，確定要切換嗎？")) return;
+  const fromKey = state.selected.key;
+  state.stepping = true;
+  updateDrawerNav();
+  try {
+    if (target >= state.items.length) await loadEntries(false);
+    // 載入期間若抽屜已關閉或換了條目，就不再跳轉。
+    if (state.selected?.key !== fromKey) return;
+    const next = state.items[currentIndex() + delta];
+    if (next) await openEntry(next.key);
+  } finally {
+    state.stepping = false;
+    updateDrawerNav();
+  }
+}
+
+function isEditableTarget(target) {
+  if (!target) return false;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable) return true;
+  return Boolean(target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="listbox"], [role="combobox"]'));
+}
+
+prevEntry.addEventListener("click", () => stepEntry(-1));
+nextEntry.addEventListener("click", () => stepEntry(1));
+globalThis.addEventListener?.("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  if (!state.selected || event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
+  if (isEditableTarget(event.target) || document.querySelector("dialog[open]")) return;
+  event.preventDefault();
+  stepEntry(event.key === "ArrowLeft" ? -1 : 1);
+});
 
 function detailTemplate(item) {
   const image = item.image_url || item.thumbnail_url;
@@ -106,6 +201,7 @@ function suggestionTemplate(suggestions) {
 
 function bindDetailForm(item) {
   const form = document.querySelector("#editForm");
+  state.formSnapshot = formValues();
   document.querySelectorAll("[data-suggestion-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       const card = button.closest(".suggestion-card");
@@ -217,9 +313,14 @@ globalThis.addEventListener?.("keydown", (event) => {
 });
 
 function closeDetail() {
+  // 讓尚未回來的開啟請求作廢，避免關閉後抽屜又自己彈開。
+  state.detailRequest += 1;
   drawer.classList.remove("open");
   drawer.setAttribute("aria-hidden", "true");
   state.selected = null;
+  state.formSnapshot = null;
+  markCurrentCard();
+  updateDrawerNav();
   favoriteButton.textContent = "\u2606";
   favoriteButton.setAttribute("aria-pressed", "false");
   drawerBody.innerHTML = "";

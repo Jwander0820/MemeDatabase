@@ -56,6 +56,11 @@ const state = {
   selected: null,
   randomSeed: String(Math.random()),
   entriesRequest: 0,
+  // 開啟詳情的請求序號；較舊的回應回來時丟棄。
+  detailRequest: 0,
+  // 表單初始值快照（切換上一張／下一張前比對是否有未儲存修改）與切換中旗標。
+  formSnapshot: null,
+  stepping: false,
   loading: false,
   // 上一次載入下一頁失敗：停止自動載入，等使用者按「重試」。
   loadFailed: false,
@@ -98,6 +103,9 @@ const drawer = document.querySelector("#drawer");
 const drawerBody = document.querySelector("#drawerBody");
 const closeDrawer = document.querySelector("#closeDrawer");
 const favoriteButton = document.querySelector("#favoriteButton");
+const prevEntry = document.querySelector("#prevEntry");
+const nextEntry = document.querySelector("#nextEntry");
+const entryPosition = document.querySelector("#entryPosition");
 const openCreate = document.querySelector("#openCreate");
 const createDialog = document.querySelector("#createDialog");
 const createForm = document.querySelector("#createForm");
@@ -233,6 +241,7 @@ function renderGrid({added = null, keepScroll = false} = {}) {
   }
   renderLoadControls();
   updateBulkBar();
+  updateDrawerNav();
 }
 
 // 「載入更多」按鈕與「已經到底了」提示：有自動載入時按鈕只在失敗時以「重試」出現。
@@ -263,6 +272,7 @@ function card(item) {
   node.className = "card";
   node.dataset.key = item.key;
   node.tabIndex = 0;
+  if (state.selected?.key === item.key) node.classList.add("is-current");
   const image = item.thumbnail_url || item.image_url;
   const tags = item.tags.slice(0, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
   const badges = [

@@ -428,6 +428,10 @@ button.view-switch[aria-pressed="true"] { border-color: var(--chip-active); back
 
 .drawer-title { flex: 1; font-size: 15px; }
 
+.entry-position { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.card.is-current { outline: 3px solid var(--focus); outline-offset: 2px; }
+
 .drawer-bar .icon-button { font-size: 22px; font-weight: 400; }
 
 .favorite-button { color: var(--muted); }
