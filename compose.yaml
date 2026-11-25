@@ -10,6 +10,15 @@ x-common: &common
       max-size: "5m"
       max-file: "3"
   security_opt: ["no-new-privileges:true"]
+  # 所有服務都不需要任何 Linux capability：Nginx 監聽 8080（非特權 port、UID 101），Python 服務為 UID 10001，cloudflared 只連出。
+  cap_drop: [ALL]
+
+# Nginx 唯讀根檔案系統下的可寫位置（實測最小集合）：
+#   /tmp                 pid 檔與 proxy／client body 暫存
+#   /etc/nginx/conf.d    entrypoint 以 envsubst 把 templates 渲染到這裡（需 UID 101 可寫）
+x-nginx-tmpfs: &nginx-tmpfs
+  - /tmp
+  - /etc/nginx/conf.d:uid=101,gid=101,mode=0755
 
 services:
   public-api:
@@ -29,6 +38,8 @@ services:
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 192m
+    pids_limit: 128
+    cpus: 1.0
     healthcheck:
       # 用 live 而非 ready：首次部署還沒有啟用版本時 ready 是 503，若以它判斷健康，Nginx 會一直等不到而無法啟動。
       # 是否已有啟用版本請另外檢查 /health/ready。
@@ -54,7 +65,11 @@ services:
         target: /srv/media
         read_only: true
         bind: {create_host_path: false}
+    read_only: true
+    tmpfs: *nginx-tmpfs
     mem_limit: 64m
+    pids_limit: 64
+    cpus: 0.5
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/live"]
       interval: 15s
@@ -79,7 +94,12 @@ services:
     volumes:
       - ${PRIVATE_DATA_ROOT:-./data}:/data
       - ${RELEASE_ROOT:-./data/releases}:/releases
+    # /data 與 /releases 是 bind mount，不受唯讀根檔案系統影響；其餘暫存（Pillow、匯出）都走 /tmp。
+    read_only: true
+    tmpfs: [/tmp]
     mem_limit: 384m
+    pids_limit: 128
+    cpus: 1.0
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready')"]
       interval: 15s
@@ -94,7 +114,11 @@ services:
     ports: ["127.0.0.1:${PRIVATE_PORT:-3636}:8080"]
     volumes:
       - ./deploy/nginx-private.conf.template:/etc/nginx/templates/default.conf.template:ro
+    read_only: true
+    tmpfs: *nginx-tmpfs
     mem_limit: 64m
+    pids_limit: 64
+    cpus: 0.5
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/ready"]
       interval: 15s
@@ -115,6 +139,8 @@ services:
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 192m
+    pids_limit: 128
+    cpus: 0.5
     healthcheck:
       test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1',8766),timeout=3).close()"]
       interval: 15s
@@ -134,3 +160,5 @@ services:
       public-nginx: {condition: service_healthy}
     read_only: true
     mem_limit: 128m
+    pids_limit: 128
+    cpus: 0.5

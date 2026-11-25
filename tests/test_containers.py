@@ -75,6 +75,10 @@ class ContainerTest(unittest.TestCase):
                 docker("exec", "-T", "public-api", "python", "-c",
                        "import pathlib; p=pathlib.Path('/releases/write-test');\ntry: p.write_text('bad')\nexcept OSError: pass\nelse: raise AssertionError('mount writable')")
                 docker("exec", "-T", "public-nginx", "nginx", "-t")
+                for svc in ("public-nginx", "private-nginx"):
+                    # 非 root 且丟棄所有 capability（CapEff 全 0），根檔案系統唯讀。
+                    docker("exec", "-T", svc, "sh", "-c",
+                           "test \"$(id -u)\" != 0 && grep -q '^CapEff:[[:space:]]*0000000000000000$' /proc/self/status && ! touch /etc/nginx/probe 2>/dev/null")
                 docker("exec", "-T", "public-nginx", "sh", "-c", "test ! -e /releases && test ! -e /usr/share/nginx/admin/index.html")
                 first = json.loads(http("/api/v1/entries")[2])
                 self.assertEqual(first["version"], old)

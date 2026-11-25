@@ -351,9 +351,9 @@ docker compose logs public-nginx public-api
 | VPS 主機 | — | SSH 只允許金鑰、自動安全更新（4.2）；定期重建映像（6.2） |
 | Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
 | 公開 API | 只接受讀取；參數白名單；分頁、查詢長度（256 字／16 詞）、收藏數（200）上限；資料庫唯讀且只含已發布欄位 | — |
-| 容器 | API 以 UID 10001 執行、檔案系統唯讀、禁止提權、記憶體上限、日誌輪替 | — |
+| 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；基底映像鎖定到明確版本（Python `3.12.15-slim-bookworm`、Nginx `1.30.6-alpine`） | — |
 
-尚未處理、風險較低的強化項目：Nginx 主程序仍以 root 執行、容器沒有 CPU 與程序數上限、基底映像未鎖定 digest、Python 間接依賴沒有完整鎖定檔。
+尚未處理、風險較低的強化項目：基底映像只鎖定標籤而未鎖定 digest、Python 間接依賴沒有完整鎖定檔。
 
 ### 其他提醒
 

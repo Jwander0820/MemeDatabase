@@ -1,4 +1,7 @@
-FROM python:3.12-slim AS base
+# 基底映像鎖定到明確的修補版本與 Debian 版本代號，建置結果不會因標籤漂移而改變。
+# 同一標籤仍會收到系統套件的安全更新：定期以 `docker compose build --pull` 重新取得（docs/vps-deployment.md 6.2），
+# 要升級 Python 修補版本時再手動調整這裡的標籤。
+FROM python:3.12.15-slim-bookworm AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY requirements.txt ./
