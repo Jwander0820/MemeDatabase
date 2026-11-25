@@ -52,16 +52,40 @@ async function toggleFavorite(item) {
   return isFavorite(item);
 }
 
+// 詳情操作列用的線條圖示（24×24 viewBox，筆畫樣式由 CSS 的 .icon 控制）。
+const ICONS = {
+  copy: [["rect", {x: 8, y: 8, width: 13, height: 13, rx: 3}],
+    ["path", {d: "M16 8V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3h2"}]],
+  download: [["path", {d: "M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 20h16"}]],
+  star: [["path", {d: "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"}]],
+};
+
+function icon(name) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of ICONS[name]) {
+    const shape = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value);
+    svg.append(shape);
+  }
+  return svg;
+}
+
 function favoriteButton(item, {compact = false} = {}) {
   const node = element("button");
   node.type = "button";
-  node.className = compact ? "card-fav" : "fav-toggle";
+  node.className = compact ? "card-fav" : "fav-toggle icon-action";
+  // 詳情用圖示按鈕，實心／空心星號由 CSS 依 aria-pressed 切換。
+  if (!compact) node.append(icon("star"));
   const sync = () => {
     const on = isFavorite(item);
-    node.textContent = compact ? (on ? "★" : "☆") : (on ? "★ 已收藏" : "☆ 收藏");
+    if (compact) node.textContent = on ? "★" : "☆";
     node.ariaPressed = String(on);
     node.title = on ? "取消收藏" : "加入收藏";
-    if (compact) node.ariaLabel = node.title;
+    node.ariaLabel = node.title;
   };
   node.onclick = async event => {
     event.preventDefault();
@@ -297,6 +321,13 @@ async function pngBlob(url) {
   }
 }
 
+// 下載檔名：標題去掉檔案系統不允許的字元，副檔名依實際圖片格式。
+function downloadName(title, type) {
+  const extensions = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif"};
+  const base = title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 100) || "meme";
+  return base + "." + (extensions[type] || "webp");
+}
+
 // 直接用畫面上已載入的圖轉成 PNG，不再下載一次；圖片需以 CORS 載入，否則畫布會被污染而無法輸出。
 function elementPng(img) {
   const canvas = document.createElement("canvas");
@@ -386,16 +417,26 @@ function renderDetail(item, request) {
   byId("title").textContent = item.resolved_title;
   const actions = element("div");
   actions.className = "actions";
-  function action(label, fn, message, primary) {
-    const node = button(label, async () => {
+  function action(label, iconName, fn, message, {primary = false} = {}) {
+    const node = button("", async () => {
       try {
         const override = await fn();
         if (request === detailRequest) feedback.textContent = override || message;
       } catch {
-        if (request === detailRequest) feedback.textContent = "瀏覽器或圖片來源限制了這項操作，可手動複製網址或下載本站縮圖。";
+        if (request === detailRequest) feedback.textContent = "瀏覽器或圖片來源限制了這項操作，可在圖片上按右鍵（手機長按）另存。";
       }
     });
-    if (primary) node.className = "primary";
+    node.type = "button";
+    node.append(icon(iconName));
+    if (primary) {
+      node.className = "primary";
+      node.append(label);
+    } else {
+      // 次要操作只顯示圖示，文字放在提示與無障礙名稱。
+      node.className = "icon-action";
+      node.title = label;
+      node.ariaLabel = label;
+    }
     actions.append(node);
   }
   // 外部原始圖片（R2）若未開放 CORS，fetch 會失敗；退回同網域的本站縮圖，讓複製／下載仍可用。
@@ -406,7 +447,7 @@ function renderDetail(item, request) {
     usedThumb = true;
     return convert(thumbUrl);
   });
-  action("複製圖片", async () => {
+  action("複製圖片", "copy", async () => {
     usedThumb = false;
     // 複製畫面上目前顯示的那張：縮圖狀態只複製縮圖；顯示原始圖片時優先用已載入的圖轉檔，不再下載。
     const source = !showingLarge ? pngBlob(thumbUrl)
@@ -416,26 +457,20 @@ function renderDetail(item, request) {
     await navigator.clipboard.write([new ClipboardItem({"image/png": source})]);
     if (!showingLarge && item.original_url) return "已複製縮圖；按「載入原始圖片」後可複製原始圖片";
     return usedThumb ? "原始圖片受來源限制，已改為複製縮圖" : "";
-  }, "已複製圖片，可直接貼上", true);
+  }, "已複製圖片，可直接貼上", {primary: true});
   actions.append(favoriteButton(item));
-  action("複製頁面連結", () => navigator.clipboard.writeText(location.href), "已複製頁面連結");
-  action("複製圖片連結", () => navigator.clipboard.writeText(url), "已複製圖片連結");
-  if (item.original_url) {
-    action("下載原始圖片", async () => {
-      usedThumb = false;
-      const blob = await withFallback(imageBlob);
-      const download = element("a");
-      download.href = URL.createObjectURL(blob);
-      download.download = item.resolved_title;
-      download.click();
-      setTimeout(() => URL.revokeObjectURL(download.href), 60000);
-      return usedThumb ? "原始圖片受來源限制，已改為下載縮圖；可用「複製圖片連結」在瀏覽器開啟後另存" : "";
-    }, "已開始下載");
-  }
-  const thumb = element("a", "下載本站縮圖");
-  thumb.href = item.thumbnail_url;
-  thumb.download = item.id + ".webp";
-  actions.append(thumb);
+  action("下載圖片", "download", async () => {
+    usedThumb = false;
+    // 下載畫面上目前顯示的那張（如同在圖片上右鍵另存）：縮圖狀態下載縮圖，顯示原始圖片時下載原始圖片。
+    const blob = await (showingLarge ? withFallback(imageBlob) : imageBlob(thumbUrl));
+    const download = element("a");
+    download.href = URL.createObjectURL(blob);
+    download.download = downloadName(item.resolved_title || item.id, blob.type);
+    download.click();
+    setTimeout(() => URL.revokeObjectURL(download.href), 60000);
+    if (usedThumb) return "原始圖片受來源限制，已改為下載縮圖；可在圖片上按右鍵（手機長按）另存";
+    return "";
+  }, "已開始下載");
   const tags = element("div");
   tags.className = "detail-tags";
   tags.append(...item.tags.map(tag => {

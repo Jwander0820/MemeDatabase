@@ -10,6 +10,8 @@
   --muted: #6b6b73;
   --line: #e3e1da;
   --line-strong: #cbc8bf;
+  --card-line: var(--line);
+  --card-line-hover: var(--line-strong);
   --brand: #ffd23f;
   --brand-ink: #18181b;
   --primary: #18181b;
@@ -50,6 +52,8 @@
     --muted: #a1a1aa;
     --line: #2a2a2f;
     --line-strong: #3f3f46;
+    --card-line: #38383f;
+    --card-line-hover: #52525b;
     --primary: #ffd23f;
     --primary-ink: #18181b;
     --primary-hover: #ffdd6b;
@@ -83,6 +87,8 @@
   --muted: #a1a1aa;
   --line: #2a2a2f;
   --line-strong: #3f3f46;
+  --card-line: #38383f;
+  --card-line-hover: #52525b;
   --primary: #ffd23f;
   --primary-ink: #18181b;
   --primary-hover: #ffdd6b;
@@ -378,7 +384,7 @@ textarea { min-height: 88px; resize: vertical; }
   position: relative;
   display: block;
   margin: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--card-line);
   border-radius: var(--radius);
   background: var(--surface);
   color: inherit;
@@ -391,7 +397,7 @@ textarea { min-height: 88px; resize: vertical; }
 }
 
 .card:hover {
-  border-color: var(--line-strong);
+  border-color: var(--card-line-hover);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
