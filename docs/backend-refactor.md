@@ -33,6 +33,12 @@
 
 ## 本機 migration 與管理接口
 
+### 同時寫入的限制
+
+管理庫是單一 SQLite 檔案（rollback journal 模式），可能同時被管理頁（Docker 私人 API 或 `web` 指令）、CLI 匯入（例如 `import-tagging-results`、`sync-discord`）使用。所有連線都經 `db.connect`，遇到其他程序寫入時最多等待 30 秒，短暫鎖定不會直接失敗。
+
+但 Windows 主機上的程序與 Docker Desktop 容器同時寫同一個檔案時，跨檔案共享的鎖定不可靠，等待無法保證不衝突。同一時間只讓一個程序寫入：大量匯入（例如 Agent 候選標籤）進行中時，管理頁先不要做寫入操作（接受／拒絕、儲存、刪除、發布）；也不要同時開兩個管理入口寫入。這也是不改用 WAL 模式的原因：WAL 需要共享記憶體，跨主機與容器的檔案共享無法正確運作。
+
 新增 `meme_entries.publish_selected`（預設 0）、`public_id`（nullable、唯一）與 `attachments.public_original_url`。公開 ID 在第一次選擇發布時產生，取消再選不變；不把管理 key 或附件 ID 放進公開庫。原本 ready 不代表同意公開，亦不自動採用 Discord／r2_url 作原圖網址。
 
 主庫 migration 已在副本重跑並比對原欄位，正式執行前備份為 `data/backups/anime_memes_before_sync_20261124_121103_842384.sqlite3`。原 1,076 筆內容不變，公開選取數 0，外鍵與完整性檢查通過。自行部署舊資料前先備份，再執行既有 init-db；公開模式不 migration。

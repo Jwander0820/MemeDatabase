@@ -204,10 +204,17 @@ CREATE TABLE IF NOT EXISTS entry_favorites (
 """
 
 
+# 管理庫可能同時被多個程序使用（管理頁、CLI 匯入、Docker 私人 API）。遇到其他程序正在寫入時，
+# 最多等待這麼久再放棄，避免短暫的鎖定直接變成「database is locked」錯誤。
+# 注意：跨 Docker Desktop 檔案共享（Windows 主機與 Linux 容器同時寫同一個檔案）時 SQLite 的鎖定不可靠，
+# 等待只能減少衝突，無法保證安全；同一時間請只讓一個程序寫入（見 docs/backend-refactor.md）。
+BUSY_TIMEOUT_SECONDS = 30
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

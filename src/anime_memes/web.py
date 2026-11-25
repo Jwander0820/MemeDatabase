@@ -6,7 +6,6 @@
 """
 from __future__ import annotations
 
-import sqlite3
 from contextlib import closing
 from pathlib import Path
 
@@ -72,10 +71,8 @@ def create_app(
         check_admin_host()
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             check_mutation_origin()
-        conn = sqlite3.connect(app.config["DB_PATH"])
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        g.db = conn
+        # 與 CLI 共用同一個連線設定（外鍵、Row、鎖定等待）。
+        g.db = connect(app.config["DB_PATH"])
 
     @app.teardown_request
     def teardown_request(_exc: BaseException | None) -> None:
