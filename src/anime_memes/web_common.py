@@ -8,8 +8,29 @@ from urllib.parse import urlsplit
 
 from flask import abort, request, send_file
 
+from . import settings
 from .media import resolve_media_path, file_exists
 from .queries import fetch_entry
+
+
+HEALTH_PATHS = {"/health/live", "/health/ready"}
+
+
+def check_admin_host() -> None:
+    """私人管理端只服務本機 Host，每個請求都檢查（讀取也是）。
+
+    瀏覽器在 DNS rebinding 攻擊下送出的 Host 是攻擊者網域，Origin 也會跟著一致，
+    單靠 check_mutation_origin 擋不住；限定 Host 才能阻止惡意網頁讀寫管理端。
+    健康檢查例外：容器經 Nginx 轉發時 Host 是服務名稱，且這兩個端點不含資料。
+    """
+    if request.path in HEALTH_PATHS:
+        return
+    try:
+        hostname = (urlsplit("//" + request.host).hostname or "").lower()
+    except ValueError:
+        hostname = ""
+    if hostname not in settings.admin_hosts():
+        abort(403)
 
 
 def check_mutation_origin() -> None:

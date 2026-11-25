@@ -4,11 +4,13 @@ server {
     autoindex off;
     client_max_body_size 50m;
     root /usr/share/nginx/admin;
-    location = / { add_header Cache-Control no-cache; try_files /index.html =404; }
-    location /static/ { add_header Cache-Control no-cache; try_files $uri =404; }
+    # Host 白名單在後端（web_common.check_admin_host）檢查，所以 /api、/media 一律原樣轉送 Host。
+    include /etc/nginx/snippets/security-headers.conf;
+    location = / { add_header Cache-Control no-cache; include /etc/nginx/snippets/security-headers.conf; try_files /index.html =404; }
+    location /static/ { add_header Cache-Control no-cache; include /etc/nginx/snippets/security-headers.conf; try_files $uri =404; }
     # 簡潔瀏覽：沿用映像內的公開前端，資料由私人後端的 /api/v1 提供本機完整館藏。
-    location = /browse { root /usr/share/nginx/gallery; add_header Cache-Control no-cache; try_files /index.html =404; }
-    location /assets/ { alias /usr/share/nginx/gallery/; add_header Cache-Control no-cache; }
+    location = /browse { root /usr/share/nginx/gallery; add_header Cache-Control no-cache; include /etc/nginx/snippets/security-headers.conf; try_files /index.html =404; }
+    location /assets/ { alias /usr/share/nginx/gallery/; add_header Cache-Control no-cache; include /etc/nginx/snippets/security-headers.conf; }
     location /api/ {
         proxy_pass http://private-api:8765;
         proxy_set_header Host $http_host;

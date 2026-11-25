@@ -16,7 +16,7 @@ from . import settings
 from .db import connect, init_db
 from .web_admin import admin_bp
 from .web_browse import LOCAL_BROWSE_VERSION, browse_bp, browse_item
-from .web_common import check_mutation_origin, dedupe, fetch_entry_or_404, media_response, serialize_entry, truthy
+from .web_common import check_admin_host, check_mutation_origin, dedupe, fetch_entry_or_404, media_response, serialize_entry, truthy
 from .web_publication import publication_bp
 
 __all__ = [
@@ -72,6 +72,7 @@ def create_app(
 
     @app.before_request
     def before_request() -> None:
+        check_admin_host()
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             check_mutation_origin()
         conn = sqlite3.connect(app.config["DB_PATH"])

@@ -43,3 +43,13 @@ def release_root() -> str:
 
 def tag_rules() -> str:
     return os.environ.get("MEMES_TAG_RULES", DEFAULT_TAG_RULES)
+
+
+# 私人管理端只接受這些 Host（擋 DNS rebinding：惡意網域解析到 127.0.0.1 時 Host 會是該網域）。
+DEFAULT_ADMIN_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def admin_hosts() -> set[str]:
+    """預設只有本機名稱；MEMES_ADMIN_HOSTS 可用逗號追加（例如區網內固定主機名稱）。"""
+    extra = os.environ.get("MEMES_ADMIN_HOSTS", "")
+    return {host.strip().lower() for host in (*DEFAULT_ADMIN_HOSTS, *extra.split(",")) if host.strip()}

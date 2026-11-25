@@ -7,42 +7,12 @@
   <meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f0f11" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <script>
-    (() => {
-      const root = document.documentElement;
-      const media = matchMedia("(prefers-color-scheme: dark)");
-      try {
-        const saved = localStorage.getItem("meme-db-theme");
-        if (saved === "light" || saved === "dark") root.dataset.theme = saved;
-      } catch {}
-      const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : media.matches;
-      addEventListener("DOMContentLoaded", () => {
-        const button = document.getElementById("themeToggle");
-        const sync = () => {
-          const dark = isDark();
-          button.setAttribute("aria-pressed", String(dark));
-          button.title = dark ? "切換為淺色模式" : "切換為深色模式";
-          button.setAttribute("aria-label", button.title);
-          // 手動切換後讓手機瀏覽器網址列顏色一起改變。
-          document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
-            meta.content = dark ? "#0f0f11" : "#f3f2ee";
-          });
-        };
-        button.addEventListener("click", () => {
-          root.dataset.theme = isDark() ? "light" : "dark";
-          try { localStorage.setItem("meme-db-theme", root.dataset.theme); } catch {}
-          sync();
-        });
-        media.addEventListener("change", sync);
-        sync();
-      });
-    })();
-  </script>
+  <script src="/assets/theme-init.js"></script>
   <link rel="stylesheet" href="/static/catalog.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <svg class="svg-sprite" width="0" height="0" aria-hidden="true">
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>

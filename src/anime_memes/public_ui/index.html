@@ -8,37 +8,7 @@
   <meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f0f11" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-  <script>
-    (() => {
-      const root = document.documentElement;
-      const media = matchMedia("(prefers-color-scheme: dark)");
-      try {
-        const saved = localStorage.getItem("meme-db-theme");
-        if (saved === "light" || saved === "dark") root.dataset.theme = saved;
-      } catch {}
-      const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : media.matches;
-      addEventListener("DOMContentLoaded", () => {
-        const button = document.getElementById("themeToggle");
-        const sync = () => {
-          const dark = isDark();
-          button.setAttribute("aria-pressed", String(dark));
-          button.title = dark ? "切換為淺色模式" : "切換為深色模式";
-          button.setAttribute("aria-label", button.title);
-          // 手動切換後讓手機瀏覽器網址列顏色一起改變。
-          document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
-            meta.content = dark ? "#0f0f11" : "#f3f2ee";
-          });
-        };
-        button.addEventListener("click", () => {
-          root.dataset.theme = isDark() ? "light" : "dark";
-          try { localStorage.setItem("meme-db-theme", root.dataset.theme); } catch {}
-          sync();
-        });
-        media.addEventListener("change", sync);
-        sync();
-      });
-    })();
-  </script>
+  <script src="/assets/theme-init.js"></script>
   <link rel="stylesheet" href="/assets/catalog.css">
   <link rel="stylesheet" href="/assets/gallery.css">
   <script defer src="/assets/masonry.js"></script>
@@ -48,7 +18,7 @@
   <script defer src="/assets/gallery-init.js"></script>
 </head>
 <body>
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <svg class="svg-sprite" width="0" height="0" aria-hidden="true">
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
