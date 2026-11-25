@@ -27,7 +27,10 @@ async function harness() {
     document: {querySelector: node, createElement: () => node(Symbol()), querySelectorAll: () => []},
     fetch: (...args) => handler(...args), URLSearchParams, setTimeout: () => 0, clearTimeout() {},
   });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/web_static/app.js'), 'utf8'), context);
+  // 與 HTML 相同的載入順序；各檔共用同一個全域作用域。
+  for (const name of ['app-utils.js', 'app.js', 'app-bulk.js', 'app-detail.js', 'app-create.js', 'app-init.js']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/web_static', name), 'utf8'), context, {filename: name});
+  }
   await new Promise(resolve => setImmediate(resolve));
   // Rendering itself is unchanged; tests exercise the actual event and request state logic.
   vm.runInContext('renderGrid = () => {};', context);

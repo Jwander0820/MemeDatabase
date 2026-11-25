@@ -23,7 +23,10 @@ function gallery() {
     clearTimeout() {}, URLSearchParams, Option: class {},
     fetch(url) { return new Promise(resolve => pending.push({url, resolve})); }
   });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/public_ui/gallery.js'), 'utf8'), context);
+  // 與 HTML 相同的載入順序；各檔共用同一個全域作用域。
+  for (const name of ['gallery.js', 'gallery-favorites.js', 'gallery-detail.js', 'gallery-init.js']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/public_ui', name), 'utf8'), context, {filename: name});
+  }
   function respond(request, data, status = 200) {
     request.resolve({ok: status === 200, status, json: async () => data});
     return new Promise(resolve => setImmediate(resolve));
