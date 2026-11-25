@@ -50,7 +50,7 @@ class ContainerTest(unittest.TestCase):
                    "MEMES_MCP_TOKEN": secrets.token_hex(24),
                    # 明確清空 R2 變數：shell 值優先於 compose 讀到的 .env，避免整合測試真的上傳。
                    **{name: "" for name in R2_ENV_VARS}}
-            project = "anime-test-" + uuid.uuid4().hex[:8]
+            project = "memedatabase-test-" + uuid.uuid4().hex[:8]
             compose = ["docker", "compose", "-p", project, "--profile", "public", "--profile", "private", "--profile", "mcp"]
 
             def docker(*args):

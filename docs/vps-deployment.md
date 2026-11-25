@@ -15,7 +15,7 @@
                                    │                    │
                                    └─ /srv/media (唯讀)  └─ /releases (唯讀)
                                           ▲
-                              ${RELEASE_ROOT}（例如 /srv/animememes/releases）
+                              ${RELEASE_ROOT}（例如 /srv/memedatabase/releases）
                                           ▲
 本機管理端（3636，永不上 VPS）─ push_release.ps1 ──scp / ssh──┘
 ```
@@ -38,7 +38,7 @@
 ### 3.1 建立 Tunnel
 
 1. Zero Trust → Networks → Tunnels → Create a tunnel，類型選 Cloudflared。
-2. 命名（例如 `animememes`），在安裝步驟頁面複製 token（只需要 token，不必照畫面在 VPS 手動安裝 cloudflared）。token 是秘密，稍後只放進 VPS 的 `.env`。
+2. 命名（例如 `memedatabase`），在安裝步驟頁面複製 token（只需要 token，不必照畫面在 VPS 手動安裝 cloudflared）。token 是秘密，稍後只放進 VPS 的 `.env`。
 
 ### 3.2 Public Hostname
 
@@ -174,9 +174,9 @@ sudo usermod -aG docker deploy # 重新登入後生效
 最簡單的做法是在 VPS 上 clone 整個 repo（`data/` 已在 `.gitignore`，不會有資料）：
 
 ```bash
-sudo mkdir -p /opt/animememes && sudo chown "$USER": /opt/animememes
-git clone <repo URL> /opt/animememes
-cd /opt/animememes
+sudo mkdir -p /opt/memedatabase && sudo chown "$USER": /opt/memedatabase
+git clone <repo URL> /opt/memedatabase
+cd /opt/memedatabase
 ```
 
 公開映像建置只需要 `compose.yaml`、`Dockerfile`、`deploy/`、`src/anime_memes/`、`requirements.txt`、`.dockerignore`；`config/` 只有 private target 才用，public build 不需要。
@@ -185,12 +185,12 @@ cd /opt/animememes
 
 ```powershell
 docker compose --profile public build
-docker save animememes-public-api animememes-public-nginx -o animememes-public.tar
-scp animememes-public.tar myvps:/tmp/
+docker save memedatabase-public-api memedatabase-public-nginx -o memedatabase-public.tar
+scp memedatabase-public.tar myvps:/tmp/
 ```
 
 ```bash
-docker load -i /tmp/animememes-public.tar && rm /tmp/animememes-public.tar
+docker load -i /tmp/memedatabase-public.tar && rm /tmp/memedatabase-public.tar
 ```
 
 ### 4.5 建立發布目錄
@@ -198,21 +198,21 @@ docker load -i /tmp/animememes-public.tar && rm /tmp/animememes-public.tar
 容器以 UID 10001 執行，發布目錄必須事先建好並由 10001 擁有（`install-bundle` 要寫入）：
 
 ```bash
-sudo mkdir -p /srv/animememes/releases/{versions,media,reports}
-sudo chown -R 10001:10001 /srv/animememes/releases
+sudo mkdir -p /srv/memedatabase/releases/{versions,media,reports}
+sudo chown -R 10001:10001 /srv/memedatabase/releases
 ```
 
 compose 對發布目錄的掛載設了 `create_host_path: false`：在 Linux 的 Docker Engine 上，目錄不存在時 `up` 會直接失敗，不會讓 Docker 自動建立 root 擁有的目錄。這個設定在 Windows／macOS 的 Docker Desktop 上不一定生效（實測 Windows 會照樣建立目錄），所以**一律先依上面的指令建立目錄並 chown**，不要依賴 Docker 自動建立。
 
 ### 4.6 建立 .env
 
-在 `/opt/animememes/.env`：
+在 `/opt/memedatabase/.env`：
 
 ```bash
 umask 077
 cat > .env <<'EOF'
 CLOUDFLARE_TUNNEL_TOKEN=<tunnel token>
-RELEASE_ROOT=/srv/animememes/releases
+RELEASE_ROOT=/srv/memedatabase/releases
 # 以下可選
 # SEARCH_RATE=2r/s
 # SEARCH_BURST=10
@@ -227,12 +227,12 @@ chmod 600 .env
 ### 4.7 建置與啟動
 
 ```bash
-cd /opt/animememes
+cd /opt/memedatabase
 docker compose --profile public build
 docker compose --profile public --profile tunnel up -d --wait
 ```
 
-映像名稱固定為 `animememes-public-api`、`animememes-public-nginx`（compose 頂層 `name: animememes`）。
+映像名稱固定為 `memedatabase-public-api`、`memedatabase-public-nginx`（compose 頂層 `name: memedatabase`）。
 
 ### 4.8 驗證
 
@@ -249,7 +249,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3637/health/ready
 2. 推送並啟用：
 
 ```powershell
-.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/animememes/releases -Activate
+.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases -Activate
 ```
 
 建議先加 `-DryRun` 看一遍將執行的命令。
@@ -269,7 +269,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3637/health/ready   # 
 本機匯出新版本後：
 
 ```powershell
-.\scripts\push_release.ps1 -Version NEW_VERSION -SshHost myvps -RemoteReleaseRoot /srv/animememes/releases -Activate
+.\scripts\push_release.ps1 -Version NEW_VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases -Activate
 ```
 
 不加 `-Activate` 只安裝並驗證，不切換目前版本；之後可在 VPS 以 `activate` 切換（見 6.3）。已存在的版本不會被覆寫。
@@ -277,7 +277,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3637/health/ready   # 
 ### 6.2 程式更新
 
 ```bash
-cd /opt/animememes
+cd /opt/memedatabase
 git pull
 docker compose --profile public --profile tunnel up -d --build --wait
 ```
@@ -287,7 +287,7 @@ docker compose --profile public --profile tunnel up -d --build --wait
 **映像的安全更新**：主機的自動更新不會更新容器內的系統與套件。建議每月（或基底映像有安全公告時）重新拉取基底映像並重建：
 
 ```bash
-cd /opt/animememes
+cd /opt/memedatabase
 docker compose --profile public --profile tunnel build --pull
 docker compose --profile public --profile tunnel up -d --wait
 docker image prune -f   # 清掉被取代的舊映像
@@ -301,8 +301,8 @@ cloudflared 的版本由 `.env` 的 `CLOUDFLARED_VERSION` 固定（預設見 com
 
 ```bash
 docker run --rm --user 10001:10001 \
-  -v /srv/animememes/releases:/releases \
-  animememes-public-api \
+  -v /srv/memedatabase/releases:/releases \
+  memedatabase-public-api \
   python -m src.anime_memes.runtime rollback --root /releases OLD_VERSION
 ```
 
@@ -313,11 +313,11 @@ docker run --rm --user 10001:10001 \
 `prune` 需要先停公開服務，保留最新三個版本與目前啟用版本：
 
 ```bash
-cd /opt/animememes
+cd /opt/memedatabase
 docker compose --profile public --profile tunnel stop
 docker run --rm --user 10001:10001 \
-  -v /srv/animememes/releases:/releases \
-  animememes-public-api \
+  -v /srv/memedatabase/releases:/releases \
+  memedatabase-public-api \
   python -m src.anime_memes.runtime prune --root /releases --service-stopped
 docker compose --profile public --profile tunnel up -d --wait
 ```
@@ -338,7 +338,7 @@ docker compose logs public-nginx public-api
 - 首次部署報目錄不存在（類似 `bind source path does not exist`）：`create_host_path: false` 的設計，代表 `RELEASE_ROOT` 或其下的 `media` 目錄還沒建立，或 `.env` 的路徑有誤。依 4.5 建立後再 `up`。
 - `install-bundle` 權限錯誤：發布目錄需由 UID 10001 擁有（`chown -R 10001:10001`）。
 - `/health/ready` 一直 503：尚未啟用任何版本，或版本與目前程式的 schema 不相容；用 `activate` 或重新匯出推送。
-- 映像名稱：預設 `animememes-public-api` 與 `push_release.ps1` 的 `-Image` 預設一致。若用 `-p` 指定其他 compose 專案名稱，映像名稱會不同，需以 `-Image <名稱>` 指定，例如 `-Image animememes-public-api`。
+- 映像名稱：預設 `memedatabase-public-api` 與 `push_release.ps1` 的 `-Image` 預設一致。若用 `-p` 指定其他 compose 專案名稱，映像名稱會不同，需以 `-Image <名稱>` 指定，例如 `-Image memedatabase-public-api`。
 
 ## 8. 安全提醒
 

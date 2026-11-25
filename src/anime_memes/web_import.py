@@ -16,7 +16,7 @@ from .management import create_manual_entry, source_page_url
 
 
 def fetch_image(url):
-    with urlopen(Request(url, headers={"User-Agent": "AnimeMemes/1.0"}), timeout=25) as response:
+    with urlopen(Request(url, headers={"User-Agent": "MemeDatabase/1.0"}), timeout=25) as response:
         data = response.read(32 * 1024 * 1024 + 1)
     if len(data) > 32 * 1024 * 1024:
         raise ValueError("圖片超過 32 MiB")

@@ -129,10 +129,10 @@ bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite
 `scripts/push_release.ps1` 串起整個流程（本機打包、scp、ssh 以公開映像執行 install-bundle、清除暫存檔），每步檢查結束碼：
 
 ```powershell
-.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/animememes/releases [-Activate] [-DryRun]
+.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases [-Activate] [-DryRun]
 ```
 
-前提：VPS 已有公開映像（預設 `animememes-public-api`）與發布目錄，且該目錄允許 UID 10001 寫入；SSH 認證使用你既有的 ssh 設定，腳本不處理密碼或 token。`-DryRun` 只印出命令，不執行任何步驟。
+前提：VPS 已有公開映像（預設 `memedatabase-public-api`）與發布目錄，且該目錄允許 UID 10001 寫入；SSH 認證使用你既有的 ssh 設定，腳本不處理密碼或 token。`-DryRun` 只印出命令，不執行任何步驟。
 
 完整的 VPS 首次部署、Cloudflare Tunnel 設定與日常維運見 [VPS 部署手冊](vps-deployment.md)。
 
@@ -162,16 +162,16 @@ bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite
 # 同一個 PowerShell 工作階段使用隔離測試資料
 $env:PRIVATE_DATA_ROOT = './data/frontend-qa-1124/private'
 $env:RELEASE_ROOT = './data/frontend-qa-1124/releases'
-docker compose -p animememes-frontend-qa --profile private up -d --build --wait
+docker compose -p memedatabase-frontend-qa --profile private up -d --build --wait
 # 在私人頁完成首次啟用後執行
-docker compose -p animememes-frontend-qa --profile public up -d --build --wait
+docker compose -p memedatabase-frontend-qa --profile public up -d --build --wait
 ```
 
 1. 開啟[私人管理頁](http://localhost:3636)，手動新增測試圖，填入作品「刃牙」、角色「烈海王」、台詞「復！活！」及標籤「復活」。在詳情勾選「納入公開館藏」並儲存。原圖網址可留空以測試僅發布縮圖。
 2. 在「發布管理」按檢查。逐筆問題可點管理 key 開啟修正。匯出後確認版本與筆數，再按「啟用此版」。選取零筆時，啟用後公開搜尋會變空。
 3. 啟動公開 profile，開啟[公開搜尋頁](http://localhost:3637)。搜尋「復活」、套用標籤、開啟詳情、下載縮圖，將頁面連結貼到新分頁驗證。原圖為選填的外站資源，剪貼簿或下載受限時可開啟原圖或下載本站縮圖。
 4. 在私人頁取消選取後再檢查、匯出，此時重新搜尋仍可找到該圖。啟用新版，再按公開頁「搜尋」，確認結果更新。後續換版可直接在頁面操作。
-5. 結束測試可執行 `docker compose -p animememes-frontend-qa --profile public --profile private down`。測試館藏保留於上述主機目錄。
+5. 結束測試可執行 `docker compose -p memedatabase-frontend-qa --profile public --profile private down`。測試館藏保留於上述主機目錄。
 
 Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 次／秒、burst 10，SEARCH_RATE／SEARCH_BURST 可覆寫。未信任任意 X-Forwarded-For；部署到既有代理或 Tunnel 時應另外設定明確可信來源，否則多位使用者可能共用入口 IP 的限流額度。
 

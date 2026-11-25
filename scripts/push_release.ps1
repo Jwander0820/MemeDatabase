@@ -6,13 +6,13 @@
   流程：本機 bundle 產生 tar.gz -> scp 到遠端 /tmp -> ssh 以公開映像執行 install-bundle
         -> 刪除遠端與本機暫存檔。
   前提：
-    - VPS 已有公開映像（預設 animememes-public-api）與發布目錄，且目錄權限允許 UID 10001 寫入。
+    - VPS 已有公開映像（預設 memedatabase-public-api）與發布目錄，且目錄權限允許 UID 10001 寫入。
     - ssh 認證完全交給使用者既有的 ssh config／agent；本腳本不處理任何密碼或 token。
   未加 -Activate 時只安裝並驗證，不切換 current.json；current.json 只由 activate 原子切換。
   -DryRun：只印出將執行的命令，本機 bundle 步驟也不執行，不產生任何檔案。
 
 .EXAMPLE
-  .\scripts\push_release.ps1 -Version 20261125-120000 -SshHost myvps -RemoteReleaseRoot /srv/animememes/releases -Activate
+  .\scripts\push_release.ps1 -Version 20261125-120000 -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases -Activate
   .\scripts\push_release.ps1 -Version test -SshHost example -RemoteReleaseRoot /srv/releases -DryRun
 #>
 param(
@@ -20,7 +20,7 @@ param(
     [Parameter(Mandatory = $true)][string]$SshHost,
     [Parameter(Mandatory = $true)][string]$RemoteReleaseRoot,
     [string]$LocalReleaseRoot = "data/releases",
-    [string]$Image = "animememes-public-api",
+    [string]$Image = "memedatabase-public-api",
     [switch]$Activate,
     [switch]$DryRun
 )
@@ -43,8 +43,8 @@ if ($Image -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$') {
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
-$LocalBundle = Join-Path ([System.IO.Path]::GetTempPath()) ("animememes-" + $Version + ".tar.gz")
-$RemoteBundle = "/tmp/animememes-$Version.tar.gz"
+$LocalBundle = Join-Path ([System.IO.Path]::GetTempPath()) ("memedatabase-" + $Version + ".tar.gz")
+$RemoteBundle = "/tmp/memedatabase-$Version.tar.gz"
 $ActivateFlag = ""
 if ($Activate) { $ActivateFlag = " --activate" }
 $RemoteCommand = "docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases -v ${RemoteBundle}:/bundle.tar.gz:ro $Image python -m src.anime_memes.runtime install-bundle --root /releases /bundle.tar.gz$ActivateFlag"

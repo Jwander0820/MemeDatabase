@@ -104,7 +104,7 @@ def refresh_attachment_url(
         f"https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}",
         headers={
             "Authorization": f"Bot {bot_token}",
-            "User-Agent": "AnimeMemesDatabase/0.1",
+            "User-Agent": "MemeDatabase/0.1",
         },
     )
     try:

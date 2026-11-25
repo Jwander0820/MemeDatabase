@@ -1,6 +1,6 @@
-# 固定專案名稱：映像名稱一律是 animememes-<服務>，不受資料夾名稱影響（scripts/push_release.ps1 依此預設映像名）。
+# 固定專案名稱：映像名稱一律是 memedatabase-<服務>，不受資料夾名稱影響（scripts/push_release.ps1 依此預設映像名）。
 # 測試以 -p 指定其他專案名稱時，映像與容器名稱各自獨立，不會覆蓋正在使用的映像。
-name: animememes
+name: memedatabase
 
 x-common: &common
   restart: unless-stopped

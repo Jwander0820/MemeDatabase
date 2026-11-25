@@ -57,7 +57,7 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("私人媒體網址格式錯誤")
     service = PrivateSearch(db or settings.db_path(), media_base)
-    server = MCPServer("AnimeMemes Private Search")
+    server = MCPServer("MemeDatabase Private Search")
 
     @server.tool()
     def search_memes(query: str, limit: int = 5, field: str | None = None) -> dict:

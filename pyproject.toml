@@ -6,7 +6,7 @@
 #   requirements-mcp.txt    私人唯讀 MCP
 #   requirements-ocr.txt    本機 OCR（GPU）
 [project]
-name = "anime-memes"
+name = "meme-database"
 version = "0.1.0"
 description = "迷因資料庫：本機管理、發布與公開搜尋"
 readme = "README.md"
