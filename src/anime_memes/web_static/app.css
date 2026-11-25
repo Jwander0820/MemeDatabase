@@ -946,3 +946,8 @@ body:has(#bulkBar:not([hidden])) .toast { bottom: 84px; }
   .detail-media > #entryPublication { order: 4; margin: 0 16px 12px; }
   .detail-media > .meta-box { order: 5; margin: 0 16px 16px; }
 }
+
+/* 側欄底部的原始碼連結 */
+.rail-footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.rail-footer a { color: var(--muted); text-decoration: none; }
+.rail-footer a:hover { color: var(--ink); text-decoration: underline; }

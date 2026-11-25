@@ -1,5 +1,7 @@
 # 動畫迷因資料庫
 
+原始碼：<https://github.com/Jwander0820/MemeDatabase>
+
 本專案是本地優先的動畫梗圖整理工具。資料流程是 DiscordChatExporter fixed JSON 匯入 SQLite，下載本地附件，產生縮圖，使用 OCR 輔助校驗，最後透過本地 Web UI 快速瀏覽、搜尋、編輯、收藏與清理資料。
 
 ## 目前能力

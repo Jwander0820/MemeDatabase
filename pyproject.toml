@@ -12,6 +12,9 @@ description = "迷因資料庫：本機管理、發布與公開搜尋"
 readme = "README.md"
 requires-python = ">=3.12"
 
+[project.urls]
+Repository = "https://github.com/Jwander0820/MemeDatabase"
+
 [tool.setuptools]
 # 不安裝成套件：避免 pip install 時自動探索 src/ 而多出 anime_memes 這個第二種匯入路徑。
 packages = []

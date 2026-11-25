@@ -26,6 +26,7 @@
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
   </svg>
   <header class="topbar">
     <div class="topbar-inner">
@@ -44,6 +45,7 @@
       </form>
       <a id="adminLink" class="admin-link" href="/" hidden>管理</a>
       <button id="themeToggle" class="icon-button ghost theme-toggle" type="button" aria-label="切換深淺色模式"><svg class="icon i-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon i-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
+      <a class="icon-button ghost repo-link" href="https://github.com/Jwander0820/MemeDatabase" target="_blank" rel="noopener noreferrer" aria-label="GitHub 原始碼" title="GitHub 原始碼"><svg class="icon" aria-hidden="true"><use href="#i-github"/></svg></a>
     </div>
     <nav class="tag-strip" id="tagStrip" aria-label="依標籤篩選">
       <!-- 滑鼠使用者的左右捲動鈕；鍵盤可直接 Tab 經過每個標籤，因此不納入 Tab 順序。 -->
@@ -68,7 +70,7 @@
     </div>
     <div class="load-row" id="sentinel"><p class="load-hint" id="loadHint"></p><button id="more" hidden>載入更多</button></div>
   </main>
-  <footer class="site-footer">迷因資料庫 · 圖片版權屬原作者所有</footer>
+  <footer class="site-footer">迷因資料庫 · 圖片版權屬原作者所有 · <a href="https://github.com/Jwander0820/MemeDatabase" target="_blank" rel="noopener noreferrer">GitHub</a></footer>
   <dialog class="viewer" id="preview" aria-labelledby="title">
     <form method="dialog" class="viewer-close"><button class="icon-button" aria-label="關閉" autofocus><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></form>
     <div class="viewer-layout">

@@ -175,7 +175,7 @@ sudo usermod -aG docker deploy # 重新登入後生效
 
 ```bash
 sudo mkdir -p /opt/memedatabase && sudo chown "$USER": /opt/memedatabase
-git clone <repo URL> /opt/memedatabase
+git clone https://github.com/Jwander0820/MemeDatabase.git /opt/memedatabase
 cd /opt/memedatabase
 ```
 
