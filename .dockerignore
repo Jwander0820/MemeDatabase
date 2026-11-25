@@ -10,3 +10,8 @@ __pycache__
 tests
 docs
 *.log
+.claude
+.agents
+.codex
+examples
+scripts
