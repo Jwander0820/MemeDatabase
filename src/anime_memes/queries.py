@@ -13,7 +13,10 @@ def metadata(conn):
     tags = [dict(r) for r in conn.execute("""SELECT tag_name AS name,COUNT(DISTINCT entry_key) AS count
         FROM entry_tags GROUP BY tag_name ORDER BY count DESC,tag_name""")]
     statuses = [dict(r) for r in conn.execute("SELECT status,COUNT(*) AS count FROM meme_entries GROUP BY status ORDER BY status")]
-    return {"tags": tags, "statuses": statuses}
+    # 有 AI／Agent 候選標籤待審的梗圖數（不分狀態），供管理頁快速篩選顯示數量。
+    pending = conn.execute("""SELECT COUNT(DISTINCT s.entry_key) FROM tag_suggestions s
+        JOIN meme_entries e ON e.key=s.entry_key WHERE s.status='pending'""").fetchone()[0]
+    return {"tags": tags, "statuses": statuses, "pending_suggestions": pending}
 
 
 def ready_tag_counts(conn: sqlite3.Connection) -> list[dict]:
@@ -43,6 +46,8 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
     if published in {"0", "1"}:
         where.append("e.publish_selected = ?")
         params.append(int(published))
+    if truthy(args.get("pending_suggestions")):
+        where.append("EXISTS (SELECT 1 FROM tag_suggestions ps WHERE ps.entry_key = e.key AND ps.status = 'pending')")
     if truthy(args.get("no_tags")):
         where.append("NOT EXISTS (SELECT 1 FROM entry_tags nt WHERE nt.entry_key = e.key)")
     if truthy(args.get("missing_image")):

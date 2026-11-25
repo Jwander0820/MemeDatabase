@@ -17,7 +17,7 @@ function setSelecting(on) {
   } else {
     grid.classList.remove("selecting");
   }
-  renderGrid();
+  renderGrid({keepScroll: true});
 }
 
 function togglePick(item, range) {
@@ -61,7 +61,7 @@ function updateBulkBar() {
 function currentFilter() {
   const search = params(1);
   const filter = {};
-  ["status", "q", "field", "tag", "favorite", "missing_image", "no_tags", "published"].forEach((name) => {
+  ["status", "q", "field", "tag", "favorite", "missing_image", "no_tags", "published", "pending_suggestions"].forEach((name) => {
     if (search.has(name)) filter[name] = search.get(name);
   });
   return filter;

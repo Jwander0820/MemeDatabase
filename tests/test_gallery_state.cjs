@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function gallery() {
+function gallery(withObserver = false) {
   const nodes = new Map();
   const pending = [];
   function element() {
@@ -17,21 +17,27 @@ function gallery() {
     if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
   }
+  const observers = [];
+  const extra = withObserver ? {
+    IntersectionObserver: class { constructor(callback) { observers.push(callback); } observe() {} disconnect() {} },
+    requestAnimationFrame() {}
+  } : {};
   const context = vm.createContext({
+    ...extra,
     document: {getElementById: node, createElement: element},
     window: {addEventListener() {}}, location: {hash: ''},
     clearTimeout() {}, URLSearchParams, Option: class {},
     fetch(url) { return new Promise(resolve => pending.push({url, resolve})); }
   });
   // 與 HTML 相同的載入順序；各檔共用同一個全域作用域。
-  for (const name of ['gallery.js', 'gallery-favorites.js', 'gallery-detail.js', 'gallery-init.js']) {
+  for (const name of ['infinite-scroll.js', 'gallery.js', 'gallery-favorites.js', 'gallery-detail.js', 'gallery-init.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/public_ui', name), 'utf8'), context, {filename: name});
   }
   function respond(request, data, status = 200) {
     request.resolve({ok: status === 200, status, json: async () => data});
     return new Promise(resolve => setImmediate(resolve));
   }
-  return {node, pending, respond,
+  return {node, pending, respond, observers,
     search: reset => vm.runInContext('search(' + reset + ')', context),
     setScope: value => vm.runInContext('setScope(' + JSON.stringify(value) + ')', context)};
 }
@@ -85,4 +91,30 @@ test('公開頁辨識 Nginx 的非 JSON 限流錯誤並提供重試', async () =
   assert.match(g.node('status').textContent, /過於頻繁/);
   assert.equal(g.node('more').hidden, false);
   assert.equal(g.node('more').textContent, '重試');
+});
+
+test('捲到底自動載入下一頁，失敗後不自動重試並顯示重試按鈕', async () => {
+  const g = gallery(true);
+  const item = id => ({id, resolved_title: id, tags: []});
+  await g.respond(g.pending.shift(), {version: 'v1', page: 1, total: 3, items: [item('a')]});
+  await g.respond(g.pending.shift(), {version: 'v1', tags: []});
+  assert.equal(g.node('more').hidden, true, '有自動載入時不顯示按鈕');
+  assert.equal(g.pending.length, 0, '哨兵尚未進入視窗不載入');
+  g.observers[0]([{isIntersecting: true}]);
+  const next = g.pending.shift();
+  assert.equal(new URLSearchParams(next.url.split('?')[1]).get('page'), '2');
+  await g.respond(next, {version: 'v1', page: 2, total: 3, items: [item('b')]});
+  assert.equal(g.node('status').textContent, '已顯示 2／3 張');
+  g.observers[0]([{isIntersecting: true}]);
+  await g.respond(g.pending.shift(), null, 503);
+  assert.equal(g.node('more').hidden, false);
+  assert.equal(g.node('more').textContent, '重試');
+  g.observers[0]([{isIntersecting: true}]);
+  assert.equal(g.pending.length, 0, '失敗後不自動重試');
+  g.node('more').onclick();
+  const retry = g.pending.shift();
+  assert.equal(new URLSearchParams(retry.url.split('?')[1]).get('page'), '3');
+  await g.respond(retry, {version: 'v1', page: 3, total: 3, items: [item('c')]});
+  assert.equal(g.node('more').hidden, true);
+  assert.equal(g.node('loadHint').textContent, '已經到底了');
 });

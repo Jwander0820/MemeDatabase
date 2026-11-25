@@ -49,7 +49,7 @@ def update_selection(conn, key, data):
     return selection(conn, key)
 
 
-BULK_FILTER_KEYS = {"q", "tag", "status", "favorite", "missing_image", "no_tags", "published"}
+BULK_FILTER_KEYS = {"q", "field", "tag", "status", "favorite", "missing_image", "no_tags", "published", "pending_suggestions"}
 MAX_BULK_KEYS = 5000
 
 

@@ -12,6 +12,13 @@ let listRequest = 0;
 let detailRequest = 0;
 let timer;
 let retryFromStart = true;
+// 捲到底自動載入的狀態；scroller 由 gallery-init.js 建立，不支援時維持 null 並退回「載入更多」按鈕。
+let scroller = null;
+let loading = false;
+let loadFailed = false;
+let hasMore = false;
+const loadHint = byId("loadHint");
+const canLoadMore = () => !loading && !loadFailed && hasMore && !dialog.open;
 let activeTag = "";
 // 本機簡潔瀏覽：由本機後端的 meta 宣告；公開 API 不回傳 mode，公開站不會出現管理入口。
 let localMode = false;
@@ -219,6 +226,10 @@ async function search(reset) {
   more.hidden = true;
   empty.hidden = true;
   statusLine.textContent = "載入中…";
+  loading = true;
+  loadFailed = false;
+  hasMore = false;
+  loadHint.textContent = scroller && !reset ? "載入中…" : "";
   try {
     const data = await readApi("entries", params);
     if (request !== listRequest) return;
@@ -245,15 +256,26 @@ async function search(reset) {
       const asked = Math.min(favoriteIds.length, MAX_FAVORITE_QUERY);
       if (asked > data.total) statusLine.textContent += `（另有 ${asked - data.total} 張收藏已下架）`;
     }
+    hasMore = shown < data.total;
     more.textContent = "載入更多";
-    more.hidden = shown >= data.total;
+    // 有自動載入時不顯示按鈕；全部載完則在列表底部顯示提示（查無結果不顯示）。
+    more.hidden = !hasMore || Boolean(scroller);
+    loadHint.textContent = !hasMore && data.total ? "已經到底了" : "";
     retryFromStart = false;
   } catch (error) {
     if (request !== listRequest) return;
     statusLine.textContent = error.message;
     retryFromStart = page === 0 || error.status === 410;
+    loadFailed = true;
+    loadHint.textContent = "";
     more.textContent = error.status === 410 ? "從最新館藏重新搜尋" : "重試";
     more.hidden = false;
+  } finally {
+    if (request === listRequest) {
+      loading = false;
+      // 哨兵仍在視窗內時繼續載入；失敗時 canLoadMore 為 false，不會自動重試。
+      scroller?.check();
+    }
   }
 }
 

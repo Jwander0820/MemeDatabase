@@ -153,8 +153,7 @@ function bindDetailForm(item) {
     const response = await fetch(`/api/entries/${encodeURIComponent(item.key)}`, {method: "DELETE"});
     if (!response.ok) return showToast(T.deleteFailed);
     closeDetail();
-    await loadMeta();
-    await loadEntries(true);
+    await Promise.all([loadMeta(), loadEntries(true)]);
     showToast(T.deleted);
   });
   form.addEventListener("submit", async (event) => {
@@ -227,4 +226,6 @@ function closeDetail() {
   const previous = focusBeforeDrawer;
   focusBeforeDrawer = null;
   if (previous?.isConnected) previous.focus?.();
+  // 抽屜開著時自動載入暫停；關閉後若列表底部仍在視窗內就接著載。
+  autoLoader?.check();
 }

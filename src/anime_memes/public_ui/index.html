@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/assets/catalog.css">
   <link rel="stylesheet" href="/assets/gallery.css">
   <script defer src="/assets/masonry.js"></script>
+  <script defer src="/assets/infinite-scroll.js"></script>
   <script defer src="/assets/gallery.js"></script>
   <script defer src="/assets/gallery-favorites.js"></script>
   <script defer src="/assets/gallery-detail.js"></script>
@@ -64,7 +65,7 @@
       <strong id="emptyTitle">找不到符合的梗圖</strong>
       <p id="emptyHint">換個關鍵字，或試試其他標籤。</p>
     </div>
-    <div class="load-row"><button id="more" hidden>載入更多</button></div>
+    <div class="load-row" id="sentinel"><p class="load-hint" id="loadHint"></p><button id="more" hidden>載入更多</button></div>
   </main>
   <footer class="site-footer">迷因資料庫 · 圖片版權屬原作者所有</footer>
   <dialog class="viewer" id="preview" aria-labelledby="title">

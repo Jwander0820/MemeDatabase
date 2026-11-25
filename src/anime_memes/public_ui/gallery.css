@@ -456,3 +456,9 @@
   .viewer-info .detail-tags { order: 4; }
   .viewer-info #detail > button { order: 1; }
 }
+
+/* ---------- 捲到底自動載入 ---------- */
+/* load-row 是自動載入的哨兵，按鈕隱藏時仍保留一點高度。 */
+.load-row { min-height: 72px; flex-direction: column; align-items: center; }
+.load-hint { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.load-hint:empty { display: none; }

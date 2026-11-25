@@ -57,6 +57,8 @@ const state = {
   randomSeed: String(Math.random()),
   entriesRequest: 0,
   loading: false,
+  // 上一次載入下一頁失敗：停止自動載入，等使用者按「重試」。
+  loadFailed: false,
   // 多選模式：picked 為明確點選的 key；pickAll 代表「目前篩選結果全部」，交由後端依條件處理。
   selecting: false,
   picked: new Set(),
@@ -76,6 +78,10 @@ const missingImage = document.querySelector("#missingImage");
 const noTags = document.querySelector("#noTags");
 const publishedOnly = document.querySelector("#publishedOnly");
 const unpublishedOnly = document.querySelector("#unpublishedOnly");
+const needsReviewOnly = document.querySelector("#needsReviewOnly");
+const pendingSuggestions = document.querySelector("#pendingSuggestions");
+const needsReviewCount = document.querySelector("#needsReviewCount");
+const pendingSuggestionsCount = document.querySelector("#pendingSuggestionsCount");
 const selectMode = document.querySelector("#selectMode");
 const bulkBar = document.querySelector("#bulkBar");
 const bulkCount = document.querySelector("#bulkCount");
@@ -86,6 +92,8 @@ const bulkUnpublish = document.querySelector("#bulkUnpublish");
 const tagList = document.querySelector("#tagList");
 const clearTag = document.querySelector("#clearTag");
 const loadMore = document.querySelector("#loadMore");
+const loadRow = document.querySelector(".load-row");
+const loadEnd = document.querySelector("#loadEnd");
 const drawer = document.querySelector("#drawer");
 const drawerBody = document.querySelector("#drawerBody");
 const closeDrawer = document.querySelector("#closeDrawer");
@@ -105,6 +113,17 @@ let createPreviewUrl = "";
 // 抽屜開啟前的焦點位置，關閉時歸還，鍵盤使用者不必從頭 Tab。
 let focusBeforeDrawer = null;
 
+// 捲到底自動載入；不支援 IntersectionObserver（或沒有共用模組）時為 null，改用「載入更多」按鈕。
+const autoLoader = globalThis.MemeInfiniteScroll?.create(loadRow, {
+  canLoad: () => !state.loading && !state.loadFailed && state.items.length < state.total && !drawer.classList.contains?.("open"),
+  onLoad: () => loadEntries(false),
+}) ?? null;
+
+// 快速篩選的「待審核」與狀態下拉同步：只有狀態為 needs_review 才勾選。
+function syncNeedsReview() {
+  needsReviewOnly.checked = statusFilter.value === "needs_review";
+}
+
 function params(page = state.page) {
   const search = new URLSearchParams();
   search.set("page", page);
@@ -121,6 +140,7 @@ function params(page = state.page) {
   if (missingImage.checked) search.set("missing_image", "1");
   if (noTags.checked) search.set("no_tags", "1");
   if (publishedOnly.checked !== unpublishedOnly.checked) search.set("published", publishedOnly.checked ? "1" : "0");
+  if (pendingSuggestions.checked) search.set("pending_suggestions", "1");
   return search;
 }
 
@@ -129,6 +149,7 @@ async function loadEntries(reset = false) {
   const requestId = ++state.entriesRequest;
   state.loading = true;
   loadMore.disabled = true;
+  if (reset) state.loadFailed = false;
   try {
     const response = await fetch(`/api/entries?${params(reset ? 1 : state.page + 1)}`);
     if (!response.ok) throw new Error("entries request failed");
@@ -139,20 +160,37 @@ async function loadEntries(reset = false) {
     // 篩選條件改變後，「全選目前篩選結果」不再代表同一批圖。
     if (reset) state.pickAll = false;
     state.items = reset ? data.items : state.items.concat(data.items);
-    renderGrid();
+    state.loadFailed = false;
+    renderGrid(reset ? {} : {added: data.items});
   } catch {
-    if (requestId === state.entriesRequest) showToast("清單載入失敗，請重試");
+    if (requestId === state.entriesRequest) {
+      state.loadFailed = true;
+      showToast("清單載入失敗，請重試");
+    }
   } finally {
     if (requestId === state.entriesRequest) {
       state.loading = false;
       loadMore.disabled = false;
+      renderLoadControls();
+      // 載入完成後若底部仍在視窗內，繼續載入（失敗時 canLoad 為 false，不會重試）。
+      if (reset) autoLoader?.check();
     }
   }
 }
 
+// 數量徽章：0 時隱藏。
+function setChipCount(node, count) {
+  node.textContent = String(count);
+  node.hidden = !count;
+}
+
 async function loadMeta() {
   const response = await fetch("/api/meta");
+  if (!response.ok) return;
   const data = await response.json();
+  const reviewCount = (data.statuses || []).find((row) => row.status === "needs_review")?.count || 0;
+  setChipCount(needsReviewCount, reviewCount);
+  setChipCount(pendingSuggestionsCount, data.pending_suggestions || 0);
   tagList.innerHTML = "";
   data.tags.forEach((tag) => {
     const button = document.createElement("button");
@@ -168,23 +206,42 @@ async function loadMeta() {
   });
 }
 
-function renderGrid() {
-  grid.innerHTML = state.total ? "" : `
-    <div class="empty">
-      <div class="empty-mark" aria-hidden="true">?</div>
-      <strong>沒有符合條件的梗圖</strong>
-      <p>調整搜尋字詞、狀態或標籤篩選再試一次。</p>
-    </div>`;
+// added：載入下一頁時只把新卡片接在後面。整份重畫會讓網格瞬間清空、頁面高度歸零，
+//   瀏覽器因此把捲動位置拉回最上面（自動載入時尤其明顯）。
+// keepScroll：不換資料、只需重畫卡片外觀時（例如切換多選模式）保留原本的捲動位置。
+function renderGrid({added = null, keepScroll = false} = {}) {
   resultCount.textContent = state.total ? `已載入 ${state.items.length}／${state.total} 筆` : "0 筆";
-  if (state.total && masonry) {
-    masonry.reset();
-    masonry.append(state.items.map(card));
+  const appendable = added && state.total && (masonry ? masonry.size > 0 : grid.children.length > 0);
+  if (appendable) {
+    if (masonry) masonry.append(added.map(card));
+    else added.forEach((item) => grid.appendChild(card(item)));
   } else {
-    state.items.forEach((item) => grid.appendChild(card(item)));
+    const scrollY = globalThis.scrollY || 0;
+    grid.innerHTML = state.total ? "" : `
+      <div class="empty">
+        <div class="empty-mark" aria-hidden="true">?</div>
+        <strong>沒有符合條件的梗圖</strong>
+        <p>調整搜尋字詞、狀態或標籤篩選再試一次。</p>
+      </div>`;
+    if (state.total && masonry) {
+      masonry.reset();
+      masonry.append(state.items.map(card));
+    } else {
+      state.items.forEach((item) => grid.appendChild(card(item)));
+    }
+    if (keepScroll) globalThis.scrollTo?.(0, scrollY);
   }
-  loadMore.disabled = state.items.length >= state.total;
-  loadMore.hidden = state.items.length >= state.total;
+  renderLoadControls();
   updateBulkBar();
+}
+
+// 「載入更多」按鈕與「已經到底了」提示：有自動載入時按鈕只在失敗時以「重試」出現。
+function renderLoadControls() {
+  const done = state.items.length >= state.total && !state.loadFailed;
+  loadMore.disabled = state.loading;
+  loadMore.textContent = state.loadFailed ? "重試" : "載入更多";
+  loadMore.hidden = done || (autoLoader !== null && !state.loadFailed);
+  loadEnd.hidden = !(done && state.total > 0);
 }
 
 // 原圖寬高與縮圖等比例；寫成屬性讓瀑布流在圖片載入前就知道卡片高度。

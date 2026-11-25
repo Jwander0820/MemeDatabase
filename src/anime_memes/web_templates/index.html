@@ -81,6 +81,8 @@
 
       <fieldset class="toggles">
         <legend class="section-label">快速篩選</legend>
+        <label class="check-chip"><input id="needsReviewOnly" type="checkbox"><span>待審核<small id="needsReviewCount" class="chip-count" hidden></small></span></label>
+        <label class="check-chip" title="有 AI／Agent 候選標籤等待審核的梗圖，不分狀態；勾選時狀態會改為「全部」"><input id="pendingSuggestions" type="checkbox"><span>候選標籤待處理<small id="pendingSuggestionsCount" class="chip-count" hidden></small></span></label>
         <label class="check-chip"><input id="favoriteOnly" type="checkbox"><span>★ 收藏</span></label>
         <label class="check-chip"><input id="missingImage" type="checkbox"><span>缺圖片</span></label>
         <label class="check-chip"><input id="noTags" type="checkbox"><span>無標籤</span></label>
@@ -107,6 +109,7 @@
       <div id="grid" class="meme-grid" aria-live="polite"></div>
       <div class="load-row">
         <button id="loadMore" type="button">載入更多</button>
+        <span id="loadEnd" class="load-end" hidden>已經到底了</span>
       </div>
       <div id="bulkBar" class="bulk-bar" role="region" aria-label="批次操作" hidden>
         <strong id="bulkCount" role="status">已選 0 張</strong>
@@ -204,6 +207,7 @@
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/publication.js"></script>
+  <script src="/assets/infinite-scroll.js"></script>
   <script src="/assets/masonry.js"></script>
   <script src="/static/tag-input.js"></script>
   <script src="/static/app-utils.js"></script>
