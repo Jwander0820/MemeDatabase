@@ -28,6 +28,9 @@ function renderDetail(item) {
   favoriteButton.textContent = item.favorite ? "\u2605" : "\u2606";
   favoriteButton.setAttribute("aria-pressed", String(Boolean(item.favorite)));
   drawerBody.innerHTML = detailTemplate(item);
+  // 切換或重繪後，右欄捲回頂端。
+  const detailPanel = drawerBody.querySelector?.(".detail-panel");
+  if (detailPanel) detailPanel.scrollTop = 0;
   // 標籤欄位換成膠囊輸入（測試環境沒有 MemeTagInput 時維持純文字框）。
   globalThis.MemeTagInput?.mount(drawerBody.querySelector('#editForm [name="tags"]'));
   const wasOpen = Boolean(drawer.classList.contains?.("open"));
@@ -143,10 +146,30 @@ function detailTemplate(item) {
     ["OCR", escapeHtml(item.ocr_status || "")],
   ].filter(([, value]) => value).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("");
   return `
+    <section class="detail-media">
     <figure class="drawer-stage">
       ${image ? `<img class="drawer-image" src="${attr(image)}" alt="">` : `<div class="missing-image">${T.noPreview}</div>`}
     </figure>
     <div class="card-tags" id="detailTags">${item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+    <!-- 公開設定放在左欄圖片下方：右欄只留審核與編輯，固定的儲存列才能一直留在畫面底部。 -->
+    <form id="entryPublication" class="panel">
+      <fieldset disabled>
+        <legend>公開設定</legend>
+        <label><input type="checkbox" name="selected"> 納入公開館藏</label>
+        <label class="field">公開原圖網址（選填，留空則使用 R2 的 720P）<input name="original" type="url" placeholder="https://"></label>
+        <button type="submit">儲存公開設定</button>
+      </fieldset>
+      <output role="status">正在讀取公開設定…</output>
+    </form>
+    <details class="meta-box panel">
+      <summary>檔案與來源資訊</summary>
+      <dl class="meta-list">
+        ${meta}
+      </dl>
+      ${item.ocr_text ? `<p class="ocr-text"><strong>${T.ocrText}</strong><br>${escapeHtml(item.ocr_text)}</p>` : ""}
+    </details>
+    </section>
+    <section class="detail-panel">
     ${suggestions}
     <form class="edit-form panel" id="editForm">
       <h3>基本資料</h3>
@@ -168,22 +191,7 @@ function detailTemplate(item) {
         <button class="primary" type="submit">${T.save}</button>
       </div>
     </form>
-    <form id="entryPublication" class="panel">
-      <fieldset disabled>
-        <legend>公開設定</legend>
-        <label><input type="checkbox" name="selected"> 納入公開館藏</label>
-        <label class="field">公開原圖網址（選填，留空則使用 R2 的 720P）<input name="original" type="url" placeholder="https://"></label>
-        <button type="submit">儲存公開設定</button>
-      </fieldset>
-      <output role="status">正在讀取公開設定…</output>
-    </form>
-    <details class="meta-box panel">
-      <summary>檔案與來源資訊</summary>
-      <dl class="meta-list">
-        ${meta}
-      </dl>
-      ${item.ocr_text ? `<p class="ocr-text"><strong>${T.ocrText}</strong><br>${escapeHtml(item.ocr_text)}</p>` : ""}
-    </details>
+    </section>
   `;
 }
 
