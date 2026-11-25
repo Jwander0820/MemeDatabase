@@ -10,6 +10,7 @@ from typing import Any
 from PIL import Image, UnidentifiedImageError
 
 from . import settings
+from .db import ISO_NOW_SQL
 from .tags import DEFAULT_TAXONOMY_PATH, load_taxonomy, sync_taxonomy, taxonomy_indexes
 
 
@@ -239,11 +240,11 @@ def import_tagging_results(
             if not suggestions:
                 summary["empty_results"] += 1
             conn.execute(
-                "UPDATE tagging_run_entries SET status='processed', processed_at=CURRENT_TIMESTAMP WHERE run_id=? AND entry_key=?",
+                f"UPDATE tagging_run_entries SET status='processed', processed_at={ISO_NOW_SQL} WHERE run_id=? AND entry_key=?",
                 (run_id, key),
             )
             conn.execute(
-                "UPDATE tagging_runs SET output_path=?, status='awaiting_review', imported_at=CURRENT_TIMESTAMP WHERE id=?",
+                f"UPDATE tagging_runs SET output_path=?, status='awaiting_review', imported_at={ISO_NOW_SQL} WHERE id=?",
                 (str(path.resolve()), run_id),
             )
             touched_runs.add(run_id)
@@ -274,9 +275,9 @@ def import_tagging_results(
         ).fetchone()[0]
         run_status = "completed" if int(counts["processed"] or 0) == int(counts["total"] or 0) and not pending_count else "awaiting_review"
         conn.execute(
-            """
+            f"""
             UPDATE tagging_runs SET processed_count=?, suggestion_count=?, error_count=?,
-                status=?, completed_at=CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE completed_at END
+                status=?, completed_at=CASE WHEN ?='completed' THEN {ISO_NOW_SQL} ELSE completed_at END
             WHERE id=?
             """,
             (
@@ -350,8 +351,8 @@ def decide_tag_suggestion(
         raise ValueError("tag is no longer available for suggestions")
 
     cursor = conn.execute(
-        """
-        UPDATE tag_suggestions SET status=?, reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP
+        f"""
+        UPDATE tag_suggestions SET status=?, reviewed_by=?, reviewed_at={ISO_NOW_SQL}
         WHERE id=? AND status='pending'
         """,
         (decision, reviewed_by.strip(), suggestion_id),
@@ -381,7 +382,7 @@ def decide_tag_suggestion(
                 row["reason"],
             ),
         )
-        conn.execute("UPDATE meme_entries SET updated_at=CURRENT_TIMESTAMP WHERE key=?", (row["entry_key"],))
+        conn.execute(f"UPDATE meme_entries SET updated_at={ISO_NOW_SQL} WHERE key=?", (row["entry_key"],))
     pending = conn.execute(
         "SELECT COUNT(*) FROM tag_suggestions WHERE run_id=? AND status='pending'",
         (row["run_id"],),
@@ -392,7 +393,7 @@ def decide_tag_suggestion(
     ).fetchone()[0]
     if not pending and not remaining:
         conn.execute(
-            "UPDATE tagging_runs SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?",
+            f"UPDATE tagging_runs SET status='completed', completed_at={ISO_NOW_SQL} WHERE id=?",
             (row["run_id"],),
         )
     conn.commit()

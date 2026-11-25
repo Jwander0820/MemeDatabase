@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import settings
+from .db import ISO_NOW_SQL
 
 
 ROOT = settings.ROOT
@@ -192,11 +193,11 @@ def _sync_taxonomy_rows(conn: sqlite3.Connection, taxonomy: dict[str, Any]) -> N
         if previous and previous["id"] and previous["id"] != tag_id:
             conn.execute("UPDATE tag_suggestions SET tag_id=? WHERE tag_id=?", (tag_id, previous["id"]))
         conn.execute(
-            """
+            f"""
             INSERT INTO tags(
                 name, source, id, category, description, enabled,
                 model_selectable, taxonomy_version, updated_at
-            ) VALUES(?, 'taxonomy', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES(?, 'taxonomy', ?, ?, ?, ?, ?, ?, {ISO_NOW_SQL})
             ON CONFLICT(name) DO UPDATE SET
                 id=excluded.id,
                 category=excluded.category,
@@ -204,7 +205,7 @@ def _sync_taxonomy_rows(conn: sqlite3.Connection, taxonomy: dict[str, Any]) -> N
                 enabled=excluded.enabled,
                 model_selectable=excluded.model_selectable,
                 taxonomy_version=excluded.taxonomy_version,
-                updated_at=CURRENT_TIMESTAMP
+                updated_at={ISO_NOW_SQL}
             WHERE tags.id IS NOT excluded.id
                OR tags.category IS NOT excluded.category
                OR tags.description IS NOT excluded.description
@@ -232,9 +233,9 @@ def _sync_taxonomy_rows(conn: sqlite3.Connection, taxonomy: dict[str, Any]) -> N
     for row in conn.execute("SELECT name FROM tags WHERE id IS NULL OR id = ''").fetchall():
         label = str(row["name"])
         conn.execute(
-            """
+            f"""
             UPDATE tags SET id=?, category='legacy', enabled=0, model_selectable=0,
-                taxonomy_version=?, updated_at=CURRENT_TIMESTAMP
+                taxonomy_version=?, updated_at={ISO_NOW_SQL}
             WHERE name=?
             """,
             (legacy_tag_id(label), version, label),
@@ -242,7 +243,7 @@ def _sync_taxonomy_rows(conn: sqlite3.Connection, taxonomy: dict[str, Any]) -> N
     # Repair rows already migrated by the earlier implementation. Explicitly
     # created custom tags carry a description and remain available to people.
     conn.execute(
-        """UPDATE tags SET enabled=0, updated_at=CURRENT_TIMESTAMP
+        f"""UPDATE tags SET enabled=0, updated_at={ISO_NOW_SQL}
            WHERE category='legacy' AND description='' AND model_selectable=0
              AND id LIKE 'legacy_%' AND enabled!=0"""
     )
@@ -315,18 +316,18 @@ def add_entry_tag(
     if row is None:
         tag_id = legacy_tag_id(tag_name)
         conn.execute(
-            """
+            f"""
             INSERT INTO tags(
                 name, source, id, category, description, enabled,
                 model_selectable, taxonomy_version, updated_at
-            ) VALUES(?, ?, ?, 'legacy', ?, 1, 0, 2, CURRENT_TIMESTAMP)
+            ) VALUES(?, ?, ?, 'legacy', ?, 1, 0, 2, {ISO_NOW_SQL})
             """,
             (tag_name, source, tag_id, "人工建立的相容標籤"),
         )
     else:
         tag_id = str(row["id"] or legacy_tag_id(tag_name))
         if not row["id"]:
-            conn.execute("UPDATE tags SET id=?, updated_at=CURRENT_TIMESTAMP WHERE name=?", (tag_id, tag_name))
+            conn.execute(f"UPDATE tags SET id=?, updated_at={ISO_NOW_SQL} WHERE name=?", (tag_id, tag_name))
     source_type = {"auto": "rule", "manual": "manual", "local_llm": "suggestion"}.get(source, source)
     conn.execute(
         """
@@ -419,7 +420,7 @@ def import_llm_suggestions(conn: sqlite3.Connection, jsonl_path: str | Path) -> 
                 )
                 imported += int(cursor.rowcount > 0)
             conn.execute(
-                "UPDATE tagging_run_entries SET status='processed', processed_at=CURRENT_TIMESTAMP WHERE run_id=? AND entry_key=?",
+                f"UPDATE tagging_run_entries SET status='processed', processed_at={ISO_NOW_SQL} WHERE run_id=? AND entry_key=?",
                 (run_id, key),
             )
         except Exception as exc:
@@ -430,10 +431,10 @@ def import_llm_suggestions(conn: sqlite3.Connection, jsonl_path: str | Path) -> 
             )
     conn.commit()
     conn.execute(
-        """
+        f"""
         UPDATE tagging_runs SET status='awaiting_review', processed_count=(
             SELECT COUNT(*) FROM tagging_run_entries WHERE run_id=? AND status='processed'
-        ), suggestion_count=?, error_count=?, imported_at=CURRENT_TIMESTAMP WHERE id=?
+        ), suggestion_count=?, error_count=?, imported_at={ISO_NOW_SQL} WHERE id=?
         """,
         (run_id, imported, errors, run_id),
     )

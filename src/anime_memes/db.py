@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 from . import settings
+
+# 時間格式規範：管理庫所有 `*_at` 時間欄位一律為 ISO 8601 UTC 毫秒格式 `YYYY-MM-DDTHH:MM:SS.sss+00:00`，
+# 由遷移 2 建立的觸發器強制（任何寫入者，含外部匯入工具）。
+# 例外：discord_messages.timestamp／timestamp_edited 是 Discord 匯出的原始資料（offset 各異），
+# Discord 同步會拿它們與新匯出的值比對來判斷訊息是否被編輯，轉換會造成誤判，故保持原樣。
+ISO_TIME_FORMAT = "%Y-%m-%dT%H:%M:%f+00:00"
+ISO_NOW_SQL = f"strftime('{ISO_TIME_FORMAT}','now')"
+
+
+def iso_normalize_sql(expr: str) -> str:
+    """SQL 運算式：把時間值正規化為標準格式（可解析空格／T 分隔、小數秒、時區 offset；無法解析時為 NULL）。"""
+    return f"strftime('{ISO_TIME_FORMAT}', {expr})"
+
+
+def utc_now_iso() -> str:
+    """目前 UTC 時間，格式與 ISO_NOW_SQL 完全相同。"""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
 SCHEMA = """
@@ -362,6 +379,93 @@ def _migration_1_baseline(conn: sqlite3.Connection) -> None:
     )
 
 
+def iso_time_columns(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """掃描 schema，回傳所有名稱以 `_at` 結尾的時間欄位 (table, column)。
+
+    discord_messages.timestamp／timestamp_edited 不以 `_at` 結尾，故自然排除（見 ISO_TIME_FORMAT 的說明）。
+    """
+    result: list[tuple[str, str]] = []
+    tables = conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).fetchall()
+    for table in tables:
+        if (table["sql"] or "").lstrip().upper().startswith("CREATE VIRTUAL"):
+            continue
+        for column in conn.execute(f'PRAGMA table_info("{table["name"]}")').fetchall():
+            if column["name"].endswith("_at"):
+                result.append((table["name"], column["name"]))
+    return result
+
+
+def iso_trigger_names(table: str, column: str) -> tuple[str, str]:
+    return f"trg_iso_{table}_{column}_ins", f"trg_iso_{table}_{column}_upd"
+
+
+def _migration_2_iso_timestamps(conn: sqlite3.Connection) -> None:
+    """時間欄位統一為 ISO 8601 UTC 毫秒格式，並建立觸發器強制任何寫入者都轉成此格式。"""
+    for table, column in iso_time_columns(conn):
+        old_column = f'"{column}"'
+        norm = iso_normalize_sql(old_column)
+        conn.execute(
+            f'UPDATE "{table}" SET {old_column} = {norm} '
+            f"WHERE {old_column} IS NOT NULL AND {norm} IS NOT NULL AND {old_column} != {norm}"
+        )
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()["sql"]
+        if "WITHOUT ROWID" in sql.upper():
+            pk = [row["name"] for row in sorted(
+                (r for r in conn.execute(f'PRAGMA table_info("{table}")') if r["pk"]), key=lambda r: r["pk"]
+            )]
+            where = " AND ".join(f'"{name}" = NEW."{name}"' for name in pk)
+        else:
+            where = "rowid = NEW.rowid"
+        new_norm = iso_normalize_sql(f'NEW."{column}"')
+        condition = f'NEW."{column}" IS NOT NULL AND {new_norm} IS NOT NULL AND NEW."{column}" != {new_norm}'
+        ins_name, upd_name = iso_trigger_names(table, column)
+        for name, event in ((ins_name, "INSERT"), (upd_name, f'UPDATE OF "{column}"')):
+            conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
+            conn.execute(
+                f'CREATE TRIGGER "{name}" AFTER {event} ON "{table}" WHEN {condition} '
+                f'BEGIN UPDATE "{table}" SET "{column}" = {new_norm} WHERE {where}; END'
+            )
+
+
+# 媒體路徑欄位：一律存成相對專案根目錄、正斜線的 data/<分類>/<檔名>（見 paths.portable_media_path）。
+MEDIA_PATH_COLUMNS = (("attachments", "local_path"), ("attachments", "thumbnail_path"), ("attachments", "web_path"))
+_MEDIA_SUBDIRS = ("attachments", "thumbnails", "web")
+
+
+def media_path_normalize_sql(expr: str) -> str:
+    """SQL 運算式：把兩種已知的非標準寫法轉成 data/<分類>/<檔名>，其他路徑原樣保留。
+
+    - 容器內的絕對路徑 /data/attachments/x（Docker 掛載點）→ data/attachments/x
+    - Windows 相對路徑 data\\attachments\\x → data/attachments/x
+    """
+    slashed = f"replace({expr}, char(92), '/')"
+    container = " OR ".join(f"{slashed} LIKE '/data/{name}/%'" for name in _MEDIA_SUBDIRS)
+    relative = " OR ".join(f"{slashed} LIKE 'data/{name}/%'" for name in _MEDIA_SUBDIRS)
+    return f"(CASE WHEN {container} THEN substr({slashed}, 2) WHEN {relative} THEN {slashed} ELSE {expr} END)"
+
+
+def _migration_3_portable_media_paths(conn: sqlite3.Connection) -> None:
+    """媒體路徑統一為可攜的相對路徑，並建立觸發器讓任何寫入者（含外部工具）都轉成此格式。
+
+    手動上傳曾直接存實際寫入位置：在 Docker 中變成 /data/attachments/...，Windows 主機上的工具
+    會把它解析成磁碟根目錄的 D:\\data\\... 而找不到檔案。
+    """
+    for table, column in MEDIA_PATH_COLUMNS:
+        norm = media_path_normalize_sql(f'"{column}"')
+        conn.execute(f'UPDATE "{table}" SET "{column}" = {norm} WHERE "{column}" IS NOT NULL AND "{column}" != {norm}')
+        new_norm = media_path_normalize_sql(f'NEW."{column}"')
+        condition = f'NEW."{column}" IS NOT NULL AND NEW."{column}" != {new_norm}'
+        for suffix, event in (("ins", "INSERT"), ("upd", f'UPDATE OF "{column}"')):
+            name = f"trg_path_{table}_{column}_{suffix}"
+            conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
+            conn.execute(
+                f'CREATE TRIGGER "{name}" AFTER {event} ON "{table}" WHEN {condition} '
+                f'BEGIN UPDATE "{table}" SET "{column}" = {new_norm} WHERE rowid = NEW.rowid; END'
+            )
+
+
 # 管理庫結構遷移清單（以 PRAGMA user_version 記錄已套用版本；與公開庫的 SCHEMA_VERSION 無關）。
 # 新增遷移的規則：
 # - 只能在清單尾端追加新版本，版本號連續遞增。
@@ -370,6 +474,8 @@ def _migration_1_baseline(conn: sqlite3.Connection) -> None:
 # - 版本 1 為基準：既有資料庫 user_version 皆為 0，故保持冪等。
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_1_baseline),
+    (2, _migration_2_iso_timestamps),
+    (3, _migration_3_portable_media_paths),
 ]
 ADMIN_SCHEMA_VERSION = MIGRATIONS[-1][0]
 

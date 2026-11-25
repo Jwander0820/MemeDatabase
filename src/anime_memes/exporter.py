@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .convert import convert_file
+from .db import ISO_NOW_SQL
 
 
 def timestamp_for_filename(value: datetime | None = None) -> str:
@@ -147,12 +148,12 @@ def save_sync_state(
             last_message_id = previous["last_message_id"]
 
     conn.execute(
-        """
+        f"""
         INSERT INTO discord_sync_state(
             channel_id, last_export_run_id, last_after_value, covered_through,
             last_message_timestamp, last_message_id, overlap_days, last_success_at
         )
-        VALUES(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES(?, ?, ?, ?, ?, ?, ?, {ISO_NOW_SQL})
         ON CONFLICT(channel_id) DO UPDATE SET
             last_export_run_id=excluded.last_export_run_id,
             last_after_value=excluded.last_after_value,
@@ -160,8 +161,8 @@ def save_sync_state(
             last_message_timestamp=excluded.last_message_timestamp,
             last_message_id=excluded.last_message_id,
             overlap_days=excluded.overlap_days,
-            last_success_at=CURRENT_TIMESTAMP,
-            updated_at=CURRENT_TIMESTAMP
+            last_success_at={ISO_NOW_SQL},
+            updated_at={ISO_NOW_SQL}
         """,
         (
             channel_id,

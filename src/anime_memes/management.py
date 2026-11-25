@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any
 from PIL import Image, UnidentifiedImageError
 from werkzeug.utils import secure_filename
 from .aliases import validate_aliases, replace_aliases
+from .db import ISO_NOW_SQL, utc_now_iso
 from .tags import add_entry_tag, split_tags
 from .queries import fetch_entry
 from .media import resolve_media_path, safe_delete_media_file
+from .paths import portable_media_path
 from .text import dedupe
 MANUAL_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
@@ -73,7 +74,7 @@ def update_entry(conn, key, data):
     if "source_page" in data:
         updates.append("source_page = ?")
         params.append(source_page_url(data["source_page"]))
-    updates.append("updated_at = CURRENT_TIMESTAMP")
+    updates.append(f"updated_at = {ISO_NOW_SQL}")
     params.append(key)
     cursor = conn.execute(f"UPDATE meme_entries SET {', '.join(updates)} WHERE key = ?", params)
     if cursor.rowcount == 0:
@@ -99,7 +100,7 @@ def update_tags(conn, key, data):
     conn.execute("DELETE FROM entry_tags WHERE entry_key = ? AND source = 'manual'", (key,))
     for tag in dedupe(tag_values):
         add_entry_tag(conn, key, tag, "manual", None, "web editor")
-    conn.execute("UPDATE meme_entries SET updated_at = CURRENT_TIMESTAMP WHERE key = ?", (key,))
+    conn.execute(f"UPDATE meme_entries SET updated_at = {ISO_NOW_SQL} WHERE key = ?", (key,))
     conn.commit()
     return fetch_entry(conn, key)
 
@@ -209,7 +210,7 @@ def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, 
     quote_text = form.get("quote_text") or ""
     notes = (form.get("notes") or "").strip()
     tag_values = dedupe(split_tags(form.get("tags") or ""))
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    timestamp = utc_now_iso()
     content = "\n".join(value for value in (anime_title, speaker, quote_text) if value)
 
     try:
@@ -233,8 +234,8 @@ def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, 
                 message_id,
                 original_name,
                 local_path.stat().st_size,
-                str(local_path),
-                str(thumbnail_path) if thumbnail_path.exists() else None,
+                portable_media_path("ATTACHMENT", local_path),
+                portable_media_path("THUMBNAIL", thumbnail_path) if thumbnail_path.exists() else None,
                 image_width,
                 image_height,
                 timestamp,

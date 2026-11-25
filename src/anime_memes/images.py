@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +14,13 @@ from .attachments import (
     download_attachment_with_discord_refresh,
     is_probably_downloadable,
 )
-from .db import init_db
+from .db import ISO_NOW_SQL, init_db, utc_now_iso
+from .paths import portable_media_path, resolve_local
 from .renditions import UNSUPPORTED_SUFFIXES, render_webp, write_atomic
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return utc_now_iso()
 
 
 def measure_image(path: str | Path) -> tuple[int | None, int | None]:
@@ -38,7 +38,7 @@ def reject_invalid_image(conn: sqlite3.Connection, attachment_id: str, path: Pat
         """UPDATE attachments SET download_status = 'invalid_image',
            download_error = 'Image rejected by Pillow', local_path = ?,
            image_width = NULL, image_height = NULL, thumbnail_path = NULL WHERE id = ?""",
-        (str(path), attachment_id),
+        (portable_media_path("ATTACHMENT", path), attachment_id),
     )
     return True
 
@@ -178,7 +178,7 @@ def update_attachment_download(
     downloaded: bool,
 ) -> None:
     conn.execute(
-        """
+        f"""
         UPDATE attachments
         SET download_status = ?,
             download_error = ?,
@@ -187,13 +187,13 @@ def update_attachment_download(
             image_width = COALESCE(?, image_width),
             image_height = COALESCE(?, image_height),
             downloaded_at = CASE WHEN ? THEN COALESCE(downloaded_at, ?) ELSE downloaded_at END,
-            updated_at = CURRENT_TIMESTAMP
+            updated_at = {ISO_NOW_SQL}
         WHERE id = ?
         """,
         (
             status,
             error,
-            str(local_path),
+            portable_media_path("ATTACHMENT", local_path),
             discord_url,
             image_width,
             image_height,
@@ -234,15 +234,16 @@ def build_thumbnails(
         if suffix in UNSUPPORTED_SUFFIXES:
             summary["skipped"] += 1
             continue
-        source = Path(row["local_path"] or "")
+        # 依環境解析存放的路徑（data/attachments/... 在容器內會對應到設定的掛載目錄）。
+        source = resolve_local(row["local_path"], "ATTACHMENT") or Path("")
         if not source.exists() or source.stat().st_size <= 0:
             summary["missing_source"] += 1
             continue
         output = output_dir / f"{row['id']}.webp"
         if output.exists() and output.stat().st_size > 0 and missing and not force:
             conn.execute(
-                "UPDATE attachments SET thumbnail_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (str(output), row["id"]),
+                f"UPDATE attachments SET thumbnail_path = ?, updated_at = {ISO_NOW_SQL} WHERE id = ?",
+                (portable_media_path("THUMBNAIL", output), row["id"]),
             )
             summary["cached"] += 1
             continue
@@ -250,15 +251,15 @@ def build_thumbnails(
             data, width, height = render_webp(source, "thumb")
             write_atomic(output, data)
             conn.execute(
-                """
+                f"""
                 UPDATE attachments
                 SET thumbnail_path = ?,
                     image_width = COALESCE(image_width, ?),
                     image_height = COALESCE(image_height, ?),
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = {ISO_NOW_SQL}
                 WHERE id = ?
                 """,
-                (str(output), width, height, row["id"]),
+                (portable_media_path("THUMBNAIL", output), width, height, row["id"]),
             )
             summary["created"] += 1
         except Image.DecompressionBombError:

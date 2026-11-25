@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from .db import ISO_NOW_SQL
 from .tags import add_entry_tag, split_tags
 from .csv_text import FORMAT_COLUMN, FORMAT_VERSION, encode_cell, decode_cell
 
@@ -178,7 +179,7 @@ def import_review_corrections(
                     updates.append("confidence = MAX(confidence, ?)")
                     params.append(0.95)
             if updates:
-                updates.append("updated_at = CURRENT_TIMESTAMP")
+                updates.append(f"updated_at = {ISO_NOW_SQL}")
                 params.append(key)
                 conn.execute(f"UPDATE meme_entries SET {', '.join(updates)} WHERE key = ?", params)
                 updated += 1

@@ -1,9 +1,43 @@
 """本機／容器共用媒體路徑解析，不改寫原 DB。"""
+import os
 from pathlib import Path, PureWindowsPath
 
 from . import settings
 
 ROOT = settings.ROOT
+
+# 存進資料庫的媒體路徑一律用這些相對專案根目錄、正斜線的預設位置，Windows 主機與 Docker 容器都能解析。
+MEDIA_DEFAULT_DIRS = {
+    "ATTACHMENT": settings.DEFAULT_ATTACHMENT_DIR,
+    "THUMBNAIL": settings.DEFAULT_THUMBNAIL_DIR,
+    "WEB": settings.DEFAULT_WEB_DIR,
+}
+
+
+def _absolute(path) -> Path:
+    path = Path(path)
+    if not (path.drive or path.root):
+        path = ROOT / path
+    return Path(os.path.normcase(os.path.abspath(path)))
+
+
+def portable_media_path(kind: str, path) -> str:
+    """回傳要寫進資料庫的媒體路徑。
+
+    檔案位於該分類「設定的目錄」（MEMES_{kind}_DIR，例如容器內的 /data/attachments）或預設目錄時，
+    一律存成 `data/<分類>/<檔名>`；讀取時由 resolve_local 依環境對應回實際位置。
+    直接存實際路徑會因執行環境不同而變成 `/data/attachments/...`（容器）或 `data\\attachments\\...`（Windows），
+    換到另一個環境就找不到檔案。不在這兩個目錄的檔案（例如測試用暫存目錄）保留實際路徑。
+    """
+    default_dir = MEDIA_DEFAULT_DIRS[kind]
+    parent = _absolute(Path(path).parent)
+    roots = [_absolute(default_dir)]
+    configured = settings.configured_media_dir(kind)
+    if configured:
+        roots.append(_absolute(configured))
+    if parent in roots:
+        return f"{default_dir}/{Path(path).name}"
+    return str(path)
 
 
 def resolve_local(value, kind=None):

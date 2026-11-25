@@ -13,7 +13,8 @@ from .attachments import (
     is_ocr_supported_file,
     is_probably_downloadable,
 )
-from .db import init_db
+from .db import ISO_NOW_SQL, init_db
+from .paths import portable_media_path
 from .matching import pair_text_for_attachment, parse_meme_text
 from .ocr import run_ocr, similarity
 from .tags import add_entry_tag, load_rules, match_tags
@@ -216,7 +217,7 @@ def create_export_run(
 def upsert_message(conn: sqlite3.Connection, message: dict[str, Any], export_run_id: int) -> None:
     author = message.get("author") or {}
     conn.execute(
-        """
+        f"""
         INSERT INTO discord_messages(
             id, type, timestamp, timestamp_edited, call_ended_timestamp, is_pinned,
             content, author_id, author_name, author_discriminator, author_is_bot, export_run_id
@@ -234,7 +235,7 @@ def upsert_message(conn: sqlite3.Connection, message: dict[str, Any], export_run
             author_discriminator=excluded.author_discriminator,
             author_is_bot=excluded.author_is_bot,
             export_run_id=excluded.export_run_id,
-            updated_at=CURRENT_TIMESTAMP
+            updated_at={ISO_NOW_SQL}
         """,
         (
             message.get("id"),
@@ -261,7 +262,7 @@ def upsert_attachment(
 ) -> None:
     local_path = attachment_path(str(attachment.get("id")), attachment.get("fileName"), attachment_dir)
     conn.execute(
-        """
+        f"""
         INSERT INTO attachments(id, message_id, discord_url, file_name, file_size_bytes, local_path)
         VALUES(?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
@@ -270,7 +271,7 @@ def upsert_attachment(
             file_name=excluded.file_name,
             file_size_bytes=excluded.file_size_bytes,
             local_path=excluded.local_path,
-            updated_at=CURRENT_TIMESTAMP
+            updated_at={ISO_NOW_SQL}
         """,
         (
             attachment.get("id"),
@@ -278,7 +279,7 @@ def upsert_attachment(
             attachment.get("url"),
             attachment.get("fileName"),
             attachment.get("fileSizeBytes"),
-            str(local_path),
+            portable_media_path("ATTACHMENT", local_path),
         ),
     )
 
@@ -345,7 +346,7 @@ def maybe_download(
         SET download_status = ?, download_error = ?, local_path = ?, discord_url = ?
         WHERE id = ?
         """,
-        (status, error, str(path), refreshed_url, attachment_id),
+        (status, error, portable_media_path("ATTACHMENT", path), refreshed_url, attachment_id),
     )
 
 
@@ -388,8 +389,8 @@ def record_ocr_failure(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
 def update_ocr_result(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
     # OCR is auxiliary: never replace source text or manual metadata.
     conn.execute(
-        """UPDATE meme_entries SET ocr_text = ?, ocr_score = ?, ocr_status = ?,
-            confidence = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?""",
+        f"""UPDATE meme_entries SET ocr_text = ?, ocr_score = ?, ocr_status = ?,
+            confidence = ?, status = ?, updated_at = {ISO_NOW_SQL} WHERE key = ?""",
         (entry["ocr_text"], entry["ocr_score"], entry["ocr_status"],
          entry["confidence"], entry["status"], entry["key"]),
     )

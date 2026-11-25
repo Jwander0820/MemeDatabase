@@ -14,7 +14,8 @@ from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
 from . import settings
 from .attachments import OCR_UNSUPPORTED_SUFFIXES
-from .paths import resolve_local
+from .db import ISO_NOW_SQL
+from .paths import portable_media_path, resolve_local
 
 # 影片不產生衍生圖、也不公開；GIF 可以（縮圖取第一幀，大圖做成動態 WebP）。
 VIDEO_SUFFIXES = OCR_UNSUPPORTED_SUFFIXES - {".gif"}
@@ -171,8 +172,8 @@ def ensure_web_rendition(
     write_atomic(output, data)
     digest = sha256_bytes(data)
     conn.execute(
-        "UPDATE attachments SET web_path = ?, web_sha256 = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (str(output), digest, attachment_id),
+        f"UPDATE attachments SET web_path = ?, web_sha256 = ?, updated_at = {ISO_NOW_SQL} WHERE id = ?",
+        (portable_media_path("WEB", output), digest, attachment_id),
     )
     return output, digest
 

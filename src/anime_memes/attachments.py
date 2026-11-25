@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .paths import portable_media_path
+
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 OCR_UNSUPPORTED_SUFFIXES = {".gif", ".mp4", ".mov", ".webm", ".m4v"}
@@ -129,5 +131,5 @@ def update_local_paths(conn: sqlite3.Connection, attachment_dir: str | Path) -> 
     rows = conn.execute("SELECT id, file_name FROM attachments").fetchall()
     for row in rows:
         path = attachment_path(row["id"], row["file_name"], attachment_dir)
-        conn.execute("UPDATE attachments SET local_path = ? WHERE id = ?", (str(path), row["id"]))
+        conn.execute("UPDATE attachments SET local_path = ? WHERE id = ?", (portable_media_path("ATTACHMENT", path), row["id"]))
     conn.commit()
