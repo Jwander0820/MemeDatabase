@@ -21,7 +21,3 @@ def load_dotenv(path: str | Path = ".env") -> dict[str, str]:
             values[key] = value
             os.environ.setdefault(key, value)
     return values
-
-
-def getenv(name: str, default: str | None = None) -> str | None:
-    return os.environ.get(name, default)

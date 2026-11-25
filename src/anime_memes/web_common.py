@@ -6,14 +6,33 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from flask import abort, request, send_file
+from flask import abort, jsonify, request, send_file
+from werkzeug.exceptions import HTTPException
 
 from . import settings
 from .media import resolve_media_path, file_exists
-from .queries import fetch_entry
+from .public_data import resolve_title
+from .queries import fetch_entry, truthy
+from .text import dedupe
 
 
 HEALTH_PATHS = {"/health/live", "/health/ready"}
+
+
+def error_response(code: str, message: str, status: int):
+    """與公開 API 相同的錯誤格式：{"error": {"code", "message"}}。"""
+    return jsonify(error={"code": code, "message": message}), status
+
+
+HTTP_ERROR_CODES = {
+    400: "invalid_request", 403: "forbidden", 404: "not_found", 405: "method_not_allowed",
+    409: "conflict", 413: "payload_too_large", 500: "internal_error",
+}
+
+
+def http_error_response(exc: HTTPException):
+    status = exc.code or 500
+    return error_response(HTTP_ERROR_CODES.get(status, "http_error"), exc.name, status)
 
 
 def check_admin_host() -> None:
@@ -84,7 +103,7 @@ def fetch_entry_or_404(conn: sqlite3.Connection, key: str) -> sqlite3.Row:
 def serialize_entry(row: sqlite3.Row, *, include_ocr: bool = False) -> dict[str, Any]:
     item = dict(row)
     item["search_aliases"] = json.loads(item.pop("search_aliases_json", "[]"))
-    item["resolved_title"] = item.get("display_title") or " ".join(v for v in (item.get("speaker"), item.get("quote_text")) if v).strip() or item.get("anime_title") or "未命名梗圖"
+    item["resolved_title"] = resolve_title(item)
     tags = [tag for tag in (item.get("tags") or "").split(",") if tag]
     thumbnail_path = resolve_media_path(item.get("thumbnail_path"))
     local_path = resolve_media_path(item.get("local_path"))
@@ -100,17 +119,3 @@ def serialize_entry(row: sqlite3.Row, *, include_ocr: bool = False) -> dict[str,
     if not include_ocr:
         item.pop("ocr_text", None)
     return item
-
-
-def truthy(value: str | None) -> bool:
-    return str(value or "").lower() in {"1", "true", "yes", "on"}
-
-
-def dedupe(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    output: list[str] = []
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            output.append(value)
-    return output

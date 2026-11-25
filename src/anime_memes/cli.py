@@ -9,7 +9,7 @@ from pathlib import Path
 from . import discord_sync, settings
 from .convert import convert_file
 from .db import connect, init_db
-from .env import getenv, load_dotenv
+from .env import load_dotenv
 from .exporter import default_before, export_and_convert, incremental_after
 from .ingest import ingest_fixed_export, ocr_review_entries
 from .images import build_thumbnails, download_all_attachments
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> None:
         args.func(args)
     except Exception as exc:
         message = str(exc)
-        for secret in (getattr(args, "token", None), getenv("DISCORD_BOT_TOKEN")):
+        for secret in (getattr(args, "token", None), settings.discord_bot_token()):
             if secret:
                 message = message.replace(secret, "[REDACTED]")
         print(f"Error: {message}", file=sys.stderr)
@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = sub.add_parser("ingest", help="Import a fixed Discord export into SQLite")
     ingest.add_argument("fixed_json")
-    ingest.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID", ""))
+    ingest.add_argument("--channel-id", default=(settings.discord_channel_id() or ""))
     ingest.add_argument("--raw-path")
     ingest.add_argument("--attachment-dir", default=settings.attachment_dir())
     ingest.add_argument("--tag-rules", default=settings.tag_rules())
@@ -90,9 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--incremental", action="store_true")
     export.add_argument("--raw-dir", default=settings.DEFAULT_RAW_EXPORTS)
     export.add_argument("--fixed-dir", default=settings.DEFAULT_FIXED_EXPORTS)
-    export.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID"))
-    export.add_argument("--token", default=getenv("DISCORD_BOT_TOKEN"))
-    export.add_argument("--exe", default=getenv("DISCORD_CHAT_EXPORTER_EXE"))
+    export.add_argument("--channel-id", default=settings.discord_channel_id())
+    export.add_argument("--token", default=settings.discord_bot_token())
+    export.add_argument("--exe", default=settings.discord_chat_exporter_exe())
     export.set_defaults(func=cmd_export_discord)
 
     sync = sub.add_parser("sync-discord", help="Back up, incrementally export, ingest, and report special cases")
@@ -101,15 +101,15 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--raw-dir", default=settings.DEFAULT_RAW_EXPORTS)
     sync.add_argument("--fixed-dir", default=settings.DEFAULT_FIXED_EXPORTS)
     sync.add_argument("--backup-dir", default=settings.DEFAULT_BACKUPS)
-    sync.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID"))
-    sync.add_argument("--token", default=getenv("DISCORD_BOT_TOKEN"))
-    sync.add_argument("--exe", default=getenv("DISCORD_CHAT_EXPORTER_EXE"))
+    sync.add_argument("--channel-id", default=settings.discord_channel_id())
+    sync.add_argument("--token", default=settings.discord_bot_token())
+    sync.add_argument("--exe", default=settings.discord_chat_exporter_exe())
     sync.add_argument("--skip-attachments", action="store_true")
     sync.add_argument("--skip-thumbnails", action="store_true")
     sync.set_defaults(func=cmd_sync_discord)
 
     sync_status = sub.add_parser("sync-status", help="Show the durable Discord incremental cursor")
-    sync_status.add_argument("--channel-id", default=getenv("DISCORD_CHANNEL_ID"))
+    sync_status.add_argument("--channel-id", default=settings.discord_channel_id())
     sync_status.set_defaults(func=cmd_sync_status)
 
     notion = sub.add_parser("export-notion", help="Export Notion-ready CSV")
@@ -176,8 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
     media.set_defaults(func=cmd_build_media)
 
     web = sub.add_parser("web", help="Run the local browser/editor UI")
-    web.add_argument("--host", default=getenv("MEMES_WEB_HOST", "127.0.0.1"))
-    web.add_argument("--port", type=int, default=int(getenv("MEMES_WEB_PORT", "3638")))
+    web.add_argument("--host", default=settings.web_host())
+    web.add_argument("--port", type=int, default=settings.web_port())
     web.add_argument("--attachment-dir", default=settings.attachment_dir())
     web.add_argument("--thumbnail-dir", default=settings.thumbnail_dir())
     web.set_defaults(func=cmd_web)
@@ -318,7 +318,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             ocr_device=args.ocr_device,
             ocr_scope=args.ocr_scope,
             ocr_confidence_threshold=args.ocr_confidence_threshold,
-            discord_bot_token=getenv("DISCORD_BOT_TOKEN"),
+            discord_bot_token=settings.discord_bot_token(),
         )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
@@ -335,8 +335,8 @@ def cmd_ocr_review(args: argparse.Namespace) -> None:
             download_missing=args.download_missing,
             retry_failed_downloads=args.retry_failed_downloads,
             order=args.order,
-            channel_id=getenv("DISCORD_CHANNEL_ID"),
-            discord_bot_token=getenv("DISCORD_BOT_TOKEN"),
+            channel_id=settings.discord_channel_id(),
+            discord_bot_token=settings.discord_bot_token(),
         )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
@@ -456,8 +456,8 @@ def cmd_download_attachments(args: argparse.Namespace) -> None:
         summary = download_all_attachments(
             conn,
             attachment_dir=args.attachment_dir,
-            channel_id=getenv("DISCORD_CHANNEL_ID"),
-            discord_bot_token=getenv("DISCORD_BOT_TOKEN"),
+            channel_id=settings.discord_channel_id(),
+            discord_bot_token=settings.discord_bot_token(),
             force=args.force,
             retry_failed=args.retry_failed,
             limit=args.limit,

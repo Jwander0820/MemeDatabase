@@ -13,10 +13,8 @@ from .aliases import validate_aliases, replace_aliases
 from .tags import add_entry_tag, split_tags
 from .queries import fetch_entry
 from .media import resolve_media_path, safe_delete_media_file
+from .text import dedupe
 MANUAL_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-
-def dedupe(values):
-    return list(dict.fromkeys(values))
 
 
 def source_page_url(value):

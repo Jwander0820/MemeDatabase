@@ -1,6 +1,5 @@
 """本機／容器共用媒體路徑解析，不改寫原 DB。"""
 from pathlib import Path, PureWindowsPath
-import os
 
 from . import settings
 
@@ -22,7 +21,7 @@ def resolve_local(value, kind=None):
             kind = "THUMBNAIL"
         elif "attachments" in parts:
             kind = "ATTACHMENT"
-    configured = os.environ.get(f"MEMES_{kind}_DIR") if kind else None
+    configured = settings.configured_media_dir(kind) if kind else None
     if configured:
         base = Path(configured)
         # .env 常用相對路徑（如 data\attachments）；比照 configured_media_root 以專案根目錄為基準，

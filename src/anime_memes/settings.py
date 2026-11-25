@@ -45,6 +45,53 @@ def tag_rules() -> str:
     return os.environ.get("MEMES_TAG_RULES", DEFAULT_TAG_RULES)
 
 
+def configured_media_dir(kind: str) -> str | None:
+    """kind 為 ATTACHMENT／THUMBNAIL／WEB；有設定 MEMES_{kind}_DIR 才回傳，否則 None（不套預設）。"""
+    return os.environ.get(f"MEMES_{kind}_DIR") or None
+
+
+# Discord 匯出相關（CLI 使用）
+def discord_bot_token() -> str | None:
+    return os.environ.get("DISCORD_BOT_TOKEN")
+
+
+def discord_channel_id() -> str | None:
+    return os.environ.get("DISCORD_CHANNEL_ID")
+
+
+def discord_chat_exporter_exe() -> str | None:
+    return os.environ.get("DISCORD_CHAT_EXPORTER_EXE")
+
+
+def web_host() -> str:
+    return os.environ.get("MEMES_WEB_HOST", "127.0.0.1")
+
+
+def web_port() -> int:
+    return int(os.environ.get("MEMES_WEB_PORT", "3638"))
+
+
+# 私人 MCP
+def mcp_token() -> str:
+    return os.environ.get("MEMES_MCP_TOKEN", "")
+
+
+def private_url() -> str:
+    return os.environ.get("MEMES_PRIVATE_URL", "http://127.0.0.1:3636")
+
+
+def mcp_hosts() -> list[str]:
+    return os.environ.get("MEMES_MCP_HOSTS", "127.0.0.1:8766,localhost:8766").split(",")
+
+
+def mcp_origins() -> list[str]:
+    return os.environ.get("MEMES_MCP_ORIGINS", "http://127.0.0.1:8766,http://localhost:8766").split(",")
+
+
+def mcp_bind() -> str:
+    return os.environ.get("MEMES_MCP_BIND", "127.0.0.1")
+
+
 # 私人管理端只接受這些 Host（擋 DNS rebinding：惡意網域解析到 127.0.0.1 時 Host 會是該網域）。
 DEFAULT_ADMIN_HOSTS = ("localhost", "127.0.0.1", "::1")
 

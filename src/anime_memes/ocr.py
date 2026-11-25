@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-from .text import to_traditional
+from .text import dedupe, to_traditional
 
 
 def normalize_text(value: str | None) -> str:
@@ -159,17 +159,7 @@ def extract_paddle_text(result: Any) -> list[str]:
                 walk(item)
 
     walk(result)
-    return dedupe_preserve_order(texts)
-
-
-def dedupe_preserve_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    output: list[str] = []
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            output.append(value)
-    return output
+    return dedupe(texts)
 
 
 def run_easyocr(image_path: str | Path, languages: list[str] | None = None) -> tuple[str, str]:

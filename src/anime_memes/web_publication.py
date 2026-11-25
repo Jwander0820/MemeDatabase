@@ -5,6 +5,8 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, g, jsonify, request
 
+from .web_common import error_response
+
 publication_bp = Blueprint("publication", __name__)
 
 
@@ -46,7 +48,10 @@ def publication_export():
     if request.get_data() and request.get_json(silent=True) != {}:
         raise ValueError("匯出不接受路徑或其他參數")
     result = export_release(current_app.config["DB_PATH"], current_app.config["RELEASE_ROOT"])
-    return jsonify(result), 200 if result["exported"] else 422
+    if not result["exported"]:
+        # 保留 exported／report 等欄位，另附統一格式的 error。
+        return jsonify({**result, "error": {"code": "export_failed", "message": "發布前檢查未通過，未匯出"}}), 422
+    return jsonify(result)
 
 
 @publication_bp.post("/api/publication/activate")
@@ -58,7 +63,7 @@ def publication_activate():
     try:
         manifest = activate(Path(current_app.config["RELEASE_ROOT"]), data["version"])
     except (OSError, sqlite3.Error, KeyError, TypeError, AttributeError):
-        return jsonify(error="無法驗證或寫入發布包，請確認檔案完整及目錄權限"), 422
+        return error_response("invalid_release", "無法驗證或寫入發布包，請確認檔案完整及目錄權限", 422)
     return jsonify(version=manifest["version"], count=manifest["count"])
 
 

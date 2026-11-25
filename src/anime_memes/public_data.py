@@ -55,19 +55,37 @@ def validate_schema(conn: sqlite3.Connection, version: str) -> None:
         raise ValueError("公開快照不可包含 view 或 trigger")
 
 
+def resolve_title(row) -> str:
+    """顯示標題：display_title → 講者＋台詞 → anime_title → 「未命名梗圖」（公開與管理端共用）。"""
+    return (row["display_title"]
+            or " ".join(filter(None, [row["speaker"], row["quote_text"]])).strip()
+            or row["anime_title"] or "未命名梗圖")
+
+
 def serialize(row) -> dict:
     item = {field: row[field] for field in FIELDS}
     item["tags"] = json.loads(row["tags_json"])
     item["search_aliases"] = json.loads(row["aliases_json"])
-    item["resolved_title"] = row["display_title"] or " ".join(filter(None, [row["speaker"], row["quote_text"]])) or row["anime_title"] or "未命名梗圖"
+    item["resolved_title"] = resolve_title(row)
     return item
+
+
+def int_param(args, name: str, default: int) -> int:
+    """讀取整數查詢參數；格式錯誤時回傳給使用者看的中文訊息，不外露 Python 的轉換錯誤。"""
+    value = args.get(name)
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} 必須是整數") from None
 
 
 def search(conn: sqlite3.Connection, args) -> dict:
     unknown = set(args) - ALLOWED_ARGS
     if unknown:
         raise ValueError("不支援的查詢參數：" + ", ".join(sorted(unknown)))
-    page, size = int(args.get("page", 1)), int(args.get("page_size", 24))
+    page, size = int_param(args, "page", 1), int_param(args, "page_size", 24)
     if page < 1 or not 1 <= size <= 60 or page > 10000:
         raise ValueError("page 或 page_size 超出範圍")
     q = args.get("q") or ""

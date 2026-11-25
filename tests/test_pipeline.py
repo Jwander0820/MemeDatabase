@@ -611,7 +611,7 @@ class PipelineTest(unittest.TestCase):
                 content_type="multipart/form-data",
             )
             self.assertEqual(response.status_code, 400)
-            self.assertIn("無法讀取圖片", response.get_json()["error"])
+            self.assertIn("無法讀取圖片", response.get_json()["error"]["message"])
             conn = connect(db_path)
             try:
                 init_db(conn)

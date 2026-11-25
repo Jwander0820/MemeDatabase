@@ -11,7 +11,7 @@ from flask import Blueprint, abort, g, jsonify, request, send_file, send_from_di
 
 from . import public_data
 from .queries import fetch_entry, query_entries, ready_tag_counts
-from .web_common import serialize_entry
+from .web_common import error_response, serialize_entry
 
 LOCAL_BROWSE_VERSION = "local"
 # 本機瀏覽沒有 ids，但多了 favorite（與管理頁共用 entry_favorites）。
@@ -24,12 +24,12 @@ _static_dir = Path(__file__).with_name("web_static")
 
 @browse_bp.errorhandler(ValueError)
 def browse_invalid(exc):
-    return jsonify(error={"code": "invalid_request", "message": str(exc)}), 400
+    return error_response("invalid_request", str(exc), 400)
 
 
 @browse_bp.errorhandler(404)
 def browse_not_found(exc):
-    return jsonify(error={"code": "not_found", "message": exc.name}), 404
+    return error_response("not_found", exc.name, 404)
 
 
 def browse_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -81,8 +81,8 @@ def browse_meta():
 @browse_bp.get("/api/v1/entries")
 def browse_entries():
     _reject_unknown_args(BROWSE_ENTRIES_ARGS)
-    page = int(request.args.get("page", 1))
-    page_size = int(request.args.get("page_size", 24))
+    page = public_data.int_param(request.args, "page", 1)
+    page_size = public_data.int_param(request.args, "page_size", 24)
     if page < 1 or page > 10000 or not 1 <= page_size <= 60:
         raise ValueError("page 或 page_size 超出範圍")
     q = (request.args.get("q") or "").strip()

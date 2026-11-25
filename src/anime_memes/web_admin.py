@@ -4,9 +4,10 @@ from flask import Blueprint, abort, current_app, g, jsonify, request
 
 from . import management
 from .media import configured_media_root, media_path
+from .public_data import int_param
 from .queries import fetch_entry, metadata, query_entries
 from .tagging import decide_tag_suggestion, list_tag_suggestions
-from .web_common import media_response, serialize_entry
+from .web_common import error_response, media_response, serialize_entry
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -18,8 +19,8 @@ def api_meta():
 
 @admin_bp.get("/api/entries")
 def api_entries():
-    page = max(int(request.args.get("page", "1") or "1"), 1)
-    page_size = min(max(int(request.args.get("page_size", "48") or "48"), 1), 120)
+    page = max(int_param(request.args, "page", 1), 1)
+    page_size = min(max(int_param(request.args, "page_size", 48), 1), 120)
     entries, total = query_entries(g.db, request.args, page, page_size)
     return jsonify(
         {
@@ -74,7 +75,7 @@ def api_tag_suggestions(key: str):
     try:
         suggestions = list_tag_suggestions(g.db, key, status=status)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return error_response("invalid_request", str(exc), 400)
     return jsonify({"items": suggestions})
 
 
@@ -91,9 +92,9 @@ def api_decide_tag_suggestion(suggestion_id: int):
     except LookupError:
         abort(404)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return error_response("invalid_request", str(exc), 400)
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 409
+        return error_response("conflict", str(exc), 409)
     return jsonify(suggestion)
 
 

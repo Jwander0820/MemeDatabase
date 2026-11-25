@@ -4,7 +4,6 @@ from __future__ import annotations
 from contextlib import closing
 import hmac
 import json
-import os
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -50,10 +49,10 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
     from starlette.responses import JSONResponse
     from starlette.middleware.base import BaseHTTPMiddleware
 
-    token = token or os.environ.get("MEMES_MCP_TOKEN", "")
+    token = token or settings.mcp_token()
     if len(token) < 32 or not token.isascii() or any(c.isspace() for c in token):
         raise ValueError("啟用 MCP 必須設定至少 32 字元且無空白的 ASCII token")
-    media_base = media_base or os.environ.get("MEMES_PRIVATE_URL", "http://127.0.0.1:3636")
+    media_base = media_base or settings.private_url()
     parsed = urlsplit(media_base)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("私人媒體網址格式錯誤")
@@ -75,8 +74,8 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
         """依搜尋結果 ID 取得一筆私人 ready 梗圖。"""
         return service.get(id)
 
-    hosts = set(allowed_hosts or os.environ.get("MEMES_MCP_HOSTS", "127.0.0.1:8766,localhost:8766").split(","))
-    origins = set(allowed_origins or os.environ.get("MEMES_MCP_ORIGINS", "http://127.0.0.1:8766,http://localhost:8766").split(","))
+    hosts = set(allowed_hosts or settings.mcp_hosts())
+    origins = set(allowed_origins or settings.mcp_origins())
     app = server.streamable_http_app(stateless_http=True, json_response=True,
         transport_security=TransportSecuritySettings(allowed_hosts=sorted(hosts), allowed_origins=sorted(origins)))
 
@@ -94,7 +93,7 @@ def create_mcp_app(db=None, token=None, media_base=None, allowed_hosts=None, all
 
 def main():
     import uvicorn
-    uvicorn.run(create_mcp_app(), host=os.environ.get("MEMES_MCP_BIND", "127.0.0.1"), port=8766, log_level="warning")
+    uvicorn.run(create_mcp_app(), host=settings.mcp_bind(), port=8766, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,11 @@ def _opencc_converter():
             return None
 
 
+def dedupe(values):
+    """去除重複並保留第一次出現的順序。"""
+    return list(dict.fromkeys(values))
+
+
 def to_traditional(value: str | None) -> str:
     text = value or ""
     converter = _opencc_converter()
