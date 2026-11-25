@@ -75,3 +75,48 @@
 ### 功能語意色保留原則
 
 - **危險／永久刪除（Danger）**、**成功狀態（Success）** 與 **收藏星號（Favorite 金色 `#E0A800`）** 屬於直覺功能語意色，應維持獨立紅／綠／金色系，不混用紫色，以免降低誤刪警示與收藏辨識度。
+
+## 5. 自訂配色指引
+
+想拿這個專案建立自己的資料庫、換成自己的品牌色時，照本章操作即可；不需要動 HTML 或 JavaScript 邏輯。
+
+### 色彩變數在哪裡
+
+所有顏色集中在 `src/anime_memes/web_static/catalog.css`（公開頁與管理頁共用），分兩個區塊：
+
+- `:root`：淺色主題，同時放兩主題共用的變數（品牌色階、收藏黃、疊在圖片上的顏色、檢視器舞台）。
+- `:root[data-theme="dark"]`：深色主題，只覆寫與淺色不同的變數。
+
+`public_ui/theme-init.js` 會在首次繪製前一律於 `<html>` 設定 `data-theme`（使用者選擇優先，否則依系統偏好），並以 `data-theme-source` 區分 `user`／`system`。因此深色變數只需要維護一份。
+
+| 類別 | 變數 | 用途 |
+| --- | --- | --- |
+| 背景 | `--bg`、`--media-bg`、`--scrim` | 頁面底色、圖片佔位底、對話框遮罩 |
+| 表面 | `--surface`、`--surface-2`、`--surface-3`、`--chip`、`--seg-*` | 卡片、輸入框、標籤、分段切換 |
+| 文字 | `--ink`、`--ink-2`、`--muted`、`--link` | 主文字、次要文字、輔助說明、連結 |
+| 線條 | `--line`、`--line-strong`、`--card-line*`、`--shadow-*` | 分隔線、邊框、陰影 |
+| 品牌 | `--lilac-*`、`--brand`、`--brand-ink` | 品牌色階與品牌色塊（徽章、標示） |
+| 主色 | `--primary`、`--primary-ink`、`--primary-hover`、`--focus`、`--chip-active*`、`--chip-hover-*` | 主要按鈕、選取狀態、焦點框 |
+| 狀態 | `--danger*`、`--success`、`--success-solid`、`--warn-*` | 錯誤、成功、警告 |
+| 收藏與圖片疊字 | `--star`、`--star-bright`、`--on-media`、`--on-media-inverse`、`--media-overlay*`、`--media-badge-*`、`--on-primary-soft` | 收藏星號、圖片上的圓鈕與徽章（兩主題相同） |
+| 檢視器舞台 | `--stage`、`--stage-text`、`--stage-ink`、`--stage-control-*` | 大圖檢視器的深色背景、說明文字與控制鈕 |
+
+### 換成自己的品牌色
+
+1. 改 `:root` 的 `--lilac-50/100/200/400/900/ink` 色階（或直接改 `--brand`、`--brand-ink`）。
+2. 改主操作色：`--primary`、`--primary-ink`、`--primary-hover`、`--focus`、`--link`，淺色與深色兩個區塊都要一起改（深色通常用較淺的色階）。
+3. 深色主題的 `--chip-hover-*`、`--chip-active*` 也引用色階，換色後確認仍協調。
+4. 檢查對比：用瀏覽器開發者工具或線上對比工具，一般文字對比至少 4.5:1，焦點框與按鈕邊界至少 3:1。
+5. 若 `--bg` 改了，不必另外改 meta：`theme-init.js` 會讀取 CSS 的 `--bg` 設定 `meta theme-color`。HTML 內 `meta theme-color` 的初始色碼只是無腳本時的備援，建議一併改成相同值。
+
+### 改完如何檢查
+
+- 公開頁與管理頁都開，淺色與深色各看一次（切換按鈕，或改系統主題）。
+- 手機寬度（約 375px）檢查卡片、檢視器、標籤列。
+- 圖示 `favicon.svg` 內若寫有品牌色，需另外修改（見第 1 節）。
+
+### 注意事項
+
+- 公開與私人 Nginx 的 CSP 為 `style-src 'self'`，不允許 inline style；所有顏色只能寫在 CSS 檔。
+- 不要在其他 CSS 規則裡直接寫色碼，請新增或沿用語意變數。唯一保留寫死的是 `mask-image` 的 `#000`（只當遮罩透明度，不是可見顏色）與少數黑色陰影。
+- 沒有 JavaScript 時不會有 `data-theme`，頁面為淺色；僅 `color-scheme` 會跟隨系統。

@@ -51,6 +51,9 @@ searchScope.addEventListener("change", (event) => {
     });
 });
 
+// 清掉審核期間留在列表上的「已處理」卡片。
+refreshList.addEventListener("click", () => loadEntries(true));
+
 clearTag.addEventListener("click", () => {
   state.tag = "";
   loadMeta();

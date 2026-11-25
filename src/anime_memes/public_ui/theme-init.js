@@ -1,13 +1,27 @@
 "use strict";
-// 深淺色主題：在 <head> 同步載入，於首次繪製前套用使用者選擇，避免閃爍；公開頁與管理頁共用。
+// 深淺色主題：在 <head> 同步載入，於首次繪製前在 <html> 設定實際生效的 data-theme，避免閃爍；公開頁與管理頁共用。
+// data-theme-source：user＝使用者手動選擇（存於 localStorage），system＝跟隨系統偏好。
 (() => {
   const root = document.documentElement;
   const media = matchMedia("(prefers-color-scheme: dark)");
+  let saved = null;
   try {
-    const saved = localStorage.getItem("meme-db-theme");
-    if (saved === "light" || saved === "dark") root.dataset.theme = saved;
+    const value = localStorage.getItem("meme-db-theme");
+    if (value === "light" || value === "dark") saved = value;
   } catch {}
-  const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : media.matches;
+  const apply = (theme, source) => {
+    root.dataset.theme = theme;
+    root.dataset.themeSource = source;
+  };
+  const followSystem = () => apply(media.matches ? "dark" : "light", "system");
+  if (saved) apply(saved, "user"); else followSystem();
+  const isDark = () => root.dataset.theme === "dark";
+  // meta theme-color 直接讀 CSS 的 --bg，避免與樣式表兩處色碼不同步。
+  const FALLBACK_BG = { dark: "#0f0f11", light: "#f3f2ee" };
+  const syncMeta = () => {
+    const bg = getComputedStyle(root).getPropertyValue("--bg").trim() || FALLBACK_BG[root.dataset.theme];
+    document.querySelectorAll('meta[name="theme-color"]').forEach(meta => { meta.content = bg; });
+  };
   addEventListener("DOMContentLoaded", () => {
     const button = document.getElementById("themeToggle");
     const sync = () => {
@@ -16,16 +30,17 @@
       button.title = dark ? "切換為淺色模式" : "切換為深色模式";
       button.setAttribute("aria-label", button.title);
       // 手動切換後讓手機瀏覽器網址列顏色一起改變。
-      document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
-        meta.content = dark ? "#0f0f11" : "#f3f2ee";
-      });
+      syncMeta();
     };
     button.addEventListener("click", () => {
-      root.dataset.theme = isDark() ? "light" : "dark";
+      apply(isDark() ? "light" : "dark", "user");
       try { localStorage.setItem("meme-db-theme", root.dataset.theme); } catch {}
       sync();
     });
-    media.addEventListener("change", sync);
+    media.addEventListener("change", () => {
+      if (root.dataset.themeSource !== "user") followSystem();
+      sync();
+    });
     sync();
   });
 })();

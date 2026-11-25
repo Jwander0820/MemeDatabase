@@ -337,3 +337,127 @@ test('unsaved edits trigger confirm; declining keeps the current entry', async (
   assert.equal(asked, 2);
   assert.equal(h.run('state.selected.key'), 'b');
 });
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+// 審核候選標籤時列表不重載：fetch 內記錄所有請求。
+async function reviewHarness(keys) {
+  const h = await harness();
+  const urls = [];
+  h.run(`state.items = ${JSON.stringify(keys.map(key => ({key})))}; state.total = ${keys.length};`);
+  h.node('#pendingSuggestions').checked = true;
+  h.fetch(async (url, options) => {
+    urls.push(url);
+    if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
+    if (url.includes('/decision')) return {ok: true, json: async () => ({id: 1, status: 'accepted', label: 'x'})};
+    const key = decodeURIComponent(url.split('/').pop());
+    return {ok: true, json: async () => ({key, tags: [], manual_tags: [], tag_suggestions: key === 'a' && !(options && options.method) && url.includes('fresh') ? [{id: 1}] : []})};
+  });
+  return {h, urls};
+}
+
+test('accepting the last suggestion keeps the list, marks processed, and arrows still work', async () => {
+  const {h, urls} = await reviewHarness(['a', 'b', 'c']);
+  h.fetch(async url => {
+    urls.push(url);
+    if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
+    if (url.includes('/decision')) return {ok: true, json: async () => ({id: 1, status: 'accepted', label: 'x'})};
+    const key = decodeURIComponent(url.split('/').pop());
+    return {ok: true, json: async () => ({key, tags: [], manual_tags: [], tag_suggestions: []})};
+  });
+  h.run(`state.selected = {key: 'a', tags: [], tag_suggestions: [{id: 1}]};`);
+  // 直接走決策後的同步流程：重新取得該筆並更新列表。
+  const fresh = await h.run('fetchEntry("a")');
+  h.run('syncEntry(' + JSON.stringify(fresh) + ')');
+  assert.equal(h.run('state.items.length'), 3);
+  assert.equal(h.run('state.processed.has("a")'), true);
+  assert.equal(h.node('#refreshList').hidden, false);
+  await h.run('stepEntry(1)');
+  assert.equal(h.run('state.selected.key'), 'b');
+  assert.ok(urls.every(url => !url.startsWith('/api/entries?')));
+});
+
+test('decision button handler does not reload the list', async () => {
+  const h = await harness();
+  const urls = [];
+  const button = {
+    dataset: {suggestionId: '1', decision: 'accepted'}, disabled: false, handlers: {},
+    addEventListener(type, fn) { this.handlers[type] = fn; },
+    closest: () => ({isConnected: false, querySelectorAll: () => [button]}),
+  };
+  h.context.document.querySelectorAll = selector => (selector === '[data-suggestion-id]' ? [button] : []);
+  h.run('state.items = [{key: "a"}, {key: "b"}]; state.total = 2;');
+  h.node('#pendingSuggestions').checked = true;
+  h.fetch(async url => {
+    urls.push(url);
+    if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
+    if (url.includes('/decision')) return {ok: true, json: async () => ({id: 1, status: 'accepted', label: 'x'})};
+    return {ok: true, json: async () => ({key: 'a', tags: [], manual_tags: [], tag_suggestions: []})};
+  });
+  h.run('bindDetailForm({key: "a", tags: [], tag_suggestions: [{id: 1}]})');
+  await button.handlers.click();
+  assert.equal(h.run('state.items.length'), 2);
+  assert.equal(h.run('state.processed.has("a")'), true);
+  assert.ok(urls.every(url => !url.startsWith('/api/entries?')));
+  assert.ok(urls.includes('/api/entries/a'));
+});
+
+test('saving does not reload the list and refreshes the form snapshot', async () => {
+  const h = await harness();
+  const urls = [];
+  const form = {
+    anime_title: {value: 't'}, source_page: {value: ''}, speaker: {value: ''}, quote_text: {value: 'q'},
+    status: {value: 'ready'}, notes: {value: ''}, tags: {value: 'x'}, elements: [{name: 'quote_text', value: 'q'}],
+    handlers: {}, addEventListener(type, fn) { this.handlers[type] = fn; },
+  };
+  h.context.document.querySelector = selector => (selector === '#editForm' ? form : selector === 'dialog[open]' ? null : h.node(selector));
+  h.run('state.items = [{key: "a"}]; state.total = 1;');
+  h.fetch(async (url, options) => {
+    urls.push(url);
+    if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
+    return {ok: true, json: async () => ({key: 'a', tags: [], manual_tags: [], tag_suggestions: []})};
+  });
+  h.run('state.selected = {key: "a"}');
+  h.run('bindDetailForm({key: "a", tags: [], tag_suggestions: []})');
+  form.elements[0].value = 'edited';
+  await form.handlers.submit({preventDefault() {}});
+  assert.ok(urls.every(url => !url.startsWith('/api/entries?')));
+  assert.equal(h.run('hasUnsavedChanges()'), false);
+});
+
+test('deleting opens the next entry at the same position and lowers total', async () => {
+  const h = await harness();
+  h.node('#deleteEntry');
+  const del = {handlers: {}, addEventListener(type, fn) { this.handlers[type] = fn; }};
+  const form = {elements: [], addEventListener() {}};
+  h.context.document.querySelector = selector => (selector === '#deleteEntry' ? del : selector === '#editForm' ? form : selector === 'dialog[open]' ? null : h.node(selector));
+  h.run('state.items = [{key: "a"}, {key: "b"}, {key: "c"}]; state.total = 3;');
+  const urls = [];
+  h.fetch(async (url, options) => {
+    urls.push(url);
+    if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
+    if (options && options.method === 'DELETE') return {ok: true, json: async () => ({})};
+    return entryResponse(decodeURIComponent(url.split('/').pop()));
+  });
+  h.run('state.selected = {key: "b"}');
+  h.run('bindDetailForm({key: "b", tags: [], tag_suggestions: []})');
+  await del.handlers.click();
+  assert.equal(h.run('state.items.map(i => i.key).join(",")'), 'a,c');
+  assert.equal(h.run('state.total'), 2);
+  assert.equal(h.run('state.selected.key'), 'c');
+  assert.ok(urls.every(url => !url.startsWith('/api/entries?')));
+});
+
+test('showToast cancels the previous timer and scales duration with length', async () => {
+  const h = await harness();
+  const cleared = [];
+  const delays = [];
+  let next = 10;
+  h.context.setTimeout = (fn, delay) => { delays.push(delay); return ++next; };
+  h.context.clearTimeout = id => cleared.push(id);
+  h.run('showToast("短")');
+  h.run('showToast("x".repeat(200))');
+  assert.deepEqual(cleared.slice(-1), [11]);
+  assert.equal(delays[0], 3040);
+  assert.equal(delays[1], 6000);
+});

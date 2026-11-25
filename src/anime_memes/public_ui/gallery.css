@@ -174,7 +174,7 @@
 @media (hover: hover) and (pointer: fine) {
   .tag-strip.can-prev .tag-prev, .tag-strip.can-next .tag-next { display: inline-flex; }
 }
-.chip-fav[aria-pressed="true"] { border-color: #e0a800; background: #e0a800; color: #18181b; }
+.chip-fav[aria-pressed="true"] { border-color: var(--star); background: var(--star); color: var(--on-media); }
 
 /* ---------- 卡片收藏 ---------- */
 .card-link {
@@ -195,8 +195,8 @@
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: rgba(17, 17, 19, 0.55);
-  color: #fff;
+  background: var(--media-overlay);
+  color: var(--on-media-inverse);
   font-size: 17px;
   backdrop-filter: blur(6px);
   opacity: 0;
@@ -204,8 +204,8 @@
 }
 
 .card:hover .card-fav, .card-fav:focus-visible, .card-fav[aria-pressed="true"] { opacity: 1; }
-.card-fav:hover { border: 0; background: rgba(17, 17, 19, 0.8); }
-.card-fav[aria-pressed="true"] { color: #ffd23f; }
+.card-fav:hover { border: 0; background: var(--media-overlay-hover); }
+.card-fav[aria-pressed="true"] { color: var(--star-bright); }
 
 /* 觸控裝置沒有滑鼠懸停，星號一律顯示。 */
 @media (hover: none) { .card-fav { opacity: 1; } }
@@ -312,23 +312,23 @@
   gap: 12px;
   min-height: 52px;
   padding: 8px 14px;
-  color: #a1a1aa;
+  color: var(--stage-text);
   font-size: 12.5px;
 }
 
 .viewer-media .load-original {
   min-height: 32px;
   padding: 5px 14px;
-  border-color: rgba(255, 255, 255, 0.28);
+  border-color: var(--stage-control-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f4f4f5;
+  background: var(--stage-control-bg);
+  color: var(--stage-ink);
   font-size: 13px;
 }
 
 .viewer-media .load-original:hover {
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.16);
+  border-color: var(--stage-control-border-hover);
+  background: var(--stage-control-bg-hover);
 }
 
 .viewer-info {
@@ -387,7 +387,7 @@
 .actions .icon-action:hover { color: var(--ink); }
 .actions .icon-action .icon { width: 20px; height: 20px; stroke-width: 1.9; }
 .actions .fav-toggle[aria-pressed="true"],
-.actions .fav-toggle[aria-pressed="true"]:hover { border-color: #e0a800; color: #e0a800; }
+.actions .fav-toggle[aria-pressed="true"]:hover { border-color: var(--star); color: var(--star); }
 .actions .fav-toggle[aria-pressed="true"] .icon { fill: currentColor; }
 
 #feedback {

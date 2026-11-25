@@ -16,6 +16,13 @@ async function openEntry(key) {
   }
 }
 
+// 取得單筆最新資料（含待處理候選標籤），失敗時丟出例外。
+async function fetchEntry(key) {
+  const response = await fetch(`/api/entries/${encodeURIComponent(key)}`);
+  if (!response.ok) throw new Error("entry request failed");
+  return response.json();
+}
+
 function renderDetail(item) {
   state.selected = item;
   favoriteButton.textContent = item.favorite ? "\u2605" : "\u2606";
@@ -26,6 +33,7 @@ function renderDetail(item) {
   const wasOpen = Boolean(drawer.classList.contains?.("open"));
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
+  drawer.setAttribute("aria-modal", "true");
   if (!wasOpen) {
     // 儲存後重新載入同一筆時不搶焦點；只有第一次開啟才把焦點移進抽屜。
     focusBeforeDrawer = document.activeElement;
@@ -234,7 +242,9 @@ function bindDetailForm(item) {
         actions.forEach((action) => { action.disabled = false; });
       }
       try {
-        await Promise.all([loadMeta(), loadEntries(true)]);
+        // 只更新這一筆與數量徽章；列表順序保持不變，左右鍵可繼續切換。
+        const [fresh] = await Promise.all([fetchEntry(item.key), loadMeta()]);
+        syncEntry(fresh);
       } catch {
         showToast(T.decisionRefreshFailed);
       }
@@ -248,9 +258,26 @@ function bindDetailForm(item) {
     if (!confirm(`${T.deleteConfirm}\n\n${item.key}`)) return;
     const response = await fetch(`/api/entries/${encodeURIComponent(item.key)}`, {method: "DELETE"});
     if (!response.ok) return showToast(T.deleteFailed);
-    closeDetail();
-    await Promise.all([loadMeta(), loadEntries(true)]);
+    // 列表不重載：從已載入的順序移除，抽屜開著就改開原位置的下一張（沒有就上一張）。
+    const index = state.items.findIndex((entry) => entry.key === item.key);
+    const wasSelected = state.selected?.key === item.key;
+    if (index >= 0) {
+      state.items.splice(index, 1);
+      state.total = Math.max(0, state.total - 1);
+    }
+    state.processed.delete(item.key);
+    renderGrid({keepScroll: true});
     showToast(T.deleted);
+    if (wasSelected) {
+      const next = state.items[index] || state.items[index - 1];
+      if (next) await openEntry(next.key);
+      else closeDetail();
+    }
+    try {
+      await loadMeta();
+    } catch {
+      showToast(T.decisionRefreshFailed);
+    }
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -276,9 +303,16 @@ function bindDetailForm(item) {
     if (!tags.ok) return showToast(T.tagsFailed);
     showToast(T.saved);
     globalThis.MemeTagInput?.refresh();
-    await loadMeta();
-    await loadEntries(true);
-    await openEntry(item.key);
+    try {
+      await loadMeta();
+      const fresh = await fetchEntry(item.key);
+      syncEntry(fresh);
+      // 儲存期間若已切換到別筆就不重畫抽屜；重畫會以新值重建表單快照。
+      if (state.selected?.key === item.key) renderDetail(fresh);
+    } catch {
+      state.formSnapshot = formValues();
+      showToast(T.decisionRefreshFailed);
+    }
   });
 }
 
@@ -297,11 +331,37 @@ favoriteButton.addEventListener("click", async () => {
       favoriteButton.textContent = result.favorite ? "\u2605" : "\u2606";
       favoriteButton.setAttribute("aria-pressed", String(Boolean(result.favorite)));
     }
-    await loadEntries(true);
+    // 只更新列表中的同一張卡片，不重載列表。
+    syncEntry({key: item.key, favorite: result.favorite});
   } catch {
     showToast("收藏更新失敗，請重試");
   } finally {
     favoriteButton.disabled = false;
+  }
+});
+
+// 抽屜開啟時把 Tab 焦點圈在抽屜內；可聚焦清單在按鍵當下即時計算。
+const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]';
+
+function drawerFocusables() {
+  return Array.from(drawer.querySelectorAll?.(FOCUSABLE) || []).filter((element) =>
+    !element.disabled && element.tabIndex >= 0 && !element.closest?.("[hidden]") && element.getClientRects?.().length > 0);
+}
+
+globalThis.addEventListener?.("keydown", (event) => {
+  if (event.key !== "Tab" || !state.selected || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+  const focusables = drawerFocusables();
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  const inside = drawer.contains?.(active);
+  if (event.shiftKey && (active === first || !inside)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !inside)) {
+    event.preventDefault();
+    first.focus();
   }
 });
 
@@ -317,6 +377,7 @@ function closeDetail() {
   state.detailRequest += 1;
   drawer.classList.remove("open");
   drawer.setAttribute("aria-hidden", "true");
+  drawer.setAttribute("aria-modal", "false");
   state.selected = null;
   state.formSnapshot = null;
   markCurrentCard();

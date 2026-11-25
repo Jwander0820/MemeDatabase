@@ -69,12 +69,15 @@ const state = {
   picked: new Set(),
   pickAll: false,
   lastPicked: -1,
+  // 審核期間已不符合目前快速篩選、但仍留在列表上的條目 key；重新載入列表時清空。
+  processed: new Set(),
 };
 
 const grid = document.querySelector("#grid");
 // 瀑布流排列；沒有 MemeMasonry（例如單元測試）時退回直接附加。
 const masonry = globalThis.MemeMasonry?.create(grid);
 const resultCount = document.querySelector("#resultCount");
+const refreshList = document.querySelector("#refreshList");
 const searchInput = document.querySelector("#searchInput");
 const statusFilter = document.querySelector("#statusFilter");
 const sortFilter = document.querySelector("#sortFilter");
@@ -166,7 +169,10 @@ async function loadEntries(reset = false) {
     state.page = data.page;
     state.total = data.total;
     // 篩選條件改變後，「全選目前篩選結果」不再代表同一批圖。
-    if (reset) state.pickAll = false;
+    if (reset) {
+      state.pickAll = false;
+      state.processed.clear();
+    }
     state.items = reset ? data.items : state.items.concat(data.items);
     state.loadFailed = false;
     renderGrid(reset ? {} : {added: data.items});
@@ -242,6 +248,35 @@ function renderGrid({added = null, keepScroll = false} = {}) {
   renderLoadControls();
   updateBulkBar();
   updateDrawerNav();
+  updateRefreshButton();
+}
+
+// 只有出現「已處理」卡片時才顯示重新整理按鈕。
+function updateRefreshButton() {
+  refreshList.hidden = !state.processed.size;
+}
+
+// 條目更新後是否已不符合目前的快速篩選；對應欄位不存在時維持原本的標記。
+function isProcessed(item) {
+  const wasProcessed = state.processed.has(item.key);
+  if (pendingSuggestions.checked && Array.isArray(item.tag_suggestions)) return item.tag_suggestions.length === 0;
+  if (!pendingSuggestions.checked && statusFilter.value === "needs_review" && item.status) return item.status !== "needs_review";
+  return wasProcessed;
+}
+
+// 以最新資料更新列表中的同一筆（不重載列表），並原地換掉畫面上的卡片。
+function syncEntry(updated) {
+  const index = state.items.findIndex((entry) => entry.key === updated.key);
+  if (index < 0) return;
+  const entry = Object.assign(state.items[index], updated);
+  if (isProcessed(entry)) state.processed.add(entry.key);
+  else state.processed.delete(entry.key);
+  const oldNode = Array.from(document.querySelectorAll(".card")).find((node) => node.dataset?.key === entry.key);
+  if (oldNode) {
+    const newNode = card(entry);
+    if (!masonry?.replace(oldNode, newNode)) oldNode.replaceWith(newNode);
+  }
+  updateRefreshButton();
 }
 
 // 「載入更多」按鈕與「已經到底了」提示：有自動載入時按鈕只在失敗時以「重試」出現。
@@ -275,7 +310,10 @@ function card(item) {
   if (state.selected?.key === item.key) node.classList.add("is-current");
   const image = item.thumbnail_url || item.image_url;
   const tags = item.tags.slice(0, 4).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
+  const processed = state.processed.has(item.key);
+  if (processed) node.classList.add("is-processed");
   const badges = [
+    processed ? `<span class="badge processed">已處理</span>` : "",
     item.publish_selected ? `<span class="badge pub">公開</span>` : "",
     mediaKind(item) ? `<span class="badge kind">${mediaKind(item)}</span>` : "",
     item.favorite ? `<span class="badge fav" aria-label="\u5df2\u6536\u85cf">\u2605</span>` : "",

@@ -103,10 +103,11 @@
       <header class="content-head">
         <h2>館藏</h2>
         <p id="resultCount" role="status">載入中</p>
+        <button id="refreshList" class="view-switch" type="button" hidden>重新整理</button>
         <button id="selectMode" class="view-switch" type="button" aria-pressed="false">多選</button>
         <a class="view-switch" href="/browse">簡潔瀏覽</a>
       </header>
-      <div id="grid" class="meme-grid" aria-live="polite"></div>
+      <div id="grid" class="meme-grid"></div>
       <div class="load-row">
         <button id="loadMore" type="button">載入更多</button>
         <span id="loadEnd" class="load-end" hidden>已經到底了</span>

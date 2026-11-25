@@ -29,7 +29,7 @@
   --link: #5b3cc4;
   --danger: #c2272d;
   --danger-soft: #fdecec;
-  --success: #1f7a4d;
+  --success: var(--success-solid);
   --warn-soft: #fff6d6;
   --warn-line: #ecd27a;
   --media-bg: #e9e7e1;
@@ -43,6 +43,25 @@
   --seg-track: var(--chip);
   --seg-thumb: var(--surface);
   --scrim: rgba(17, 17, 19, 0.55);
+  /* 兩主題共用：收藏星號與「疊在圖片上」的元素，不隨主題改變。 */
+  --star: #e0a800; /* 收藏黃（按鈕邊框與底色） */
+  --star-bright: #ffd23f; /* 圖片上已收藏的星號 */
+  --on-media: #18181b; /* 亮色徽章與選取框上的深色文字 */
+  --on-media-inverse: #fff; /* 深色遮罩或危險色底上的白字 */
+  --success-solid: #1f7a4d; /* 「已發布」徽章底色，深淺主題都用同一深綠 */
+  --media-overlay: rgba(17, 17, 19, 0.55); /* 圖片上的半透明圓鈕底 */
+  --media-overlay-hover: rgba(17, 17, 19, 0.8);
+  --media-overlay-select: rgba(17, 17, 19, 0.45); /* 選取框底 */
+  --media-badge-bg: rgba(17, 17, 19, 0.78); /* 圖片上的文字徽章底 */
+  --media-badge-muted: rgba(90, 90, 98, 0.85); /* 「已忽略」徽章底 */
+  --on-primary-soft: rgba(255, 255, 255, 0.2); /* 主色按鈕內的步驟編號底 */
+  /* 檢視器深色舞台（背景用 --stage）：兩主題共用 */
+  --stage-text: #a1a1aa; /* 說明文字 */
+  --stage-ink: #f4f4f5; /* 控制鈕文字 */
+  --stage-control-bg: rgba(255, 255, 255, 0.08);
+  --stage-control-bg-hover: rgba(255, 255, 255, 0.16);
+  --stage-control-border: rgba(255, 255, 255, 0.28);
+  --stage-control-border-hover: rgba(255, 255, 255, 0.6);
   --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.06), 0 1px 1px rgba(24, 24, 27, 0.04);
   --shadow-md: 0 8px 24px rgba(24, 24, 27, 0.10), 0 2px 6px rgba(24, 24, 27, 0.06);
   --shadow-lg: 0 24px 64px rgba(24, 24, 27, 0.22);
@@ -52,47 +71,7 @@
   --mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
 }
 
-/* 深色：預設跟隨系統；使用者手動切換時以 html[data-theme] 為準。 */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0f0f11;
-    --surface: #18181b;
-    --surface-2: #1f1f23;
-    --surface-3: #2a2a2f;
-    --ink: #f4f4f5;
-    --ink-2: #d4d4d8;
-    --muted: #a1a1aa;
-    --line: #2a2a2f;
-    --line-strong: #3f3f46;
-    --card-line: #38383f;
-    --card-line-hover: #52525b;
-    --primary: var(--lilac-200);
-    --primary-ink: var(--lilac-900);
-    --primary-hover: var(--lilac-400);
-    --focus: var(--lilac-400);
-    --link: var(--lilac-200);
-    --danger: #f0686d;
-    --danger-soft: #3a1d1f;
-    --success: #5fd39a;
-    --warn-soft: #2e2817;
-    --warn-line: #6b5a22;
-    --media-bg: #232327;
-    --stage: #09090b;
-    --chip: #26262b;
-    --chip-active: var(--lilac-200);
-    --chip-active-ink: var(--lilac-900);
-    --chip-hover-line: color-mix(in srgb, var(--lilac-400) 60%, transparent);
-    --chip-hover-bg: color-mix(in srgb, var(--lilac-400) 12%, #26262b);
-    --seg-track: var(--surface-2);
-    --seg-thumb: #3a3a41;
-    --scrim: rgba(0, 0, 0, 0.66);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6);
-  }
-}
-
+/* 深色：theme-init.js 一律在 <html> 設定 data-theme（使用者選擇，或依系統偏好）。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0f0f11;
@@ -129,6 +108,11 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+/* 無 JavaScript 時不會有 data-theme：僅讓瀏覽器內建元件跟隨系統深色，色票維持淺色（不複製整組深色變數）。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) { color-scheme: dark; }
 }
 
 * { box-sizing: border-box; }
@@ -252,7 +236,7 @@ button:disabled:hover { border-color: var(--line-strong); background: var(--surf
   color: var(--danger);
 }
 
-.danger:hover { border-color: var(--danger); background: var(--danger); color: #fff; }
+.danger:hover { border-color: var(--danger); background: var(--danger); color: var(--on-media-inverse); }
 
 .icon-button {
   width: 38px;

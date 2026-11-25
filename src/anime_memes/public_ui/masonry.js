@@ -43,6 +43,14 @@
           place(node);
         }
       },
+      // 原地替換一張卡片，不重排其他卡片；找不到舊節點時回傳 false。
+      replace(oldNode, newNode) {
+        const index = items.indexOf(oldNode);
+        if (index < 0) return false;
+        items[index] = newNode;
+        oldNode.replaceWith(newNode);
+        return true;
+      },
       // 視窗寬度改變導致欄數不同時，依原本順序重新分配。
       relayout() {
         if (!items.length || columnCount() === columns.length) return;
