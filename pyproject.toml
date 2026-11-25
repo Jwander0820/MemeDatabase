@@ -1,0 +1,17 @@
+# 專案中繼資料。
+# 程式以 repo 根目錄執行（python -m src.anime_memes ...），匯入路徑固定為 src.anime_memes，不打包安裝。
+# 依賴以 requirements*.txt 為唯一來源（各檔以 -r 疊加，Dockerfile 依 target 分別安裝）：
+#   requirements.txt        公開服務
+#   requirements-admin.txt  本機／私人管理與發布
+#   requirements-mcp.txt    私人唯讀 MCP
+#   requirements-ocr.txt    本機 OCR（GPU）
+[project]
+name = "anime-memes"
+version = "0.1.0"
+description = "迷因資料庫：本機管理、發布與公開搜尋"
+readme = "README.md"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+# 不安裝成套件：避免 pip install 時自動探索 src/ 而多出 anime_memes 這個第二種匯入路徑。
+packages = []
