@@ -1,3 +1,7 @@
+from contextlib import closing
+from pathlib import Path
+import sqlite3
+from unittest.mock import patch
 import unittest
 
 import test_assessment_fixes as fixtures
@@ -190,3 +194,114 @@ class QuerySyntaxTest(unittest.TestCase):
         for bad in ["ocr", "notes", "x"]:
             with self.subTest(field=bad), self.assertRaises(ValueError):
                 parse_query("烈海王", bad)
+
+
+class SingleScoreTest(unittest.TestCase):
+    """有查詢字時每列只計分一次，且總數、順序與逐列計分的舊寫法一致。"""
+
+    N = 30
+
+    def counting(self, module):
+        calls = []
+        real = module.scorer
+
+        def wrapped(q, field):
+            inner = real(q, field)
+
+            def fn(*args):
+                calls.append(args)
+                return inner(*args)
+            return fn
+        return calls, patch.object(module, "scorer", wrapped)
+
+    def test_public_single_score_and_same_results(self):
+        from src.anime_memes import public_data as pd
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(pd.SCHEMA)
+        for i in range(self.N):
+            quote = f"烈海王{i}" if i % 3 == 0 else f"路人{i}"
+            conn.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (f"{i:032x}", None, "角色", "刃牙" if i % 2 else "Abc", quote, "[]", "[]",
+                          "t", None, f"2026-01-{i + 1:02d}", 1, 1))
+            if i % 2 == 0:
+                conn.execute("INSERT INTO entry_tags VALUES(?,?)", (f"{i:032x}", "復活"))
+        matched = [i for i in range(self.N) if i % 3 == 0]
+        cases = [
+            ({"q": "烈海王", "sort": "updated"}, 1, sorted(matched, reverse=True)),
+            ({"q": "烈海王", "sort": "title"}, 1, sorted(matched, key=lambda i: (("刃牙" if i % 2 else "Abc").lower(), f"{i:032x}"))),
+            ({"q": "烈海王", "tag": "復活", "sort": "updated"}, 1, [i for i in sorted(matched, reverse=True) if i % 2 == 0]),
+        ]
+        for args, _, expected in cases:
+            with self.subTest(args=args):
+                calls, patcher = self.counting(pd)
+                with patcher:
+                    result = pd.search(conn, {**args, "page_size": 4, "page": 2})
+                    self.assertEqual(len(calls), self.N if "tag" not in args else self.N // 2)
+                self.assertEqual(result["total"], len(expected))
+                self.assertEqual([r["id"] for r in result["items"]], [f"{i:032x}" for i in expected[4:8]])
+                self.assertNotIn("score", result["items"][0])
+                self.assertNotIn("total_count", result["items"][0])
+        with self.subTest("相關度排序與逐列計分的舊寫法一致"):
+            from src.anime_memes.search import SCORE_ARGS, scorer, search_field
+            conn.create_function("meme_score", SCORE_ARGS, scorer("烈海王", search_field(None)), deterministic=True)
+            score = "meme_score(e.display_title,e.speaker,e.anime_title,e.quote_text,e.tags_json,e.aliases_json)"
+            ref = [r[0] for r in conn.execute(f"SELECT e.id FROM entries e WHERE {score}>0 ORDER BY {score} DESC,e.updated_at DESC,e.id")]
+            got = []
+            for page in (1, 2, 3):
+                result = pd.search(conn, {"q": "烈海王", "page": page, "page_size": 4})
+                self.assertEqual(result["total"], len(ref))
+                got += [r["id"] for r in result["items"]]
+            self.assertEqual(got, ref)
+        with self.subTest("超出頁碼"):
+            result = pd.search(conn, {"q": "烈海王", "page": 5, "page_size": 4})
+            self.assertEqual((result["items"], result["total"]), ([], len(matched)))
+        with self.subTest("無符合"):
+            self.assertEqual(pd.search(conn, {"q": "不存在詞"})["total"], 0)
+
+    def test_admin_single_score_and_same_results(self):
+        import tempfile
+        from src.anime_memes.db import connect
+        from src.anime_memes import queries
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        conn = connect(Path(tmp) / "a.sqlite3")
+        self.enterContext(closing(conn))
+        init_db(conn)
+        conn.execute("INSERT INTO tags(name) VALUES('復活')")
+        for i in range(self.N):
+            conn.execute("INSERT INTO discord_messages(id,timestamp,content) VALUES(?,?,'x')", (str(i), f"2026-02-{i + 1:02d}"))
+            conn.execute("INSERT INTO attachments(id,message_id) VALUES(?,?)", (str(i), str(i)))
+            conn.execute("""INSERT INTO meme_entries(key,attachment_id,source_message_id,quote_text,speaker,anime_title,
+                pairing_method,confidence,status,updated_at) VALUES(?,?,?,?,?,?, 'test',1,'ready',?)""",
+                         (f"k{i:02d}", str(i), str(i), f"烈海王{i}" if i % 3 == 0 else f"路人{i}", "角色",
+                          "刃牙" if i % 2 else "Abc", f"2026-01-{i + 1:02d}"))
+            if i % 2 == 0:
+                conn.execute("INSERT INTO entry_tags(entry_key,tag_name,source) VALUES(?,?,'manual')", (f"k{i:02d}", "復活"))
+        conn.commit()
+        matched = [i for i in range(self.N) if i % 3 == 0]
+        cases = [
+            ({"q": "烈海王", "sort": "updated"}, sorted(matched, reverse=True), self.N),
+            ({"q": "烈海王", "sort": "source_old"}, matched, self.N),
+            ({"q": "烈海王", "sort": "title"}, sorted(matched, key=lambda i: (("刃牙" if i % 2 else "Abc").lower(), f"k{i:02d}")), self.N),
+            ({"q": "烈海王", "tag": "復活", "sort": "updated"}, [i for i in sorted(matched, reverse=True) if i % 2 == 0], self.N // 2),
+        ]
+        for args, expected, scored in cases:
+            with self.subTest(args=args):
+                calls, patcher = self.counting(queries)
+                with patcher:
+                    rows, total = queries.query_entries(conn, args, 2, 4)
+                    self.assertEqual(len(calls), scored)
+                self.assertEqual(total, len(expected))
+                self.assertEqual([r["key"] for r in rows], [f"k{i:02d}" for i in expected[4:8]])
+                self.assertNotIn("_total_count", dict(rows[0]))
+                self.assertNotIn("score", dict(rows[0]))
+        with self.subTest("相關度分頁加總一致"):
+            keys = []
+            for page in (1, 2, 3):
+                rows, total = queries.query_entries(conn, {"q": "烈海王"}, page, 4)
+                self.assertEqual(total, len(matched))
+                keys += [r["key"] for r in rows]
+            self.assertEqual(sorted(keys), [f"k{i:02d}" for i in matched])
+        with self.subTest("超出頁碼"):
+            rows, total = queries.query_entries(conn, {"q": "烈海王"}, 9, 4)
+            self.assertEqual((list(rows), total), ([], len(matched)))

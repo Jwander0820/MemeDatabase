@@ -75,8 +75,8 @@ def search(conn: sqlite3.Connection, args) -> dict:
     score_sql = "meme_score(e.display_title,e.speaker,e.anime_title,e.quote_text,e.tags_json,e.aliases_json)"
     where, params = ["1=1"], []
     if q:
+        # 分數條件不放進 where：有查詢字時在下方 CTE 外層以 score>0 過濾，每列只計分一次。
         conn.create_function("meme_score", SCORE_ARGS, scorer(q, field), deterministic=True)
-        where.append(score_sql + ">0")
     if args.get("tag"):
         where.append("EXISTS(SELECT 1 FROM entry_tags t WHERE t.entry_id=e.id AND t.tag=?)")
         params.append(args["tag"])
@@ -94,6 +94,21 @@ def search(conn: sqlite3.Connection, args) -> dict:
               "relevance": (score_sql + " DESC,e.updated_at DESC,e.id") if q else "e.updated_at DESC,e.id"}
     if sort not in orders:
         raise ValueError("不支援的排序")
+    if q:
+        # 有查詢字：每列只計分一次（具體化的 CTE），同時以視窗函式取得總數與該頁資料。
+        condition = " AND ".join(where)
+        order = orders[sort].replace(score_sql, "score")
+        cte = f"WITH scored AS MATERIALIZED (SELECT e.*, {score_sql} AS score FROM entries e WHERE {condition})"
+        offset = (page - 1) * size
+        rows = conn.execute(f"{cte} SELECT *, COUNT(*) OVER () AS total_count FROM scored WHERE score>0 "
+                            f"ORDER BY {re.sub(r'\be\.', '', order)} LIMIT ? OFFSET ?", [*params, size, offset]).fetchall()
+        if rows:
+            total = rows[0]["total_count"]
+        elif page == 1:
+            total = 0
+        else:  # 頁碼超出範圍：外層沒有任何列可取總數，另算一次
+            total = conn.execute(f"{cte} SELECT count(*) FROM scored WHERE score>0", params).fetchone()[0]
+        return {"items": [serialize(r) for r in rows], "total": total, "page": page, "page_size": size}
     condition = " AND ".join(where)
     total = conn.execute(f"SELECT count(*) FROM entries e WHERE {condition}", params).fetchone()[0]
     rows = conn.execute(f"SELECT e.* FROM entries e WHERE {condition} ORDER BY {orders[sort]} LIMIT ? OFFSET ?",

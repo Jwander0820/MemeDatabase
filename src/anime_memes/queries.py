@@ -26,7 +26,6 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
     field = search_field(args.get("field") or None)  # 搜尋範圍：沒寫前綴的詞只比對此欄位
     if q:
         conn.create_function("meme_score", SCORE_ARGS, scorer(q, field), deterministic=True)
-        where.append(f"{SCORE_SQL} > 0")
     tag = (args.get("tag") or "").strip()
     if tag:
         where.append("EXISTS (SELECT 1 FROM entry_tags tx WHERE tx.entry_key = e.key AND tx.tag_name = ?)")
@@ -43,6 +42,8 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         where.append("(a.local_path IS NULL OR a.local_path = '' OR a.download_status NOT IN ('cached', 'downloaded'))")
 
     where_sql = " AND ".join(where)
+    if q:
+        return _query_scored(conn, args, where_sql, params, page, page_size)
     total = int(
         conn.execute(
             f"""
@@ -66,11 +67,22 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
         "source_new": "m.timestamp DESC, e.key",
         "title": "e.anime_title COLLATE NOCASE, e.key",
     }.get(sort, "e.updated_at DESC, m.timestamp DESC, e.key")
-    if sort == "relevance" and q:
-        order_by = f"{SCORE_SQL} DESC, e.updated_at DESC, COALESCE(e.public_id,e.key) ASC"
     offset = (page - 1) * page_size
     rows = conn.execute(
         f"""
+        {_SELECT_ENTRY}
+        {_FROM_ENTRY}
+        WHERE {where_sql}
+        GROUP BY e.key
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
+        """,
+        [*params, page_size, offset],
+    ).fetchall()
+    return rows, total
+
+
+_SELECT_ENTRY = f"""
         SELECT
             e.*,
             {ALIASES_SQL} AS search_aliases_json,
@@ -84,19 +96,53 @@ def query_entries(conn: sqlite3.Connection, args: Any, page: int, page_size: int
             m.timestamp AS source_timestamp,
             f.entry_key IS NOT NULL AS favorite,
             GROUP_CONCAT(DISTINCT t.tag_name) AS tags,
-            GROUP_CONCAT(DISTINCT CASE WHEN t.source='manual' THEN t.tag_name END) AS manual_tags
+            GROUP_CONCAT(DISTINCT CASE WHEN t.source='manual' THEN t.tag_name END) AS manual_tags"""
+_FROM_ENTRY = """
         FROM meme_entries e
         JOIN attachments a ON a.id = e.attachment_id
         JOIN discord_messages m ON m.id = e.source_message_id
         LEFT JOIN entry_favorites f ON f.entry_key = e.key
-        LEFT JOIN entry_tags t ON t.entry_key = e.key
-        WHERE {where_sql}
+        LEFT JOIN entry_tags t ON t.entry_key = e.key"""
+
+
+def _query_scored(conn, args, where_sql, params, page, page_size):
+    """有查詢字：每列只計分一次（具體化 CTE），並以視窗函式同時取得總數與該頁資料。"""
+    cte = f"""WITH scored AS MATERIALIZED (
+            SELECT e.key AS k, {SCORE_SQL} AS score
+            FROM meme_entries e
+            JOIN attachments a ON a.id = e.attachment_id
+            LEFT JOIN entry_favorites f ON f.entry_key = e.key
+            WHERE {where_sql})"""
+    sort = args.get("sort") or "relevance"
+    if sort == "random":
+        seed = str(args.get("seed") or "default")[:128]
+        conn.create_function("shuffle_key", 1, lambda key: hashlib.sha256(f"{seed}:{key}".encode()).hexdigest(), deterministic=True)
+    order_by = {
+        "random": "shuffle_key(e.key), e.key",
+        "source_old": "m.timestamp ASC, e.key",
+        "source_new": "m.timestamp DESC, e.key",
+        "title": "e.anime_title COLLATE NOCASE, e.key",
+        "relevance": "s.score DESC, e.updated_at DESC, COALESCE(e.public_id,e.key) ASC",
+    }.get(sort, "e.updated_at DESC, m.timestamp DESC, e.key")
+    rows = conn.execute(
+        f"""{cte}
+        {_SELECT_ENTRY}, COUNT(*) OVER () AS _total_count
+        {_FROM_ENTRY.replace("FROM meme_entries e", "FROM scored s JOIN meme_entries e ON e.key = s.k", 1)}
+        WHERE s.score > 0
         GROUP BY e.key
         ORDER BY {order_by}
         LIMIT ? OFFSET ?
         """,
-        [*params, page_size, offset],
+        [*params, page_size, (page - 1) * page_size],
     ).fetchall()
+    if rows:
+        total = int(rows[0]["_total_count"])
+        # 去掉內部欄位，維持原本的回傳欄位
+        rows = [{k: r[k] for k in r.keys() if k != "_total_count"} for r in rows]
+    elif page == 1:
+        total = 0
+    else:  # 頁碼超出範圍：沒有任何列可取總數，另算一次
+        total = int(conn.execute(f"{cte} SELECT COUNT(*) FROM scored WHERE score > 0", params).fetchone()[0])
     return rows, total
 
 
