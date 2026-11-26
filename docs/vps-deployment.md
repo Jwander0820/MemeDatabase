@@ -291,7 +291,7 @@ Host myvps
 
 VPS 須先部署支援 `media-inventory` 的公開映像（預設 `memedatabase-public-api`；需要時由私人服務的 `MEMES_VPS_IMAGE` 指定其他名稱），並完成發布目錄權限設定。本機私人 Docker 已安裝 OpenSSH client，公開映像不安裝此工具。
 
-若使用專用受限金鑰，在本機 Compose 的 `.env` 加入 `MEMES_VPS_RESTRICTED_SSH=1`，並重建私人 API。VPS 的 root 須將 [發布指令](../deploy/vps-publication.sh) 安裝為 `/usr/local/sbin/memedatabase-publication`，由發布帳號的專用 SSH 公鑰以 `restrict` 和 forced command 綁定到下列指令。服務使用 `/srv/memedatabase/releases` 和 `memedatabase-public-api`，發布包透過 SSH 標準輸入上傳，由 VPS 暫存並清除。此金鑰具備啟用公開館藏版本的權限。
+若使用專用受限金鑰，在本機 Compose 的 `.env` 加入 `MEMES_VPS_RESTRICTED_SSH=1`，並重建私人 API。VPS 的 root 須將 [發布指令](../deploy/vps-publication.sh) 安裝為 `/usr/local/sbin/memedatabase-publication`，由發布帳號的專用 SSH 公鑰以 `restrict` 和 forced command 綁定到下列指令。服務使用 `/srv/memedatabase/releases` 和執行中公開 API 的映像 ID，發布包透過 SSH 標準輸入上傳，由 VPS 暫存並清除。此金鑰具備啟用公開館藏版本的權限。
 
 ```text
 restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-publication \"$SSH_ORIGINAL_COMMAND\"" ssh-ed25519 <專用公開金鑰>
@@ -330,23 +330,24 @@ systemctl list-timers memedatabase-deploy.timer
 sudo journalctl -u memedatabase-deploy.service -n 30 --no-pager
 ```
 
-**切換到 GitHub Actions**。儲存庫內的 [部署 workflow](../.github/workflows/deploy.yml) 會在推送 `main` 或手動執行時，先驗證部署設定與前端測試，再經 SSH 更新受檢查的提交。VPS 只接受仍是 `main` 最新版本的 SHA，並沿用同一部署鎖與成功版本紀錄。
+**切換到 GitHub Actions 與 GHCR**。推送 `main` 或手動執行 [部署 workflow](../.github/workflows/deploy.yml) 時，Actions 會檢查部署設定與前端測試，再以內建 `GITHUB_TOKEN` 建置並推送兩個 `linux/amd64` 映像。啟用部署開關後，VPS 透過受限 SSH 收到同一次提交的兩個映像 digest，兩個映像都拉取、核對 revision 後才更新公開 API 與 Nginx。館藏目錄和 Tunnel 沿用現有配置。
 
 1. 在 MemeDatabase 的 Settings → Environments 建立 `production`，將部署分支限制為 `main`。設定 `VPS_HOST`、`VPS_PORT`、`VPS_USER`（`ubuntu`）、`VPS_KNOWN_HOSTS`、`VPS_SSH_KEY`。前四項可以沿用已核對的 VPS 連線資料，SSH 私鑰使用梗圖站程式部署專用金鑰。
-2. 用既有管理 SSH 將 [程式部署腳本](../deploy/vps-code-deploy.sh) 傳到 VPS 暫存目錄，先跑 `bash -n`，再用 `sudo install -o root -g root -m 0755` 安裝至 `/usr/local/sbin/memedatabase-deploy`。將程式部署公鑰加到 `ubuntu` 的 `authorized_keys`，保留其他既有公鑰：
+2. 用既有管理 SSH 安裝 [程式部署腳本](../deploy/vps-code-deploy.sh) 至 `/usr/local/sbin/memedatabase-ghcr-deploy`，由 root 擁有，模式 `0755`。將 `compose.yaml` 和 [GHCR override](../deploy/compose.ghcr.yaml) 安裝至 `/etc/memedatabase/`，由 root 擁有，模式 `0644`。程式部署公鑰的 `authorized_keys` 條目如下：
 
    ```text
-   restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-deploy \"$SSH_ORIGINAL_COMMAND\"" ssh-ed25519 <程式部署專用公開金鑰>
+   restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-ghcr-deploy \"$SSH_ORIGINAL_COMMAND\"" ssh-ed25519 <程式部署專用公開金鑰>
    ```
 
-3. 確認 Actions secrets 與受限 SSH 已就緒後，在首次推送 workflow **之前**停止輪詢，確保只由通過檢查的 Actions 啟動部署。停止 timer 不會停止站台容器。先確認沒有部署服務正在執行，再推送。
+3. 首次推送前先停用舊輪詢，避免它看到新提交後在 VPS 建置。讓 GitHub 的儲存庫變數 `VPS_GHCR_DEPLOY_ENABLED` 維持未設定或 `false`，首次 workflow 只建置映像。停止 timer 不會停止站台容器。
 
    ```bash
    sudo systemctl disable --now memedatabase-deploy.timer
    systemctl is-active memedatabase-deploy.service
    ```
 
-4. 在 GitHub Actions 核對部署結果。到 VPS 讀回成功版本紀錄、檢查容器與 `/health/live`，最後開啟正式站驗收。若需回到輪詢，執行 `sudo systemctl enable --now memedatabase-deploy.timer`，之後會依 GitHub `main` 更新。
+4. 首次建置後，到 GitHub Packages 將 `memedatabase-public-api`、`memedatabase-public-nginx` 設為 **Public**，讓 VPS 匿名拉取。將儲存庫變數 `VPS_GHCR_DEPLOY_ENABLED` 設為 `true`，從 Actions 對 `main` 手動執行一次部署。
+5. 到 VPS 讀回 `/opt/memedatabase/.ghcr-deployed.env` 的提交與映像 digest，檢查容器、`/health/live` 與正式站。健康檢查失敗會嘗試恢復上次成功的映像。首次切換失敗時會嘗試恢復原有的本機映像。後續 Compose 拓樸變更需另外同步到 `/etc/memedatabase/`，一般程式更新只需推送。切回舊輪詢前先關閉 GitHub 的部署開關，並確認過渡期保留的 checkout 與本機映像。
 
 **手動重建**適用於初始安裝或需要人工排查時。
 

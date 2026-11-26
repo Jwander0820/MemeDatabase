@@ -17,10 +17,13 @@ else
 fi
 
 root=/srv/memedatabase/releases
-image=memedatabase-public-api
 umask 077
+exec 8>/run/lock/memedatabase-deploy.lock
+flock -s -w 120 8
 exec 9>/run/lock/memedatabase-publication.lock
 flock -n 9
+image=$(/usr/bin/docker inspect --type container --format '{{.Image}}' memedatabase-public-api-1)
+[[ $image =~ ^sha256:[0-9a-f]{64}$ ]] || exit 69
 container=(/usr/bin/docker run --rm --network none --read-only --tmpfs /tmp
     --cap-drop ALL --security-opt no-new-privileges --user 10001:10001
     --pids-limit 64 --memory 256m --cpus 1)

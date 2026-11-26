@@ -1,0 +1,8 @@
+# 與 compose.yaml 疊加，公開服務改用 CI 已建好的映像。
+services:
+  public-api:
+    build: !reset null
+    image: ${MEMES_PUBLIC_API_IMAGE:?缺少公開 API 映像}
+  public-nginx:
+    build: !reset null
+    image: ${MEMES_PUBLIC_NGINX_IMAGE:?缺少公開 Nginx 映像}
