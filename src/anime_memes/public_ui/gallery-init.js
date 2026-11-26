@@ -1,4 +1,45 @@
 "use strict";
+// 首頁內切換，避免連點品牌時整頁重載與重複抓取圖片。
+byId("home").onclick = event => {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  byId("publicCollection").onclick?.();
+  if (location.hash) {
+    history.replaceState(null, "", location.pathname + location.search);
+    if (dialog.open) dialog.close();
+  }
+  const needsSearch = !isHomeMode();
+  byId("query").value = "";
+  byId("sort").value = "";
+  activeTag = "";
+  favoritesOnly = false;
+  activeScope = "";
+  renderScope();
+  renderTags();
+  if (needsSearch) search(true);
+  window.scrollTo?.({top: 0, behavior: "instant"});
+};
+let rollNumber = 0;
+let diceFace = 5;
+byId("rollMemes").onclick = async () => {
+  const button = byId("rollMemes");
+  if (button.disabled) return;
+  button.disabled = true;
+  // 從其餘五個點數抽選，確保每按一次都看得到變化。
+  diceFace = (diceFace + Math.floor(Math.random() * 5)) % 6 + 1;
+  byId("rollDiceFace").setAttribute("href", `#i-dice-${diceFace}`);
+  byId("query").value = "";
+  byId("sort").value = "";
+  activeTag = "";
+  favoritesOnly = false;
+  activeScope = "";
+  renderScope();
+  renderTags();
+  // 32 字元內的種子；每次點擊不同，分頁則沿用同一種子。
+  const seed = `roll-${Date.now().toString(36)}-${(++rollNumber).toString(36)}`;
+  try { await search(true, seed); }
+  finally { button.disabled = false; }
+};
 byId("filters").onsubmit = event => { event.preventDefault(); search(true); };
 byId("query").oninput = () => {
   ++listRequest;

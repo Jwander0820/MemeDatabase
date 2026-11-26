@@ -261,7 +261,7 @@ function setScope(value) {
   if (byId("query").value.trim()) search(true);
 }
 
-async function search(reset) {
+async function search(reset, seed = localDate()) {
   clearTimeout(timer);
   const request = ++listRequest;
   if (reset) {
@@ -274,7 +274,7 @@ async function search(reset) {
     page = 0;
     version = "";
     homeMode = isHomeMode();
-    homeSeed = localDate();
+    homeSeed = seed;
     pinnedIds = new Set();
     pinnedShown = 0;
   }
@@ -337,7 +337,8 @@ async function search(reset) {
     else results.append(...cards);
     shown += cards.length;
     if (data.total || shown) {
-      const prefix = homeMode && pinnedShown ? `首頁推薦：常用 ${pinnedShown} 張＋每日隨機　` : "";
+      const randomLabel = homeSeed === localDate() ? "每日隨機" : "骰子隨機";
+      const prefix = homeMode && (pinnedShown || randomLabel === "骰子隨機") ? `首頁推薦：${pinnedShown ? `常用 ${pinnedShown} 張＋` : ""}${randomLabel}　` : "";
       statusLine.textContent = `${prefix}已顯示 ${shown}／${Math.max(data.total, shown)} 張`;
     } else {
       statusLine.textContent = "查無結果";

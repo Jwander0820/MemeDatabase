@@ -20,6 +20,9 @@
 }
 
 .topbar .brand { min-height: 46px; color: inherit; text-decoration: none; }
+.topbar .brand-mark { transform: rotate(var(--meme-logo-angle, -4deg)); transition: transform 900ms ease; }
+.topbar .brand { touch-action: manipulation; user-select: none; }
+@media (prefers-reduced-motion: reduce) { .topbar .brand-mark { transition: none; } }
 .topbar .admin-link, .topbar .theme-toggle, .topbar .repo-link { margin-top: 4px; }
 /* 原始碼連結：和主題切換同樣的圓形圖示按鈕。a 元素拿不到按鈕的共用樣式（高度 38px、邊框），
    要自行補上，否則高度只有圖示的 18px，會比同一列的按鈕偏高。 */
@@ -64,6 +67,8 @@
 }
 
 .search-form .search-box { flex: 1; }
+.roll-memes { flex: 0 0 44px; min-height: 44px; align-self: flex-start; color: var(--ink-2); }
+.roll-memes:hover { color: var(--primary); }
 
 .search-form input {
   min-height: 46px;

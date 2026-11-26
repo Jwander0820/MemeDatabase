@@ -9,6 +9,7 @@
   <meta name="theme-color" content="#0f0f11" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <script src="/assets/theme-init.js"></script>
+  <script src="/assets/logo-egg.js"></script>
   <link rel="stylesheet" href="/assets/catalog.css">
   <link rel="stylesheet" href="/assets/gallery.css">
   <link rel="stylesheet" href="/assets/personal.css">
@@ -26,6 +27,12 @@
 <body>
   <svg class="svg-sprite" width="0" height="0" aria-hidden="true">
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-dice-1" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.5"/></g></symbol>
+    <symbol id="i-dice-2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="16" r="1.5"/></g></symbol>
+    <symbol id="i-dice-3" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="16" cy="16" r="1.5"/></g></symbol>
+    <symbol id="i-dice-4" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="8" cy="16" r="1.5"/><circle cx="16" cy="16" r="1.5"/></g></symbol>
+    <symbol id="i-dice-5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="8" cy="16" r="1.5"/><circle cx="16" cy="16" r="1.5"/></g></symbol>
+    <symbol id="i-dice-6" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="8" cy="12" r="1.5"/><circle cx="16" cy="12" r="1.5"/><circle cx="8" cy="16" r="1.5"/><circle cx="16" cy="16" r="1.5"/></g></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
@@ -46,6 +53,7 @@
           <input id="query" type="search" maxlength="256" placeholder="搜尋台詞、作品、角色或標籤" autocomplete="off" enterkeyhint="search">
         </label>
         <button class="primary search-submit">搜尋</button>
+        <button id="rollMemes" class="icon-button ghost roll-memes" type="button" aria-label="想不到要用什麼梗圖嗎？骰一張！" title="想不到要用什麼梗圖嗎？骰一張！"><svg class="icon" aria-hidden="true"><use id="rollDiceFace" href="#i-dice-5"/></svg></button>
         <div class="scope-line"><div id="scope" class="scope-row" role="group" aria-label="搜尋範圍"></div></div>
       </form>
       <button id="personalCollection" class="personal-entry ghost" type="button" aria-pressed="false" aria-controls="personalContent" aria-label="我的梗圖" title="我的梗圖（只存此瀏覽器）"><svg class="icon" aria-hidden="true"><use href="#i-personal"/></svg><span>我的梗圖</span></button>

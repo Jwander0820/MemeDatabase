@@ -4,12 +4,57 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
+test('連點首頁不重載也不重送圖片查詢，從篩選返回時只查一次', () => {
+  const g = gallery();
+  g.pending.length = 0;
+  const click = {button: 0, preventDefault() {}};
+  for (let i = 0; i < 14; i++) g.node('home').onclick(click);
+  assert.equal(g.pending.length, 0);
+  g.node('query').value = '海綿寶寶';
+  for (let i = 0; i < 7; i++) g.node('home').onclick(click);
+  assert.equal(g.pending.length, 1);
+  assert.equal(g.node('query').value, '');
+  g.node('home').onclick({...click, ctrlKey: true, preventDefault() { throw Error('修飾鍵需保留原生連結'); }});
+});
+
+test('骰子清除篩選並換種子，阻擋連點且後續分頁維持同一次抽選', async () => {
+  const g = gallery();
+  g.pending.length = 0;
+  g.node('query').value = '海綿寶寶';
+  g.node('sort').value = 'created';
+  g.run('activeTag = "吐槽"; favoritesOnly = true; activeScope = "work";');
+  const first = g.node('rollMemes').onclick();
+  g.node('rollMemes').onclick();
+  assert.equal(g.pending.length, 1, '連點不重複送出請求');
+  const request = g.pending.shift();
+  const params = new URLSearchParams(request.url.split('?')[1]);
+  const seed = params.get('seed');
+  assert.match(seed, /^[A-Za-z0-9_-]{1,32}$/);
+  assert.notEqual(seed, today());
+  assert.equal(params.get('sort'), 'random');
+  for (const name of ['q', 'tag', 'field', 'ids', 'favorite']) assert.equal(params.has(name), false);
+  await g.respond(request, {version: 'v1', page: 1, total: 3, items: [entry('a')]});
+  await g.respond(g.pending.shift(), {version: 'v1', tags: []});
+  await first;
+  assert.equal(g.node('rollMemes').disabled, false);
+  assert.match(g.node('status').textContent, /骰子隨機/);
+  g.search(false);
+  const next = new URLSearchParams(g.pending.shift().url.split('?')[1]);
+  assert.equal(next.get('seed'), seed);
+  assert.equal(next.get('page'), '2');
+  g.node('rollMemes').onclick();
+  const rerolled = new URLSearchParams(g.pending.shift().url.split('?')[1]);
+  assert.notEqual(rerolled.get('seed'), seed);
+  assert.equal(rerolled.get('page'), '1');
+});
+
 function gallery(withObserver = false, storage = undefined) {
   const nodes = new Map();
   const pending = [];
   const created = [];
   function element(tag) {
     const made = {tag, value: '', childElementCount: 0, addEventListener() {},
+      setAttribute(name, value) { this[name] = value; },
       replaceChildren() { this.childElementCount = 0; },
       append(...items) { this.childElementCount += items.length; },
       add() {}};
