@@ -6,6 +6,8 @@
 
 ## 1. 架構概覽
 
+本次首次上線採用專案獨立的 Docker Tunnel。VPS 先啟動公開 API 與 Nginx，再將 Tunnel token 寫入 VPS 的 `.env` 並啟動 `cloudflared`。公開路由可從既有 Tunnel 的「路由 → 新增已發佈的應用程式」設定。VPS 的程式更新與本機管理頁的館藏發布各有自己的流程。
+
 ```text
 訪客 ──HTTPS──> Cloudflare 邊緣（TLS、快取）
                       │
@@ -164,7 +166,7 @@ sudo dpkg-reconfigure -plow unattended-upgrades
 
 ### 4.3 部署使用者
 
-使用既有使用者，或建立專用使用者，並加入 `docker` 群組。`push_release.ps1` 的 SSH 使用者必須能執行 docker。
+現行部署由 VPS 的 systemd 以 root 執行 Compose，本機館藏發布走本章後述的受限 SSH。例行館藏發布使用本機管理頁。若沿用 `push_release.ps1` 的傳統 SSH／SCP 模式，該模式的 SSH 使用者必須能直接執行 Docker。
 
 ```bash
 sudo adduser deploy            # 已有使用者可略過
@@ -217,6 +219,7 @@ umask 077
 cat > .env <<'EOF'
 CLOUDFLARE_TUNNEL_TOKEN=<tunnel token>
 RELEASE_ROOT=/srv/memedatabase/releases
+COMPOSE_PROFILES=public,tunnel
 # 以下可選
 # SEARCH_RATE=2r/s
 # SEARCH_BURST=10
@@ -227,6 +230,8 @@ chmod 600 .env
 ```
 
 不需要任何 R2、Discord 或 MCP 變數。`.env` 含秘密，不可提交。
+
+若先啟動公開容器，將 `COMPOSE_PROFILES` 設為 `public`。取得 token 後改為 `public,tunnel`，再執行 `sudo docker compose up -d --wait`。既有 Tunnel 的 token 可從 Cloudflare「概觀 → 新增副本 → Docker」複製，取安裝指令中 `--token` 後面的值。
 
 ### 4.7 建置與啟動
 
@@ -286,6 +291,12 @@ Host myvps
 
 VPS 須先部署支援 `media-inventory` 的公開映像（預設 `memedatabase-public-api`；需要時由私人服務的 `MEMES_VPS_IMAGE` 指定其他名稱），並完成發布目錄權限設定。本機私人 Docker 已安裝 OpenSSH client，公開映像不安裝此工具。
 
+若使用專用受限金鑰，在本機 Compose 的 `.env` 加入 `MEMES_VPS_RESTRICTED_SSH=1`，並重建私人 API。VPS 的 root 須將 [發布指令](../deploy/vps-publication.sh) 安裝為 `/usr/local/sbin/memedatabase-publication`，由發布帳號的專用 SSH 公鑰以 `restrict` 和 forced command 綁定到下列指令。服務使用 `/srv/memedatabase/releases` 和 `memedatabase-public-api`，發布包透過 SSH 標準輸入上傳，由 VPS 暫存並清除。此金鑰具備啟用公開館藏版本的權限。
+
+```text
+restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-publication \"$SSH_ORIGINAL_COMMAND\"" ssh-ed25519 <專用公開金鑰>
+```
+
 頁面顯示「完成」代表遠端安裝／啟用指令成功，仍應實際開啟公開網址檢查。每次推送會先確認此版本是否已安裝：內容完全相同時直接沿用，需要時可勾選啟用，不再重傳；同名但內容不同則拒絕覆寫。連線逾時或本機服務重啟可能無法確認遠端是否完成；畫面會標示失敗或結果待確認，不自動重試。請先確認遠端工作已結束，再手動重試。本機服務重啟後不會自動接續舊工作。目前未提供遠端取消或系統通知；關閉頁面不會取消發布。
 
 ### 6.1 發布新版本
@@ -311,6 +322,33 @@ VPS 須先部署支援 `media-inventory` 的公開映像（預設 `memedatabase-
 清理時會短暫停止公開服務（約數秒），不論 prune 成功與否都會重新啟動。compose 目錄不是 `/opt/memedatabase` 時以 `-RemoteComposeDir` 指定。
 
 ### 6.2 程式更新
+
+**目前的 VPS 排程**由 `memedatabase-deploy.timer` 約每兩分鐘查一次 GitHub `main`。服務以 root 執行 `/usr/local/sbin/memedatabase-deploy`，同一版本略過建置，有新版才更新 Compose。最後成功版本記在 `/opt/memedatabase/.git/memedatabase-deployed`。
+
+```bash
+systemctl list-timers memedatabase-deploy.timer
+sudo journalctl -u memedatabase-deploy.service -n 30 --no-pager
+```
+
+**切換到 GitHub Actions**。儲存庫內的 [部署 workflow](../.github/workflows/deploy.yml) 會在推送 `main` 或手動執行時，先驗證部署設定與前端測試，再經 SSH 更新受檢查的提交。VPS 只接受仍是 `main` 最新版本的 SHA，並沿用同一部署鎖與成功版本紀錄。
+
+1. 在 MemeDatabase 的 Settings → Environments 建立 `production`，將部署分支限制為 `main`。設定 `VPS_HOST`、`VPS_PORT`、`VPS_USER`（`ubuntu`）、`VPS_KNOWN_HOSTS`、`VPS_SSH_KEY`。前四項可以沿用已核對的 VPS 連線資料，SSH 私鑰使用梗圖站程式部署專用金鑰。
+2. 用既有管理 SSH 將 [程式部署腳本](../deploy/vps-code-deploy.sh) 傳到 VPS 暫存目錄，先跑 `bash -n`，再用 `sudo install -o root -g root -m 0755` 安裝至 `/usr/local/sbin/memedatabase-deploy`。將程式部署公鑰加到 `ubuntu` 的 `authorized_keys`，保留其他既有公鑰：
+
+   ```text
+   restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-deploy \"$SSH_ORIGINAL_COMMAND\"" ssh-ed25519 <程式部署專用公開金鑰>
+   ```
+
+3. 確認 Actions secrets 與受限 SSH 已就緒後，在首次推送 workflow **之前**停止輪詢，確保只由通過檢查的 Actions 啟動部署。停止 timer 不會停止站台容器。先確認沒有部署服務正在執行，再推送。
+
+   ```bash
+   sudo systemctl disable --now memedatabase-deploy.timer
+   systemctl is-active memedatabase-deploy.service
+   ```
+
+4. 在 GitHub Actions 核對部署結果。到 VPS 讀回成功版本紀錄、檢查容器與 `/health/live`，最後開啟正式站驗收。若需回到輪詢，執行 `sudo systemctl enable --now memedatabase-deploy.timer`，之後會依 GitHub `main` 更新。
+
+**手動重建**適用於初始安裝或需要人工排查時。
 
 ```bash
 cd /opt/memedatabase

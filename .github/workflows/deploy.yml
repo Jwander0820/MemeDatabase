@@ -1,0 +1,56 @@
+name: Deploy MemeDatabase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memedatabase-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'Jwander0820/MemeDatabase' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check deployment and gallery
+        run: |
+          bash -n deploy/vps-code-deploy.sh
+          bash -n deploy/vps-publication.sh
+          docker compose --profile public --profile tunnel config --quiet
+          node --test tests/*.cjs
+  deploy:
+    needs: check
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Deploy checked revision via restricted SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_USER:?}" "${VPS_SSH_KEY:?}" "${VPS_KNOWN_HOSTS:?}"
+          [[ $VPS_HOST =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ && $VPS_PORT =~ ^[0-9]{1,5}$ && $VPS_USER == ubuntu ]]
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$VPS_SSH_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          ssh -F /dev/null -nT -i "$ssh_dir/key" -p "$VPS_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "$VPS_USER@$VPS_HOST" "deploy $GITHUB_SHA"

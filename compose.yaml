@@ -88,6 +88,7 @@ services:
       MEMES_THUMBNAIL_DIR: /data/thumbnails
       MEMES_WEB_DIR: /data/web
       MEMES_VPS_SSH_DIR: /deploy-ssh
+      MEMES_VPS_RESTRICTED_SSH: ${MEMES_VPS_RESTRICTED_SSH:-0}
       MEMES_RELEASE_ROOT: /releases
       MEMES_R2_ACCOUNT_ID: ${MEMES_R2_ACCOUNT_ID:-}
       MEMES_R2_ACCESS_KEY_ID: ${MEMES_R2_ACCESS_KEY_ID:-}

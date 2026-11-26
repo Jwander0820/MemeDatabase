@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 DEFAULT_CONFIG = {'ssh_host': '', 'release_root': '/srv/memedatabase/releases'}
 
 
+def restricted_ssh():
+    return os.environ.get('MEMES_VPS_RESTRICTED_SSH') == '1'
+
+
 def now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
@@ -116,7 +120,7 @@ class VpsPublication:
             ssh_dir = os.environ.get('MEMES_VPS_SSH_DIR')
             ssh_ready = not ssh_dir or all((Path(ssh_dir)/name).is_file() for name in ('known_hosts', 'id_ed25519'))
             return {'config': config, 'versions': versions, 'job': copy.deepcopy(self.job),
-                    'ssh_available': bool(shutil.which('ssh') and shutil.which('scp')),
+                    'ssh_available': bool(shutil.which('ssh') and (restricted_ssh() or shutil.which('scp'))),
                     'ssh_ready': ssh_ready}
 
     def save_config(self, data):
@@ -133,8 +137,10 @@ class VpsPublication:
                 not isinstance(data.get('activate'), bool)):
             raise ValueError('發布只接受有效的 version 與布林 activate')
         config = config_value(self.config())
-        if not shutil.which('ssh') or not shutil.which('scp'):
+        if not shutil.which('ssh') or (not restricted_ssh() and not shutil.which('scp')):
             raise ValueError('本機服務缺少 SSH／SCP 工具')
+        if restricted_ssh() and config['release_root'] != DEFAULT_CONFIG['release_root']:
+            raise ValueError('受限發布模式只支援預設的 VPS 發布目錄')
         if not (self.root/'versions'/data['version']/'manifest.json').is_file():
             raise ValueError('找不到已匯出的本機版本')
         with self.lock:
@@ -154,9 +160,9 @@ class VpsPublication:
             self.job['events'].append({'time': now(), 'message': stage})
             write_json(self.job_path, self.job)
 
-    def _command(self, args, *, timeout=1800):
+    def _command(self, args, *, timeout=1800, stdin=None):
         result = self.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace',
-                          timeout=timeout, shell=False)
+                          timeout=timeout, shell=False, **({'stdin': stdin} if stdin is not None else {}))
         if result.returncode:
             # 不將遠端 stdout／stderr 或 SSH config 原文送回 UI，避免洩漏敏感資訊。
             raise ValueError(f'{self.job["stage"]}失敗（結束碼 {result.returncode}）；請確認 SSH 金鑰、主機指紋、目錄權限及 VPS 映像版本')
@@ -172,8 +178,10 @@ class VpsPublication:
                 if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._/:@-]*', image):
                     raise ValueError('VPS 公開映像名稱不合法')
 
-                def remote(args):
-                    return self._command(['ssh', *options, host, shlex.join(args)])
+                restricted = restricted_ssh()
+
+                def remote(args, *, stdin=None):
+                    return self._command(['ssh', *options, '-T', host, shlex.join(args)], stdin=stdin)
 
                 def container(command, *, writable=False, bundle=False):
                     mounts = ['-v', config['release_root'] + ':/releases' + ('' if writable else ':ro')]
@@ -188,7 +196,7 @@ class VpsPublication:
                     self._update('驗證本機發布包')
                     manifest = validate(self.root, self.job['version'])
                     self._update('確認 VPS 是否已安裝此版')
-                    info = json.loads(container(['python', '-c',
+                    info = json.loads(remote(['check-version', self.job['version']]) if restricted else container(['python', '-c',
                         "import json,sys; from pathlib import Path; "
                         "from src.anime_memes.releases import validate; "
                         "r=Path('/releases'); v=sys.argv[1]; folder=r/'versions'/v; "
@@ -203,7 +211,8 @@ class VpsPublication:
                             raise ValueError('VPS 的同名版本內容不同，不可覆寫')
                         if self.job['activate']:
                             self._update('VPS 已有相同版本，驗證並啟用')
-                            activated = json.loads(runtime('activate', '--root', '/releases', self.job['version'], writable=True))
+                            activated = json.loads(remote(['activate', self.job['version']]) if restricted else
+                                                   runtime('activate', '--root', '/releases', self.job['version'], writable=True))
                             if not isinstance(activated, dict) or activated.get('version') != self.job['version']:
                                 raise ValueError('VPS 啟用結果不符')
                         result = {'version': self.job['version'], 'count': manifest['count'],
@@ -212,19 +221,26 @@ class VpsPublication:
                                      status='succeeded', finished_at=now(), result=result)
                         return
                     self._update('取得 VPS 縮圖清單')
-                    inventory = json.loads(runtime('media-inventory', '--root', '/releases'))
+                    inventory = json.loads(remote(['media-inventory']) if restricted else
+                                           runtime('media-inventory', '--root', '/releases'))
                     self._update('打包缺少的縮圖與公開資料庫')
                     bundle = Path(folder)/'release.tar.gz'
                     stats = build_bundle(self.root, self.job['version'], bundle, inventory=inventory)
                     self._update('上傳發布包', bundle=stats)
-                    uploaded = True  # SCP 部分失敗時也嘗試清除暫存。
-                    self._command(['scp', *options, '-q', str(bundle), host + ':' + remote_bundle])
-                    remote(['chmod', '644', remote_bundle])
-                    self._update('VPS 安裝與驗證' + ('，完成後啟用' if self.job['activate'] else ''))
-                    args = ['install-bundle', '--root', '/releases']
-                    if self.job['activate']:
-                        args.append('--activate')
-                    result = json.loads(runtime(*args, '/bundle.tar.gz', writable=True, bundle=True))
+                    if restricted:
+                        action = 'install-and-activate' if self.job['activate'] else 'install'
+                        self._update('上傳至 VPS 並安裝驗證' + ('，完成後啟用' if self.job['activate'] else ''))
+                        with bundle.open('rb') as stream:
+                            result = json.loads(remote([action], stdin=stream))
+                    else:
+                        uploaded = True  # SCP 部分失敗時也嘗試清除暫存。
+                        self._command(['scp', *options, '-q', str(bundle), host + ':' + remote_bundle])
+                        remote(['chmod', '644', remote_bundle])
+                        self._update('VPS 安裝與驗證' + ('，完成後啟用' if self.job['activate'] else ''))
+                        args = ['install-bundle', '--root', '/releases']
+                        if self.job['activate']:
+                            args.append('--activate')
+                        result = json.loads(runtime(*args, '/bundle.tar.gz', writable=True, bundle=True))
                     if not isinstance(result, dict) or result.get('version') != self.job['version'] or result.get('activated') is not self.job['activate']:
                         raise ValueError('VPS 回傳的發布結果不符，請確認遠端版本')
                     self._update('VPS 已啟用此版' if self.job['activate'] else 'VPS 安裝完成，尚未啟用',

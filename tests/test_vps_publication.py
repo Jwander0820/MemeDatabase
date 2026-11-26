@@ -14,8 +14,9 @@ from src.anime_memes.web import create_app
 class VpsPublicationTest(unittest.TestCase):
     setUp = fixtures.ReleaseBundleTest.setUp
 
-    def manager(self, *, fail_upload=False, block=None, installed=False):
-        self.enterContext(patch.dict(os.environ, {'MEMES_VPS_SSH_DIR': '', 'MEMES_VPS_IMAGE': 'memedatabase-public-api'}))
+    def manager(self, *, fail_upload=False, block=None, installed=False, restricted=False):
+        self.enterContext(patch.dict(os.environ, {'MEMES_VPS_SSH_DIR': '', 'MEMES_VPS_IMAGE': 'memedatabase-public-api',
+                                                'MEMES_VPS_RESTRICTED_SSH': '1' if restricted else '0'}))
         self.enterContext(patch('src.anime_memes.vps_publication.shutil.which', return_value='ssh'))
         self.commands = []
 
@@ -23,7 +24,7 @@ class VpsPublicationTest(unittest.TestCase):
             self.assertFalse(kwargs['shell'])
             self.commands.append(args)
             output, code = '', 0
-            if 'current.json' in args[-1]:
+            if 'current.json' in args[-1] or args[-1].startswith('check-version '):
                 output = json.dumps({'installed': installed, 'manifest': self.manifest if installed else None})
             elif ' activate ' in args[-1]:
                 output = json.dumps(self.manifest)
@@ -38,6 +39,9 @@ class VpsPublicationTest(unittest.TestCase):
             elif 'install-bundle' in args[-1]:
                 output = json.dumps({'version': self.version, 'count': 1,
                                      'activated': '--activate' in args[-1]})
+            elif args[-1] in {'install', 'install-and-activate'}:
+                self.assertEqual(kwargs['stdin'].read(2), b'\x1f\x8b')
+                output = json.dumps({'version': self.version, 'activated': args[-1] == 'install-and-activate'})
             return subprocess.CompletedProcess(args, code, output, 'PRIVATE-ERROR')
 
         manager = VpsPublication(self.releases, self.base/'state', run=run)
@@ -70,6 +74,14 @@ class VpsPublicationTest(unittest.TestCase):
         job = self.finish(manager)
         self.assertEqual(job['status'], 'succeeded')
         self.assertFalse(job['result']['activated'])
+
+    def test_restricted_publish_streams_bundle_through_fixed_ssh_actions(self):
+        manager = self.manager(restricted=True)
+        manager.start({'version': self.version, 'activate': True})
+        self.assertEqual(self.finish(manager)['status'], 'succeeded')
+        self.assertEqual([args[-1] for args in self.commands],
+                         [f'check-version {self.version}', 'media-inventory', 'install-and-activate'])
+        self.assertTrue(all(args[0] == 'ssh' and '-T' in args for args in self.commands))
 
     def test_installed_version_can_be_activated_without_uploading_again(self):
         manager = self.manager(installed=True)
