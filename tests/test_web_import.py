@@ -2,10 +2,12 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from threading import Barrier
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 
@@ -87,6 +89,48 @@ class ImportApprovedTests(unittest.TestCase):
             self.assertIsNotNone(entry)
             self.assertEqual(entry["web_image_url"], "https://example.com/a.png")
         self.assertEqual(len(list((self.tmp / "att").glob("*.png"))), 1)
+
+    def test_本機圖片以內容跨名稱與批次去重(self):
+        for name in ("first.png", "renamed.png"):
+            (self.tmp / name).write_bytes(png_bytes())
+        def run(names, apply):
+            args = self.args([self.row(url=None, local_path=name) for name in names], apply)
+            args.local_root = self.tmp
+            return [r["status"] for r in web_import.import_approved(args)]
+        self.assertEqual(run(["first.png", "renamed.png"], False), ["ready", "duplicate"])
+        self.assertFalse(self.db.exists())
+        self.assertEqual(run(["first.png", "renamed.png"], True), ["imported", "duplicate"])
+        self.assertEqual(run(["renamed.png"], False), ["duplicate"])
+        self.assertEqual(run(["renamed.png"], True), ["duplicate"])
+        with closing(sqlite3.connect(self.db)) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM meme_entries").fetchone()[0], 1)
+            # 模擬舊版收錄，來源資訊只剩附件及匯入器的檔名。
+            conn.execute("UPDATE meme_entries SET local_import_sha256=NULL")
+            conn.commit()
+        self.assertEqual(run(["renamed.png"], True), ["duplicate"])
+        (self.tmp / "first.png").write_bytes(png_bytes("GIF"))
+        self.assertEqual(run(["first.png"], True), ["imported"])
+        self.assertEqual(len(list((self.tmp / "att").iterdir())), 2)
+
+    def test_雙連線同時正式匯入只建立一份(self):
+        args = self.args([self.row(url=None, local_path="same.png")], True)
+        args.local_root = self.tmp
+        (self.tmp / "same.png").write_bytes(png_bytes())
+        before_write = Barrier(2)
+        original = web_import.create_manual_entry
+
+        def write_together(*args, **kwargs):
+            before_write.wait(timeout=10)
+            return original(*args, **kwargs)
+
+        with patch.object(web_import, "create_manual_entry", write_together), ThreadPoolExecutor(2) as pool:
+            results = list(pool.map(web_import.import_approved, [args, args]))
+        self.assertCountEqual([r[0]["status"] for r in results], ["duplicate", "imported"])
+        with closing(sqlite3.connect(self.db)) as conn:
+            for table in ("meme_entries", "attachments", "discord_messages"):
+                self.assertEqual(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0], 1)
+        for directory in (args.attachment_dir, args.thumbnail_dir):
+            self.assertEqual(len(list(directory.iterdir())), 1)
 
     def test_重複網址標記為_duplicate(self):
         with patch.object(web_import, "fetch_image", side_effect=fake_fetch):

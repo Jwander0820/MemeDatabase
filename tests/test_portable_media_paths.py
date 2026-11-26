@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from src.anime_memes.db import connect, init_db
+from src.anime_memes.db import ADMIN_SCHEMA_VERSION, connect, init_db
 from src.anime_memes.paths import ROOT, portable_media_path, resolve_local
 
 
@@ -63,7 +63,7 @@ class MediaPathMigrationTest(unittest.TestCase):
             conn.execute("PRAGMA user_version = 2")
             conn.commit()
             init_db(conn)
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], ADMIN_SCHEMA_VERSION)
             self.assertEqual(self.paths(conn, "container"),
                              ("data/attachments/manual_a.jpg", "data/thumbnails/manual_a.webp", "data/web/a.webp"))
             self.assertEqual(self.paths(conn, "windows"), ("data/attachments/b.png", "data/thumbnails/b.webp", None))

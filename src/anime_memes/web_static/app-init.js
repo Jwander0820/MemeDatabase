@@ -1,3 +1,19 @@
+globalThis.addEventListener?.("keydown", (event) => {
+  const saveKey = ["Enter", "s", "S"].includes(event.key);
+  if (!saveKey || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey ||
+      event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+  const dialog = document.querySelector("dialog[open]");
+  let form;
+  if (dialog === createDialog) form = createForm;
+  else if (!dialog && state.selected && !event.target?.closest?.("#entryPublication")) {
+    form = document.querySelector("#editForm");
+  }
+  if (!form) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!event.repeat) form.requestSubmit();
+}, true);
+
 loadMore.addEventListener("click", async () => {
   // 第一頁就失敗時重試要整份重載；否則接續載入下一頁。
   const reset = state.items.length === 0;

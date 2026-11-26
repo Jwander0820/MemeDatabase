@@ -384,8 +384,8 @@ button.view-switch[aria-pressed="true"] { border-color: var(--chip-active); back
   z-index: 10;
   display: flex;
   flex-direction: column;
-  width: min(1280px, calc(100vw - 40px));
-  height: calc(100dvh - 40px);
+  width: min(1600px, calc(100vw - 32px));
+  height: calc(100dvh - 32px);
   margin: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -450,7 +450,7 @@ button.view-switch[aria-pressed="true"] { border-color: var(--chip-active); back
 
 .drawer-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(380px, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -466,13 +466,15 @@ button.view-switch[aria-pressed="true"] { border-color: var(--chip-active); back
   padding: 14px;
   background: var(--surface-2);
   overflow-y: auto;
+  container-type: inline-size;
 }
 
+/* 舞台至少保有欄寬的 16:9 高度（上限為視窗高度扣掉標頭），橫圖不被下方資訊擠小；其餘內容在左欄內捲動。 */
 .drawer-stage {
   display: grid;
-  flex: 1;
+  flex: 1 0 0;
   place-items: center;
-  min-height: 200px;
+  min-height: max(200px, min(56.25cqi, calc(100dvh - 140px)));
   margin: 0;
   border-radius: var(--radius);
   background: var(--stage);

@@ -55,6 +55,8 @@ function formValues() {
   for (const element of Array.from(form?.elements || [])) {
     if (element.name) values[element.name] = element.type === "checkbox" ? String(element.checked) : String(element.value);
   }
+  const typing = form?.querySelector?.(".tag-input-field");
+  if (typing) values.pendingTag = typing.value;
   return values;
 }
 
@@ -178,17 +180,19 @@ function detailTemplate(item) {
         <label class="field"><span>${T.speaker}</span><input name="speaker" value="${attr(item.speaker || "")}"></label>
       </div>
       <label class="field"><span>${T.quote}</span><textarea name="quote_text">${escapeHtml(item.quote_text || "")}</textarea></label>
-      <label class="field"><span>圖片出處（選填）</span><input type="url" name="source_page" value="${attr(item.source_page || "")}"></label>
+      <label class="field"><span>梗圖名稱（選填）</span><input name="display_title" value="${attr(item.display_title || "")}"></label>
+      <label class="field"><span>也可以這樣搜（選填，每行一個替代詞）</span><textarea name="search_aliases">${escapeHtml((item.search_aliases || []).join("\n"))}</textarea></label>
       <div class="field-grid">
         <label class="field"><span>${T.manualTags}</span><input name="tags" value="${attr((item.manual_tags || []).join(", "))}"></label>
         <label class="field"><span>${T.status}</span><select name="status">${statusOptions}</select></label>
       </div>
+      <label class="field"><span>圖片出處（選填）</span><input type="url" name="source_page" value="${attr(item.source_page || "")}"></label>
       <label class="field"><span>${T.notes}</span><textarea name="notes">${escapeHtml(item.notes || "")}</textarea></label>
       <div class="edit-actions">
         <button type="button" id="deleteEntry" class="danger">${T.deleteEntry}</button>
         <span class="spacer"></span>
         <button type="button" id="copyQuote">${T.copyQuote}</button>
-        <button class="primary" type="submit">${T.save}</button>
+        <button class="primary" type="submit" title="Ctrl+Enter 或 Ctrl+S" aria-keyshortcuts="Control+Enter Control+S">${T.save}</button>
       </div>
     </form>
     </section>
@@ -289,7 +293,11 @@ function bindDetailForm(item) {
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (form.dataset.saving) return;
     const payload = {
+      display_title: form.display_title.value,
+      search_aliases: form.search_aliases.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean),
+      tags: form.tags.tagInput ? form.tags.tagInput.commit() : form.tags.value,
       anime_title: form.anime_title.value,
       source_page: form.source_page.value,
       speaker: form.speaker.value,
@@ -297,29 +305,31 @@ function bindDetailForm(item) {
       status: form.status.value,
       notes: form.notes.value,
     };
-    const saved = await fetch(`/api/entries/${encodeURIComponent(item.key)}`, {
-      method: "PATCH",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload),
-    });
-    if (!saved.ok) return showToast(T.saveFailed);
-    const tags = await fetch(`/api/entries/${encodeURIComponent(item.key)}/tags`, {
-      method: "PUT",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({tags: form.tags.tagInput ? form.tags.tagInput.commit() : form.tags.value}),
-    });
-    if (!tags.ok) return showToast(T.tagsFailed);
-    showToast(T.saved);
-    globalThis.MemeTagInput?.refresh();
+    const submitted = formValues();
+    const stillOpen = () => document.querySelector("#editForm") === form && state.selected?.key === item.key;
+    form.dataset.saving = "true";
     try {
-      await loadMeta();
-      const fresh = await fetchEntry(item.key);
-      syncEntry(fresh);
-      // 儲存期間若已切換到別筆就不重畫抽屜；重畫會以新值重建表單快照。
-      if (state.selected?.key === item.key) renderDetail(fresh);
+      const saved = await fetch(`/api/entries/${encodeURIComponent(item.key)}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      if (!saved.ok) return showToast(errorMessage(await saved.json().catch(() => null), T.saveFailed));
+      if (stillOpen()) state.formSnapshot = submitted;
+      showToast(T.saved);
+      globalThis.MemeTagInput?.refresh();
+      try {
+        const fresh = await fetchEntry(item.key);
+        syncEntry(fresh);
+        if (stillOpen() && !hasUnsavedChanges()) renderDetail(fresh);
+        await loadMeta();
+      } catch {
+        showToast(T.decisionRefreshFailed);
+      }
     } catch {
-      state.formSnapshot = formValues();
-      showToast(T.decisionRefreshFailed);
+      showToast(T.saveFailed);
+    } finally {
+      delete form.dataset.saving;
     }
   });
 }
@@ -373,11 +383,16 @@ globalThis.addEventListener?.("keydown", (event) => {
   }
 });
 
-closeDrawer.addEventListener("click", closeDetail);
-scrim.addEventListener("click", closeDetail);
+function requestCloseDetail() {
+  if (hasUnsavedChanges() && !confirm("目前的修改尚未儲存，確定要關閉嗎？")) return;
+  closeDetail();
+}
+
+closeDrawer.addEventListener("click", requestCloseDetail);
+scrim.addEventListener("click", requestCloseDetail);
 globalThis.addEventListener?.("keydown", (event) => {
   if (event.key !== "Escape" || !state.selected || document.querySelector("dialog[open]")) return;
-  closeDetail();
+  requestCloseDetail();
 });
 
 function closeDetail() {

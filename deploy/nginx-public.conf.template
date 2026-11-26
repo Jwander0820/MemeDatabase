@@ -1,9 +1,16 @@
 limit_req_zone $binary_remote_addr zone=search:1m rate=${SEARCH_RATE};
+map "$uri:$arg_q" $log_keyword_search {
+    default 0;
+    ~^/api/v1/entries:.+ 1;
+}
+log_format keyword_search 'search status=$status seconds=$request_time';
 server {
     listen 8080;
     server_tokens off;
     autoindex off;
     client_max_body_size 1m;
+    # 時間戳記由 Docker 提供；存取日誌只記到達本站的關鍵字搜尋（含翻頁）。
+    access_log /dev/stdout keyword_search if=$log_keyword_search;
 
     # 訪客真實 IP：經 Cloudflare Tunnel 時，請求來自同一 compose 網路內的 cloudflared，
     # 真實 IP 在 CF-Connecting-IP。只信任私有網段與本機來源（對外 port 只綁 127.0.0.1，外部無法直連偽造），

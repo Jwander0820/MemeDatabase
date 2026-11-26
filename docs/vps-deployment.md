@@ -332,6 +332,14 @@ docker compose logs cloudflared
 docker compose logs public-nginx public-api
 ```
 
+查看最近一小時到達公開站的關鍵字搜尋（含翻頁）：
+
+```sh
+docker compose logs --since 1h --timestamps public-nginx | grep 'search status='
+```
+
+每行代表一次請求，例如 `search status=200 seconds=0.024` 表示成功且耗時 24 毫秒。429 表示限流，5xx 表示伺服器錯誤。這份存取日誌省略搜尋詞、訪客 IP、健康檢查與一般瀏覽；瀏覽器或 CDN 直接回應的請求也不會出現。
+
 - cloudflared 無法連線：看 `docker compose logs cloudflared`。token 空白或錯誤、VPS 無法連出，都會在這裡顯示。確認 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 正確且沒有多餘空白或引號。
 - 網站 502／1033 等：先在 VPS 用 `curl http://127.0.0.1:3637/health/live` 確認 public-nginx 正常，再確認控制台 Public Hostname 的 Service 是 `HTTP` 與 `public-nginx:8080`。
 - 429：搜尋限流依訪客 IP 計算。Nginx 只信任私有網段與 127.0.0.1 來源的 `CF-Connecting-IP` 作為真實 IP。若所有人都被一起限流，表示 Nginx 看到的是同一個來源 IP（例如沒有取到 `CF-Connecting-IP`），請檢查請求是否真的經過 Cloudflare／cloudflared，必要時暫時調高 `SEARCH_RATE`、`SEARCH_BURST` 並重建。

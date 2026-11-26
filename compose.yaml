@@ -72,7 +72,7 @@ services:
     cpus: 0.5
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/live"]
-      interval: 15s
+      interval: 30s
       timeout: 5s
       retries: 3
   private-api:
@@ -121,7 +121,7 @@ services:
     cpus: 0.5
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/ready"]
-      interval: 15s
+      interval: 30s
       timeout: 5s
       retries: 3
   private-mcp:

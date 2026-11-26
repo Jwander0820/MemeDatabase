@@ -68,20 +68,21 @@ def update_entry(conn, key, data):
     if "display_title" in data:
         updates.append("display_title = ?")
         params.append((data["display_title"] or "").strip() or None)
-    if not updates and aliases is None:
-        if "source_page" not in data:
-            raise ValueError("no fields to update")
+    if not updates and aliases is None and "source_page" not in data and "tags" not in data:
+        raise ValueError("no fields to update")
     if "source_page" in data:
         updates.append("source_page = ?")
         params.append(source_page_url(data["source_page"]))
     updates.append(f"updated_at = {ISO_NOW_SQL}")
     params.append(key)
-    cursor = conn.execute(f"UPDATE meme_entries SET {', '.join(updates)} WHERE key = ?", params)
-    if cursor.rowcount == 0:
-        raise KeyError(key)
-    if aliases is not None:
-        replace_aliases(conn, key, aliases)
-    conn.commit()
+    with conn:
+        cursor = conn.execute(f"UPDATE meme_entries SET {', '.join(updates)} WHERE key = ?", params)
+        if cursor.rowcount == 0:
+            raise KeyError(key)
+        if aliases is not None:
+            replace_aliases(conn, key, aliases)
+        if "tags" in data:
+            _replace_manual_tags(conn, key, data["tags"])
     return fetch_entry(conn, key)
 
 
@@ -90,19 +91,19 @@ def update_tags(conn, key, data):
         raise ValueError("JSON object required")
     if fetch_entry(conn, key) is None:
         raise KeyError(key)
-    tags = data.get("tags")
+    return update_entry(conn, key, {"tags": data.get("tags")})
+
+
+def _replace_manual_tags(conn, key, tags):
     if isinstance(tags, str):
         tag_values = split_tags(tags)
-    elif isinstance(tags, list):
-        tag_values = [str(item).strip() for item in tags if str(item).strip()]
+    elif isinstance(tags, list) and all(isinstance(item, str) for item in tags):
+        tag_values = [item.strip() for item in tags if item.strip()]
     else:
         raise ValueError("tags must be a string or list")
     conn.execute("DELETE FROM entry_tags WHERE entry_key = ? AND source = 'manual'", (key,))
     for tag in dedupe(tag_values):
         add_entry_tag(conn, key, tag, "manual", None, "web editor")
-    conn.execute(f"UPDATE meme_entries SET updated_at = {ISO_NOW_SQL} WHERE key = ?", (key,))
-    conn.commit()
-    return fetch_entry(conn, key)
 
 
 def delete_entry(conn, key, attachment_root, thumbnail_root):
@@ -163,7 +164,7 @@ def delete_entry(conn, key, attachment_root, thumbnail_root):
     )
 
 
-def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, web_image_url=None):
+def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, web_image_url=None, local_import_sha256=None):
     source_page = source_page_url(form.get("source_page"))
     aliases = validate_aliases(json.loads(form.get("search_aliases", "[]")))
     display_title = (form.get("display_title") or "").strip() or None
@@ -260,8 +261,8 @@ def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, 
                 notes or None,
             ),
         )
-        conn.execute("UPDATE meme_entries SET display_title=?, source_page=?, web_image_url=? WHERE key=?",
-                     (display_title, source_page, web_image_url, key))
+        conn.execute("UPDATE meme_entries SET display_title=?, source_page=?, web_image_url=?, local_import_sha256=? WHERE key=?",
+                     (display_title, source_page, web_image_url, local_import_sha256, key))
         replace_aliases(conn, key, aliases)
         for tag in tag_values:
             add_entry_tag(conn, key, tag, "manual", None, "manual upload")

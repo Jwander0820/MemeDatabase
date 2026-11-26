@@ -102,6 +102,7 @@ def fetch_entry_or_404(conn: sqlite3.Connection, key: str) -> sqlite3.Row:
 
 def serialize_entry(row: sqlite3.Row, *, include_ocr: bool = False) -> dict[str, Any]:
     item = dict(row)
+    item.pop("local_import_sha256", None)
     item["search_aliases"] = json.loads(item.pop("search_aliases_json", "[]"))
     item["resolved_title"] = resolve_title(item)
     tags = [tag for tag in (item.get("tags") or "").split(",") if tag]

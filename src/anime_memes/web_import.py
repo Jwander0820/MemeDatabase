@@ -1,4 +1,5 @@
 """由本機 CLI 讀取人工核准的網路梗圖清單。"""
+import hashlib
 import json
 import sqlite3
 from contextlib import ExitStack, closing
@@ -12,6 +13,7 @@ from PIL import Image
 from werkzeug.datastructures import FileStorage
 
 from .db import connect, init_db
+from .paths import resolve_local
 from .management import create_manual_entry, source_page_url
 
 
@@ -49,6 +51,24 @@ def read_local_image(local_root, rel_path):
     return _validate_image_bytes(target.read_bytes(), "local-meme")
 
 
+def legacy_local_hashes(conn, columns):
+    """舊版匯入器以 local-meme 命名附件，但未保存內容指紋。"""
+    if not conn or "web_image_url" not in columns:
+        return set()
+    sql = """SELECT a.local_path FROM meme_entries e JOIN attachments a ON a.id=e.attachment_id
+             WHERE e.web_image_url IS NULL AND e.pairing_method='manual_upload'
+             AND a.file_name IN ('local-meme.jpg','local-meme.png','local-meme.gif','local-meme.webp')"""
+    if "local_import_sha256" in columns:
+        sql += " AND e.local_import_sha256 IS NULL"
+    hashes = set()
+    for (stored,) in conn.execute(sql):
+        path = resolve_local(stored, "ATTACHMENT")
+        if path and path.is_file():
+            with path.open("rb") as stream:
+                hashes.add(hashlib.file_digest(stream, "sha256").hexdigest())
+    return hashes
+
+
 def import_approved(args):
     lines = args.approved_jsonl.read_text(encoding="utf-8-sig").splitlines()
     results = []
@@ -61,7 +81,9 @@ def import_approved(args):
         elif Path(args.db).is_file():
             uri = Path(args.db).resolve().as_uri() + "?mode=ro"
             conn = stack.enter_context(closing(sqlite3.connect(uri, uri=True)))
-        if conn and any(r[1] == "web_image_url" for r in conn.execute("PRAGMA table_info(meme_entries)")):
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(meme_entries)")} if conn else set()
+        known_local = None
+        if "web_image_url" in columns:
             seen.update(r[0] for r in conn.execute("SELECT web_image_url FROM meme_entries WHERE web_image_url IS NOT NULL"))
         for number, line in enumerate(lines, 1):
             if not line.strip():
@@ -75,13 +97,9 @@ def import_approved(args):
                 url = source_page_url(row.get("image_url"))
                 local_rel = row.get("local_path")
                 local_root = getattr(args, "local_root", None)
-                if url:
-                    dedup_key = url
-                elif isinstance(local_rel, str) and local_rel.strip() and local_root:
-                    dedup_key = f"local:{local_rel}"
-                else:
+                if not url and not (isinstance(local_rel, str) and local_rel.strip() and local_root):
                     raise ValueError("缺少圖片直連或本機路徑")
-                if dedup_key in seen:
+                if url and url in seen:
                     result.update(status="duplicate")
                     continue
                 tags = row.get("tags")
@@ -96,13 +114,36 @@ def import_approved(args):
                     form[dest] = value or ""
                 loader = fetch_image(url) if url else read_local_image(local_root, local_rel)
                 with closing(loader) as upload:
+                    digest = None
+                    if not url:
+                        if known_local is None:
+                            known_local = legacy_local_hashes(conn, columns)
+                            if "local_import_sha256" in columns:
+                                known_local.update(r[0] for r in conn.execute(
+                                    "SELECT local_import_sha256 FROM meme_entries WHERE local_import_sha256 IS NOT NULL"))
+                        digest = hashlib.file_digest(upload.stream, "sha256").hexdigest()
+                        upload.stream.seek(0)
+                        if digest in known_local:
+                            result.update(status="duplicate")
+                            continue
                     if args.apply:
                         entry = create_manual_entry(conn, form, upload, args.attachment_dir, args.thumbnail_dir,
-                                                    web_image_url=url)
+                                                    web_image_url=url, local_import_sha256=digest)
                         result.update(status="imported", key=entry["key"])
                     else:
                         result.update(status="ready")
-                seen.add(dedup_key)
+                if url:
+                    seen.add(url)
+                else:
+                    known_local.add(digest)
+            except sqlite3.IntegrityError as exc:
+                if exc.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE" and str(exc) in {
+                    "UNIQUE constraint failed: meme_entries.local_import_sha256",
+                    "UNIQUE constraint failed: meme_entries.web_image_url",
+                }:
+                    result.update(status="duplicate")
+                else:
+                    result.update(status="error", error=str(exc))
             except HTTPError as exc:
                 result.update(status="error", error=f"HTTP {exc.code}")
                 exc.close()

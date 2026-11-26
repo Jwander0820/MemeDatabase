@@ -21,6 +21,35 @@ createImage.addEventListener("change", () => {
   createError.textContent = "";
 });
 
+function selectTransferredImage(files) {
+  const [file] = files;
+  if (files.length !== 1 || !createImage.accept.split(",").includes(file.type)) {
+    createError.textContent = "請一次加入一張 JPG、PNG、WebP 或 GIF 圖片。";
+    return;
+  }
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  createImage.files = transfer.files;
+  createImage.dispatchEvent(new Event("change"));
+}
+
+createDialog.addEventListener("dragover", (event) => {
+  if (!event.dataTransfer.types.includes("Files")) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+});
+createDialog.addEventListener("drop", (event) => {
+  if (!event.dataTransfer.files.length) return;
+  event.preventDefault();
+  selectTransferredImage(event.dataTransfer.files);
+});
+createDialog.addEventListener("paste", (event) => {
+  const files = event.clipboardData?.files;
+  if (!files?.length) return;
+  event.preventDefault();
+  selectTransferredImage(files);
+});
+
 createDialog.addEventListener("close", resetCreateForm);
 
 // 點框外（backdrop）關閉：按下與放開都在框外才算，避免框內拖曳選字時誤關。
@@ -43,7 +72,7 @@ function closeOnBackdrop(dialog, canClose = () => true) {
 function createFormIsBlank() {
   if (createImage.files.length) return false;
   const typingTag = createForm.querySelector(".tag-input-field")?.value.trim();
-  return !typingTag && ["anime_title", "speaker", "source_page", "quote_text", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
+  return !typingTag && ["anime_title", "speaker", "quote_text", "display_title", "search_aliases", "source_page", "tags", "notes"].every((name) => !createForm.elements[name].value.trim());
 }
 
 closeOnBackdrop(createDialog, createFormIsBlank);
@@ -52,12 +81,17 @@ closeOnBackdrop(document.querySelector("#publicationDialog"));
 
 createForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (saveCreate.disabled) return;
   createError.textContent = "";
   saveCreate.disabled = true;
   try {
+    createForm.elements.tags.tagInput?.commit();
+    const body = new FormData(createForm);
+    const aliases = createForm.elements.search_aliases.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    body.set("search_aliases", JSON.stringify(aliases));
     const response = await fetch("/api/entries/manual", {
       method: "POST",
-      body: (createForm.elements.tags.tagInput?.commit(), new FormData(createForm)),
+      body,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -68,7 +102,7 @@ createForm.addEventListener("submit", async (event) => {
     searchInput.value = "";
     setSearchField("");
     statusFilter.value = data.status;
-    sortFilter.value = "updated";
+    sortFilter.value = "";
     favoriteOnly.checked = false;
     missingImage.checked = false;
     noTags.checked = false;

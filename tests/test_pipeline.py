@@ -560,6 +560,8 @@ class PipelineTest(unittest.TestCase):
                     "anime_title": "手動作品",
                     "speaker": "手動角色",
                     "quote_text": "手動新增台詞",
+                    "display_title": "測試梗名",
+                    "search_aliases": '["另外 一種說法"]',
                     "source_page": "https://example.org/posts/42?image=2",
                     "tags": "收藏, 手動",
                     "status": "ready",
@@ -573,6 +575,9 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(item["pairing_method"], "manual_upload")
             self.assertEqual(item["anime_title"], "手動作品")
             entry_url = "/api/entries/" + item["key"]
+            detail = client.get(entry_url).get_json()
+            self.assertEqual(detail["display_title"], "測試梗名")
+            self.assertEqual(detail["search_aliases"], ["另外 一種說法"])
             self.assertEqual(client.get(entry_url).get_json()["source_page"], "https://example.org/posts/42?image=2")
             self.assertEqual(client.patch(entry_url, json={"source_page": None}).status_code, 200)
             self.assertIsNone(client.get(entry_url).get_json()["source_page"])

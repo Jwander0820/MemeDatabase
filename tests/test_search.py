@@ -35,6 +35,17 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(self.find("我又回來了", tag="復活").get_json()["total"], 1)
         self.assertEqual(self.client.get("/api/entries/meme_1").get_json()["quote_text"], "復！活！")
 
+    def test_名稱替代詞與人工標籤一起儲存或回復(self):
+        saved = self.update(display_title="已保存", search_aliases=["可以 這樣搜"], tags=["舊標籤"], status="ready")
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(self.find("可以 這樣搜").get_json()["items"][0]["key"], "meme_1")
+        bad = self.update(display_title="無法保存", search_aliases=["新別名"], tags={"invalid": True})
+        self.assertEqual(bad.status_code, 400)
+        row = self.client.get("/api/entries/meme_1").get_json()
+        self.assertEqual(row["display_title"], "已保存")
+        self.assertEqual(row["search_aliases"], ["可以 這樣搜"])
+        self.assertEqual(row["manual_tags"], ["舊標籤"])
+
     def test_alias_validation_atomicity_and_cascade(self):
         self.seed()
         bad = self.update(display_title="不能保存", search_aliases=["有效", "！！！"])

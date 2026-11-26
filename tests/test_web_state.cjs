@@ -64,6 +64,53 @@ async function harness({observer = false} = {}) {
 
 const entryResponse = key => ({ok: true, json: async () => ({key, tags: [], manual_tags: [], tag_suggestions: []})});
 
+test('Ctrl+Enter 和 Ctrl+S 只送出目前的表單，忽略組字、長按與普通 Enter', async () => {
+  const h = await harness();
+  const submitted = [];
+  let dialog = null;
+  h.context.document.querySelector = s => s === 'dialog[open]' ? dialog : h.node(s);
+  for (const id of ['#editForm', '#createForm']) h.node(id).requestSubmit = () => submitted.push(id);
+  h.run('state.selected = {key:"a"}');
+  const enter = options => h.key({key:'Enter', ctrlKey:true, stopPropagation() {}, ...options});
+  enter({ctrlKey:false});
+  enter({isComposing:true});
+  enter({repeat:true});
+  enter({});
+  enter({key:"s"});
+  dialog = h.node('#createDialog');
+  enter({});
+  enter({key:"S"});
+  dialog = h.node('#publicationDialog');
+  enter({});
+  assert.deepEqual(submitted, ['#editForm', '#editForm', '#createForm', '#createForm']);
+});
+
+test('新增梗圖的拖入與貼上共用選檔流程，文字貼上與無效檔案保留原狀', async () => {
+  const h = await harness();
+  const input = h.node('#createImage');
+  const handlers = h.node('#createDialog').handlers;
+  const changes = [];
+  input.accept = 'image/png,image/jpeg,image/gif,image/webp';
+  input.dispatchEvent = event => changes.push(event.type);
+  h.context.Event = Event;
+  h.context.DataTransfer = class {
+    files = [];
+    items = {add: file => this.files.push(file)};
+  };
+  const png = {type: 'image/png'};
+  const gif = {type: 'image/gif'};
+  let prevented = 0;
+  const preventDefault = () => { prevented++; };
+  handlers.drop({dataTransfer: {files: [png]}, preventDefault});
+  assert.equal(input.files[0], png);
+  handlers.paste({clipboardData: {files: [gif]}, preventDefault});
+  handlers.paste({clipboardData: {files: []}, preventDefault});
+  handlers.drop({dataTransfer: {files: [png, gif]}, preventDefault});
+  assert.equal(input.files[0], gif);
+  assert.deepEqual(changes, ['change', 'change']);
+  assert.equal(prevented, 3);
+});
+
 // 讓 state 處於「已載入 items、正在檢視第一筆」的狀態。
 async function openedHarness(keys, total = keys.length) {
   const h = await harness();
@@ -406,6 +453,7 @@ test('saving does not reload the list and refreshes the form snapshot', async ()
   const h = await harness();
   const urls = [];
   const form = {
+    dataset: {}, display_title: {value: '梗圖'}, search_aliases: {value: ' 一句 話\n\n別名 '},
     anime_title: {value: 't'}, source_page: {value: ''}, speaker: {value: ''}, quote_text: {value: 'q'},
     status: {value: 'ready'}, notes: {value: ''}, tags: {value: 'x'}, elements: [{name: 'quote_text', value: 'q'}],
     handlers: {}, addEventListener(type, fn) { this.handlers[type] = fn; },
@@ -414,6 +462,12 @@ test('saving does not reload the list and refreshes the form snapshot', async ()
   h.run('state.items = [{key: "a"}]; state.total = 1;');
   h.fetch(async (url, options) => {
     urls.push(url);
+    if (options?.method === 'PATCH') {
+      const data = JSON.parse(options.body);
+      assert.equal(data.display_title, '梗圖');
+      assert.deepEqual(data.search_aliases, ['一句 話', '別名']);
+      assert.equal(data.tags, 'x');
+    }
     if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
     return {ok: true, json: async () => ({key: 'a', tags: [], manual_tags: [], tag_suggestions: []})};
   });
@@ -421,8 +475,36 @@ test('saving does not reload the list and refreshes the form snapshot', async ()
   h.run('bindDetailForm({key: "a", tags: [], tag_suggestions: []})');
   form.elements[0].value = 'edited';
   await form.handlers.submit({preventDefault() {}});
+  assert.deepEqual(urls, ['/api/entries/a', '/api/entries/a', '/api/meta']);
   assert.ok(urls.every(url => !url.startsWith('/api/entries?')));
   assert.equal(h.run('hasUnsavedChanges()'), false);
+});
+
+test('關閉鈕、背景、Esc 取消關閉都保留草稿', async () => {
+  const h = await openedHarness(['a']);
+  const field = {name: 'quote_text', value: '草稿'};
+  h.node('#editForm').elements = [field];
+  let calls = 0;
+  h.context.confirm = () => { calls++; return false; };
+  h.node('#closeDrawer').handlers.click();
+  h.node('#scrim').handlers.click();
+  h.key({key: 'Escape'});
+  assert.equal(calls, 3);
+  assert.equal(h.run('state.selected.key'), 'a');
+  assert.equal(field.value, '草稿');
+  h.context.confirm = () => true;
+  h.key({key: 'Escape'});
+  assert.equal(h.run('state.selected'), null);
+});
+
+test('自動搜尋沿用後端排序，手動排序優先', async () => {
+  const h = await harness();
+  h.node('#searchInput').value = '別名';
+  assert.equal(h.run('params().get("sort")'), null);
+  h.node('#sortFilter').value = 'updated';
+  assert.equal(h.run('params().get("sort")'), 'updated');
+  h.node('#sortFilter').value = 'relevance';
+  assert.equal(h.run('params().get("sort")'), 'relevance');
 });
 
 test('deleting opens the next entry at the same position and lowers total', async () => {

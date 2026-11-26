@@ -270,10 +270,15 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         if version <= current:
             continue
         conn.commit()
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE")
         try:
-            migration(conn)
-            conn.execute(f"PRAGMA user_version = {int(version)}")
+            # 另一個匯入程序可能在本連線等待寫鎖期間已經完成遷移。
+            locked_version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if locked_version > latest:
+                raise RuntimeError("資料庫結構已由較新版程式升級")
+            if locked_version < version:
+                migration(conn)
+                conn.execute(f"PRAGMA user_version = {int(version)}")
             conn.execute("COMMIT")
         except BaseException:
             if conn.in_transaction:
@@ -466,6 +471,12 @@ def _migration_3_portable_media_paths(conn: sqlite3.Connection) -> None:
             )
 
 
+def _migration_4_local_fingerprint(conn: sqlite3.Connection) -> None:
+    ensure_columns(conn, "meme_entries", {"local_import_sha256": "TEXT"})
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_local_import_sha256 ON meme_entries(local_import_sha256) "
+                 "WHERE local_import_sha256 IS NOT NULL")
+
+
 # 管理庫結構遷移清單（以 PRAGMA user_version 記錄已套用版本；與公開庫的 SCHEMA_VERSION 無關）。
 # 新增遷移的規則：
 # - 只能在清單尾端追加新版本，版本號連續遞增。
@@ -476,6 +487,7 @@ MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_1_baseline),
     (2, _migration_2_iso_timestamps),
     (3, _migration_3_portable_media_paths),
+    (4, _migration_4_local_fingerprint),
 ]
 ADMIN_SCHEMA_VERSION = MIGRATIONS[-1][0]
 

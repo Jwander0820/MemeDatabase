@@ -132,7 +132,7 @@ def taxonomy_indexes(taxonomy: dict[str, Any]) -> tuple[dict[str, dict[str, Any]
 def sync_taxonomy(conn: sqlite3.Connection, taxonomy: dict[str, Any]) -> None:
     validate_taxonomy(taxonomy)
     if not conn.in_transaction:
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE")
     deferred = conn.execute("PRAGMA defer_foreign_keys").fetchone()[0]
     conn.execute("SAVEPOINT taxonomy_sync")
     conn.execute("PRAGMA defer_foreign_keys=ON")

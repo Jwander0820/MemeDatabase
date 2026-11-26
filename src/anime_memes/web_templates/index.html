@@ -70,6 +70,8 @@
         <label class="field">
           <span>排序</span>
           <select id="sortFilter">
+            <option value="">自動（搜尋時按相關度）</option>
+            <option value="relevance">相關度</option>
             <option value="updated">最近更新</option>
             <option value="created">最近新增</option>
             <option value="source_new">來源新到舊</option>
@@ -129,12 +131,12 @@
 
   <aside id="drawer" class="drawer" role="dialog" aria-hidden="true" aria-label="梗圖詳情">
     <div class="drawer-bar">
-      <button id="closeDrawer" class="icon-button ghost" type="button" aria-label="關閉">×</button>
       <button id="prevEntry" class="icon-button ghost" type="button" aria-label="上一張" title="上一張（←）" disabled>‹</button>
       <button id="nextEntry" class="icon-button ghost" type="button" aria-label="下一張" title="下一張（→）" disabled>›</button>
       <span id="entryPosition" class="entry-position" aria-live="polite"></span>
       <strong class="drawer-title">梗圖詳情</strong>
       <button id="favoriteButton" class="icon-button favorite-button" type="button" aria-label="收藏">☆</button>
+      <button id="closeDrawer" class="icon-button ghost" type="button" aria-label="關閉" title="關閉（Esc）">×</button>
     </div>
     <div id="drawerBody" class="drawer-body"></div>
   </aside>
@@ -156,16 +158,17 @@
         <img id="createPreview" alt="圖片預覽">
         <span class="upload-icon" aria-hidden="true"><svg class="icon"><use href="#i-image"/></svg></span>
         <span class="upload-copy">
-          <strong>選擇梗圖圖片</strong>
+          <strong>點選、拖入圖片，或按 Ctrl+V 貼上</strong>
           <small>JPG、PNG、WebP 或 GIF，最大 50 MB</small>
         </span>
       </label>
 
       <div class="create-fields">
         <label class="field"><span>作品名稱</span><input name="anime_title" autocomplete="off"></label>
-        <label class="field"><span>圖片出處（選填）</span><input type="url" name="source_page" placeholder="https://"></label>
         <label class="field"><span>說話者</span><input name="speaker" autocomplete="off"></label>
         <label class="field create-wide"><span>圖片台詞</span><textarea name="quote_text" placeholder="輸入圖片中的主要台詞"></textarea></label>
+        <label class="field create-wide"><span>梗圖名稱（選填）</span><input name="display_title"></label>
+        <label class="field create-wide"><span>也可以這樣搜（選填，每行一個替代詞）</span><textarea name="search_aliases"></textarea></label>
         <label class="field"><span>標籤</span><input name="tags"></label>
         <label class="field"><span>狀態</span>
           <select name="status">
@@ -174,13 +177,14 @@
             <option value="ignored">已忽略</option>
           </select>
         </label>
+        <label class="field create-wide"><span>圖片出處（選填）</span><input type="url" name="source_page" placeholder="https://"></label>
         <label class="field create-wide"><span>備註</span><textarea name="notes" placeholder="選填，例如圖片來源或待確認事項"></textarea></label>
       </div>
 
       <div id="createError" class="form-error" role="alert" aria-live="polite"></div>
       <div class="create-actions">
         <button id="cancelCreate" type="button">取消</button>
-        <button id="saveCreate" class="primary" type="submit">新增至資料庫</button>
+        <button id="saveCreate" class="primary" type="submit" title="Ctrl+Enter 或 Ctrl+S" aria-keyshortcuts="Control+Enter Control+S">新增至資料庫</button>
       </div>
     </form>
   </dialog>

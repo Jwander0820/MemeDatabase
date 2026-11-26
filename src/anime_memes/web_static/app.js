@@ -140,7 +140,7 @@ function params(page = state.page) {
   search.set("page", page);
   search.set("page_size", state.pageSize);
   search.set("status", statusFilter.value);
-  search.set("sort", sortFilter.value);
+  if (sortFilter.value) search.set("sort", sortFilter.value);
   search.set("seed", state.randomSeed);
   if (searchInput.value.trim()) {
     search.set("q", searchInput.value.trim());
