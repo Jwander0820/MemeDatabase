@@ -25,7 +25,7 @@ from .paths import resolve_local
 from .r2 import R2Config, R2Error, store_from_env
 from .renditions import PRESETS, UNSUPPORTED_SUFFIXES, ensure_web_rendition, is_video, render_webp
 from .urls import original_url
-from .publication_cache import PILLOW_VERSION, PublicationCache, fingerprint
+from .publication_cache import CACHE_FORMAT, PILLOW_VERSION, PublicationCache, fingerprint
 
 ROOT = settings.ROOT
 _DEFAULT_STORE = object()  # 代表「由環境變數建立 R2 儲存」
@@ -264,14 +264,17 @@ def prepare_public_media(db_path, store, *, web_dir=None, cache=None):
                 force = False
                 original = conn.execute('SELECT local_path FROM attachments WHERE id=?', (row['id'],)).fetchone()[0]
                 original = resolve_local(original, 'ATTACHMENT') if original else None
-                signature = [1, PILLOW_VERSION, cache.source_signature(original), vars(PRESETS['web'])] if cache and original and original.is_file() else None
-                if signature:
+                signature = None
+                if cache and original and original.is_file():
+                    # 720P 綁定附件自己的 web_path，所以仍以原圖路徑為鍵；簽章只看內容。
+                    before, content = cache.observe(original)
+                    signature = [CACHE_FORMAT, PILLOW_VERSION, content, vars(PRESETS['web'])]
                     force = cache.get('web', original, signature) is None
                 path, sha = ensure_web_rendition(conn, row["id"], web_dir=web_dir, force=force)
                 if digest(path) != sha:
                     path, sha = ensure_web_rendition(conn, row['id'], web_dir=web_dir, force=True)
                 if signature:
-                    if fingerprint(original) != signature[2][0]:
+                    if fingerprint(original) != before:
                         raise ValueError('圖片在轉檔期間變動，請重試')
                     cache.put('web', original, signature, True)
                 object_key = store.key_for(sha)

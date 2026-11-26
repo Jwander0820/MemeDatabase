@@ -1,5 +1,6 @@
 from contextlib import closing
 import os
+import shutil
 import unittest
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ from PIL import Image
 import test_publication_media as fixtures
 from src.anime_memes import publishing as p
 from src.anime_memes.public_data import open_readonly
+from src.anime_memes import publication_cache as pc
 from src.anime_memes.publication_cache import PublicationCache
 
 
@@ -97,3 +99,40 @@ class PublicationCacheTest(unittest.TestCase):
         report = p.check_database(self.db)
         self.assertFalse(report['valid'])
         self.assertEqual(report['media_validation']['decoded'], 0)
+
+    def test_remount_metadata_change_keeps_cache(self):
+        # 重建容器會改變 st_dev／st_ino／st_ctime_ns 與掛載路徑，但原圖內容沒變，不可整批重轉。
+        self.select()
+        store = fixtures.FakeStore()
+        p.export_release(self.db, self.releases, store=store)
+        real = pc.fingerprint
+
+        def remounted(path):
+            fp = real(path)
+            return ['/remounted' + fp[0], fp[1] + 1, fp[2] + 1, fp[3], fp[4], fp[5] + 10**12]
+
+        with patch.object(pc, 'fingerprint', remounted), patch.object(p, 'fingerprint', remounted),                 patch.object(p, 'ensure_web_rendition', wraps=p.ensure_web_rendition) as ensure,                 patch.object(p, 'render_webp', side_effect=AssertionError('must reuse')):
+            second = p.export_release(self.db, self.releases, store=store)
+        self.assertFalse(ensure.call_args.kwargs['force'])
+        self.assertEqual(second['report']['media_validation']['decoded'], 0)
+        self.assertEqual(second['report']['media_validation']['thumbnails_reused'], 1)
+        self.assertEqual(second['report']['media_validation']['thumbnails_rendered'], 0)
+        self.assertEqual(len(store.uploads), 1)
+
+    def test_same_content_at_other_path_reuses_decode_and_thumbnail(self):
+        # 主機與容器看到的絕對路徑不同；解碼與縮圖只取決於內容，應可共用。
+        media = self.root / 'media'
+        media.mkdir()
+        preset = p.PRESETS['thumb']
+        with closing(PublicationCache(self.db)) as cache:
+            self.assertTrue(cache.decodable(self.original, p._decodable))
+            first = cache.thumbnail(self.original, media, p.render_webp, preset)
+        moved = self.root / 'mounted' / 'big.png'
+        moved.parent.mkdir()
+        shutil.copy(self.original, moved)
+        with closing(PublicationCache(self.db)) as cache:
+            self.assertTrue(cache.decodable(moved, lambda path: self.fail('must reuse decode')))
+            again = cache.thumbnail(moved, media, lambda *a: self.fail('must reuse thumbnail'), preset)
+            self.assertEqual(cache.stats['validation_reused'], 1)
+            self.assertEqual(cache.stats['thumbnails_reused'], 1)
+        self.assertEqual(first, again)
