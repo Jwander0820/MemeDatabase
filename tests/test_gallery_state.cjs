@@ -228,26 +228,44 @@ test('recordUsage 與 topUsed 依次數再依最近排序，並限制最多 100 
   assert.equal(saved.x0, undefined, '次數最少且最舊的被淘汰');
 });
 
-test('首頁先請求常用單筆再請求每日隨機，並剔除重複的 id', async () => {
-  const usage = {a: {count: 3, last: 1}, gone: {count: 2, last: 1}};
-  const g = gallery(false, memoryStorage({'meme-db-usage': JSON.stringify(usage), 'meme-db-favorites': JSON.stringify(['f1'])}));
-  const urls = g.pending.map(request => request.url);
-  assert.equal(urls[0], '/api/v1/entries/a?');
-  assert.equal(urls[1], '/api/v1/entries/gone?');
-  assert.equal(urls[2], '/api/v1/entries/f1?');
-  const list = new URLSearchParams(urls[3].split('?')[1]);
+test('首頁合併常用查詢，五次骰圖各只取一頁並沿用同版常用圖', async () => {
+  const [a, gone, f1, f2, f3] = ['a', 'b', 'c', 'd', 'e'].map(id => id.repeat(32));
+  const usage = {[a]: {count: 3, last: 1}, [gone]: {count: 2, last: 1}};
+  const g = gallery(true, memoryStorage({'meme-db-usage': JSON.stringify(usage), 'meme-db-favorites': JSON.stringify([f1, f2, f3])}));
+  const paramsOf = request => new URLSearchParams(request.url.split('?')[1]);
+  assert.equal(g.pending.length, 1);
+  const random = g.pending.shift();
+  const list = paramsOf(random);
   assert.equal(list.get('sort'), 'random');
   assert.equal(list.get('seed'), today());
-  const [a, gone, f1, random] = g.pending.splice(0);
-  await g.respond(a, {item: entry('a')});
-  await g.respond(gone, null, 404);
-  await g.respond(f1, {item: entry('f1')});
-  await g.respond(random, {version: 'v1', page: 1, total: 4, items: [entry('a'), entry('x'), entry('f1'), entry('y')]});
+  assert.equal(list.get('page_size'), '25');
+  g.observers[0]([{isIntersecting: true}]); // 空列表此時可見，加入卡片後需重新量測。
+  const data = {version: 'v1', page: 1, total: 29, items: [a, f1, 'x', 'y'].map(entry)};
+  await g.respond(random, data);
   await g.respond(g.pending.shift(), {version: 'v1', tags: []});
-  assert.equal(g.node('results').childElementCount, 4, '2 張常用 + 2 張不重複的隨機');
-  assert.match(g.node('status').textContent, /首頁推薦：常用 2 張＋每日隨機/);
-  assert.match(g.node('status').textContent, /已顯示 4／4 張/);
-  assert.ok(g.created.some(node => node.className === 'badge-pinned' && node.textContent === '常用'));
+  const batch = g.pending.shift();
+  assert.equal(paramsOf(batch).get('ids'), [a, gone, f1, f2, f3].join(','));
+  assert.equal(paramsOf(batch).get('version'), 'v1');
+  await g.respond(batch, {version: 'v1', items: [f3, f2, f1, a].map(entry)});
+  assert.equal(g.pending.length, 0);
+  assert.equal(g.node('results').childElementCount, 6, '4 張常用 + 2 張不重複的隨機');
+  assert.deepEqual(Array.from(g.run('pinnedIds')), [a, f1, f2, f3]);
+  for (let i = 0; i < 5; i++) {
+    const roll = g.node('rollMemes').onclick();
+    assert.equal(g.pending.length, 1);
+    const page = g.pending.shift();
+    assert.equal(paramsOf(page).has('ids'), false);
+    await g.respond(page, data);
+    await roll;
+    assert.equal(g.pending.length, 0);
+  }
+  const roll = g.node('rollMemes').onclick();
+  await g.respond(g.pending.shift(), {...data, version: 'v2'});
+  await g.respond(g.pending.shift(), {version: 'v2', tags: []});
+  assert.equal(paramsOf(g.pending[0]).get('version'), 'v2');
+  await g.respond(g.pending.shift(), {version: 'v2', items: []});
+  await roll;
+  assert.equal(g.run('pinnedIds.size'), 0);
 });
 
 test('有搜尋字或選標籤時不帶 sort=random', () => {

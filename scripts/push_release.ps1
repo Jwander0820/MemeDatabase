@@ -13,6 +13,7 @@
   遠端公開映像須支援 media-inventory；舊映像請先更新，或使用 -Full。
   -Prune：安裝（與啟用）完成後，在 VPS 停公開服務、執行 prune（保留最新三版與目前啟用版本），
           無論 prune 成功與否都重新啟動服務。停機約數秒，期間未快取的請求會失敗。
+  -KeepRecent：搭配 -Prune 指定保留的近期版本數，0 只保留啟用版。
   -DryRun：只印出將執行的命令，本機 bundle 步驟也不執行，不產生任何檔案。
 
 .EXAMPLE
@@ -29,6 +30,7 @@ param(
     [switch]$Activate,
     [switch]$Full,
     [switch]$Prune,
+    [ValidateRange(0, 20)][int]$KeepRecent = 3,
     [string]$RemoteComposeDir = "/opt/memedatabase",
     [switch]$DryRun
 )
@@ -64,7 +66,7 @@ $InventoryCommand = "docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:
 
 $Compose = "docker compose --profile public --profile tunnel"
 # 停服務 -> prune -> 不論 prune 結果都重新啟動，最後回傳 prune 的結束碼。
-$PruneCommand = "cd $RemoteComposeDir && $Compose stop && { docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases $Image python -m src.anime_memes.runtime prune --root /releases --service-stopped; rc=`$?; $Compose up -d --wait || exit 1; exit `$rc; }"
+$PruneCommand = "cd $RemoteComposeDir && $Compose stop && { docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases $Image python -m src.anime_memes.runtime prune --root /releases --service-stopped --keep-recent $KeepRecent; rc=`$?; $Compose up -d --wait || exit 1; exit `$rc; }"
 $Total = 5
 if (-not $Full) { $Total++ }
 if ($Prune) { $Total++ }

@@ -53,6 +53,8 @@
 
 `public-nginx` 是 compose 內的服務名稱，cloudflared 與它在同一個 compose 網路，可直接以名稱連線。儲存時 Cloudflare 會自動建立指向此 Tunnel 的 DNS CNAME。
 
+Tunnel 請維持指向 `8080`。VPS 主機的 `127.0.0.1:3637` 轉接至容器的 `8081`，可使用 `/health/live` 與 `/health/ready`。公開入口的健康檢查路徑會回 404。
+
 ### 3.3 Cache Rule
 
 Cloudflare 預設會依副檔名快取靜態檔（webp、js、css），但 JSON API 預設不快取。公開 API 帶 `version` 參數且回 200 的 `/api/v1/*` 回應是 `Cache-Control: public, max-age=31536000, immutable`，需要一條規則讓邊緣遵循它。
@@ -69,6 +71,8 @@ Caching → Cache Rules → Create rule，條件全部成立（AND）：
 - Edge TTL：Use cache-control header if present
 
 沒有 `version` 參數的請求不可快取（來源本來就回 `no-store`），所以條件一定要包含查詢字串這一項。`/` 與 `/assets/` 來源是 `no-cache`，維持預設即可。
+
+換版當下，來源 API 只接受目前啟用的版本。緊急下架時，啟用新版後可用 `-Activate -Prune -KeepRecent 0` 的發布流程清除舊版及其獨佔縮圖。已快取的舊版 API 與縮圖須清除 Cloudflare 快取，涵蓋舊版查詢字串與所有受影響的 URL。若原圖存於 R2，也須刪除對應物件並清除 CDN 快取。訪客瀏覽器已下載的內容無法遠端撤回。
 
 ### 3.4 SSL/TLS 與 HTTPS
 

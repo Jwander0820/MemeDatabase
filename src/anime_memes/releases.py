@@ -109,13 +109,15 @@ def activate(root: Path, version: str) -> dict:
     return manifest
 
 
-def prune(root: Path, *, service_stopped: bool) -> list[str]:
+def prune(root: Path, *, service_stopped: bool, keep_recent: int = 3) -> list[str]:
     if not service_stopped:
         raise ValueError("請先停止搜尋服務，並明確指定 --service-stopped")
+    if not 0 <= keep_recent <= 20:
+        raise ValueError("keep_recent 必須介於 0 到 20")
     active = current_version(root)
     versions = sorted([p for p in (root / "versions").iterdir() if p.is_dir() and not p.is_symlink()
                        and VERSION_RE.fullmatch(p.name)], key=lambda p: p.stat().st_mtime_ns, reverse=True)
-    keep = {p.name for p in versions[:3]} | {active}
+    keep = {p.name for p in versions[:keep_recent]} | {active}
     # 所有保留版本先驗證；任何損壞都不執行清理。
     used = set()
     for version in keep:

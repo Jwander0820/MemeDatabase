@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sqlite3
+from threading import Lock
 
 from flask import Flask, abort, g, jsonify, request
 
@@ -14,24 +16,38 @@ from .releases import ReleaseMissing, current_version, release_path, version_nam
 def create_public_app(release_root=None):
     root = Path(release_root or settings.release_root()).resolve()
     app = Flask(__name__, static_folder=None)
+    schema_lock = Lock()
+    validated_snapshot = None
 
     @app.before_request
     def open_version():
+        nonlocal validated_snapshot
         if request.path == "/health/live":
             return
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             abort(405)
-        if request.path not in {"/health/ready", "/api/v1/meta", "/api/v1/entries"} and not request.path.startswith("/api/v1/entries/"):
+        if request.path not in {"/health/ready", "/api/v1/meta", "/api/v1/entries"} and not re.fullmatch(
+            r"/api/v1/entries/[0-9a-f]{32}", request.path
+        ):
             abort(404)
         requested = request.args.get("version")
-        g.version = version_name(requested) if requested is not None else current_version(root)
-        folder = release_path(root, g.version)
-        g.db = open_readonly(folder / "public.sqlite3")
-        try:
-            validate_schema(g.db, g.version)
-        except ValueError as exc:
-            raise RuntimeError("公開資料結構不相容") from exc
+        requested = version_name(requested) if requested is not None else None
+        g.version = current_version(root)
+        if requested is not None and requested != g.version:
+            raise ReleaseMissing("版本不存在或已過期，請重新搜尋")
+        database = release_path(root, g.version) / "public.sqlite3"
+        stat = database.stat()
+        snapshot = (g.version, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+        g.db = open_readonly(database)
         g.db.execute("BEGIN")
+        # 發布快照不可變；替換檔案或切換版本時重新檢查結構。
+        with schema_lock:
+            if snapshot != validated_snapshot:
+                try:
+                    validate_schema(g.db, g.version)
+                except ValueError as exc:
+                    raise RuntimeError("公開資料結構不相容") from exc
+                validated_snapshot = snapshot
 
     @app.teardown_request
     def close_version(_exc):

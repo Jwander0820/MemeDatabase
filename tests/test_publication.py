@@ -14,7 +14,7 @@ from src.anime_memes.db import connect, init_db
 from src.anime_memes.r2 import R2_ENV_VARS
 from src.anime_memes.publishing import check_database, export_release, update_selection, original_url
 from src.anime_memes.public_web import create_public_app
-from src.anime_memes.public_data import open_readonly
+from src.anime_memes.public_data import open_readonly, validate_schema
 from src.anime_memes.releases import activate, validate, current_version, prune
 from src.anime_memes.queries import query_entries
 
@@ -139,9 +139,15 @@ class PublicationTest(unittest.TestCase):
         activate(self.releases, new)
         self.assertEqual(old_conn.execute("SELECT quote_text FROM entries").fetchone()[0], "復！活！")
         self.assertEqual(self.client.get("/api/v1/entries").get_json()["items"][0]["quote_text"], "新版台詞")
-        self.assertEqual(self.client.get("/api/v1/entries", query_string={"version": old}).get_json()["items"][0]["quote_text"], "復！活！")
+        entry_id = self.client.get("/api/v1/entries").get_json()["items"][0]["id"]
+        for path in ("/api/v1/entries", "/api/v1/meta", f"/api/v1/entries/{entry_id}"):
+            response = self.client.get(path, query_string={"version": old})
+            self.assertEqual(response.status_code, 410)
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
         activate(self.releases, old)
         self.assertEqual(current_version(self.releases), old)
+        self.assertEqual(self.client.get(f"/api/v1/entries?version={old}").status_code, 200)
+        self.assertEqual(self.client.get(f"/api/v1/entries?version={new}").status_code, 410)
         (self.releases / "versions" / new / "public.sqlite3").write_bytes(b"bad")
         with self.assertRaises(ValueError):
             activate(self.releases, new)
@@ -233,3 +239,24 @@ class PublicationTest(unittest.TestCase):
             prune(self.releases, service_stopped=False)
         self.assertEqual(len(prune(self.releases, service_stopped=True)), 1)
         validate(self.releases, old)
+        orphan = self.releases / "media" / ("0" * 64 + ".webp")
+        orphan.touch()
+        self.assertEqual(len(prune(self.releases, service_stopped=True, keep_recent=0)), 3)
+        self.assertEqual([path.name for path in (self.releases / "versions").iterdir()], [old])
+        self.assertFalse(orphan.exists())
+        validate(self.releases, old)
+
+    def test_public_schema_validation_is_reused_and_invalid_ids_need_no_database(self):
+        old = self.publish()
+        with patch("src.anime_memes.public_web.open_readonly") as opened:
+            self.assertEqual(self.client.get("/api/v1/entries/bad-id").status_code, 404)
+            opened.assert_not_called()
+        with patch("src.anime_memes.public_web.validate_schema", wraps=validate_schema) as checked:
+            for path in ("/health/ready", "/api/v1/entries", "/api/v1/meta"):
+                self.assertEqual(self.client.get(path).status_code, 200)
+            self.assertEqual(checked.call_count, 1)
+            database = self.releases / "versions" / old / "public.sqlite3"
+            stamp = database.stat().st_mtime_ns + 1_000_000_000
+            os.utime(database, ns=(stamp, stamp))
+            self.assertEqual(self.client.get("/health/ready").status_code, 200)
+            self.assertEqual(checked.call_count, 2)

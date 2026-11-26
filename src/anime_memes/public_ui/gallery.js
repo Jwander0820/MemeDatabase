@@ -51,7 +51,7 @@ async function readApi(path, params) {
 
 const sameName = (a, b) => Boolean(a && b) && a.trim().toLowerCase() === b.trim().toLowerCase();
 
-function card(item, {pinned = false} = {}) {
+function card(item, {pinned, first}) {
   // 卡片本體是連結；星號按鈕放在連結外面（連結裡不可再放按鈕）。
   const node = element("article");
   node.className = "card";
@@ -59,9 +59,10 @@ function card(item, {pinned = false} = {}) {
   link.className = "card-link";
   link.href = "#/m/" + item.id;
   const image = element("img");
+  if (first) image.fetchPriority = "high";
+  else image.loading = "lazy";
   image.src = item.thumbnail_url;
   image.alt = "";
-  image.loading = "lazy";
   if (item.thumbnail_width && item.thumbnail_height) {
     image.width = item.thumbnail_width;
     image.height = item.thumbnail_height;
@@ -95,8 +96,11 @@ function card(item, {pinned = false} = {}) {
 // ---------- 首頁推薦 ----------
 // 沒有搜尋字、標籤、收藏篩選且排序為「首頁推薦」時：前幾張是這位訪客常用的圖，其後是每日固定的隨機排列。
 const PINNED_COUNT = 5;
+const HOME_CARD_COUNT = 30;
 let homeMode = false;
 let homeSeed = "";
+let homePageSize = HOME_CARD_COUNT;
+let pinnedCache = null;
 let pinnedIds = new Set();
 let pinnedShown = 0;
 // 後端已回傳（含被剔除的重複圖）的張數，用來判斷是否還有下一頁。
@@ -111,11 +115,34 @@ function localDate() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-// 取得「常用」圖片：使用紀錄優先，不足再用收藏補；失敗或已下架的略過，永不拋出例外。
-async function loadPinned() {
+// 公開模式依使用紀錄排序，數量不足時用收藏補足。
+function publicPinnedIds() {
+  const ids = [...new Set([...topUsed(PINNED_COUNT), ...favoriteIds])];
+  return ids.filter(id => /^[0-9a-f]{32}$/.test(id)).slice(0, PINNED_COUNT);
+}
+
+async function loadPublicPinned(ids, snapshot, request) {
+  if (!ids.length) {
+    pinnedCache = null;
+    return [];
+  }
+  const key = ids.join(",");
+  if (pinnedCache?.version === snapshot && pinnedCache.key === key) return pinnedCache.items;
+  try {
+    const data = await readApi("entries", new URLSearchParams({ids: key, version: snapshot}));
+    const byItemId = new Map(data.items.map(item => [item.id, item]));
+    const items = ids.map(id => byItemId.get(id)).filter(Boolean);
+    if (request === listRequest) pinnedCache = {version: snapshot, key, items};
+    return items;
+  } catch (error) {
+    if (error.status === 410) throw error;
+    return [];
+  }
+}
+
+async function loadLocalPinned(snapshot) {
   const single = id => {
-    const params = new URLSearchParams();
-    if (version) params.set("version", version);
+    const params = new URLSearchParams({version: snapshot});
     return readApi("entries/" + encodeURIComponent(id), params).then(data => data.item, () => null);
   };
   const ids = topUsed(PINNED_COUNT);
@@ -124,14 +151,10 @@ async function loadPinned() {
   const need = PINNED_COUNT - ids.length;
   let extra = [];
   if (need > 0) {
-    if (localMode) {
-      try {
-        const data = await readApi("entries", new URLSearchParams({favorite: "1", sort: "updated", page_size: String(PINNED_COUNT)}));
-        extra = (data.items || []).filter(item => !ids.includes(item.id)).slice(0, need).map(item => Promise.resolve(item));
-      } catch {}
-    } else {
-      extra = favoriteIds.filter(id => !ids.includes(id)).slice(0, need).map(single);
-    }
+    try {
+      const data = await readApi("entries", new URLSearchParams({favorite: "1", sort: "updated", page_size: String(PINNED_COUNT)}));
+      extra = (data.items || []).filter(item => !ids.includes(item.id)).slice(0, need);
+    } catch {}
   }
   const items = (await Promise.all([...usedRequests, ...extra])).filter(Boolean);
   const seen = new Set();
@@ -264,6 +287,7 @@ function setScope(value) {
 async function search(reset, seed = localDate()) {
   clearTimeout(timer);
   const request = ++listRequest;
+  let requestedPins = [];
   if (reset) {
     // 舊卡片已移除，清掉它們的星號同步記錄；詳情每次開啟都會重新登記。
     favoriteButtons.clear();
@@ -274,6 +298,10 @@ async function search(reset, seed = localDate()) {
     page = 0;
     version = "";
     homeMode = isHomeMode();
+    if (homeMode) {
+      if (!localMode) requestedPins = publicPinnedIds();
+      homePageSize = HOME_CARD_COUNT - (localMode ? PINNED_COUNT : requestedPins.length);
+    }
     homeSeed = seed;
     pinnedIds = new Set();
     pinnedShown = 0;
@@ -284,6 +312,7 @@ async function search(reset, seed = localDate()) {
     // 首頁：每日固定的隨機排列；後端會自動排除特定標籤。
     params.set("sort", "random");
     params.set("seed", homeSeed);
+    params.set("page_size", homePageSize);
   } else {
     for (const [name, value] of [["q", query], ["tag", activeTag], ["sort", byId("sort").value]]) {
       if (value) params.set(name, value);
@@ -296,8 +325,6 @@ async function search(reset, seed = localDate()) {
     }
   }
   if (version) params.set("version", version);
-  // 常用圖片只在首頁第一頁取得；先送出單筆請求，再送出隨機列表請求，兩者並行。
-  const pinnedRequest = reset && homeMode ? loadPinned() : null;
   more.hidden = true;
   empty.hidden = true;
   statusLine.textContent = "載入中…";
@@ -306,7 +333,7 @@ async function search(reset, seed = localDate()) {
   hasMore = false;
   loadHint.textContent = scroller && !reset ? "載入中…" : "";
   try {
-    const [data, pinned] = await Promise.all([readApi("entries", params), pinnedRequest]);
+    const data = await readApi("entries", params);
     if (request !== listRequest) return;
     if (tagsVersion !== data.version) {
       const meta = await readApi("meta", new URLSearchParams({version: data.version}));
@@ -318,21 +345,25 @@ async function search(reset, seed = localDate()) {
       tagsVersion = data.version;
       // 本機模式要到這裡才知道；使用紀錄與收藏的來源不同，首頁需以本機模式重新取得。
       if (!wasLocal && localMode && homeMode) {
-        search(true);
+        search(true, seed);
         return;
       }
     }
+    const pinnedItems = reset && homeMode
+      ? await (localMode ? loadLocalPinned(data.version) : loadPublicPinned(requestedPins, data.version, request))
+      : [];
+    if (request !== listRequest) return;
     version = data.version;
     page = data.page;
     fetched += data.items.length;
-    const pinnedItems = pinned || [];
     for (const item of pinnedItems) pinnedIds.add(item.id);
     pinnedShown += pinnedItems.length;
     // 隨機列表剔除已放在最前面的「常用」圖片。
-    const cards = [
-      ...pinnedItems.map(item => card(item, {pinned: true})),
-      ...data.items.filter(item => !pinnedIds.has(item.id)).map(item => card(item)),
-    ];
+    const items = [...pinnedItems, ...data.items.filter(item => !pinnedIds.has(item.id))];
+    const cards = items.map((item, index) => card(item, {
+      pinned: index < pinnedItems.length,
+      first: shown === 0 && index === 0,
+    }));
     if (masonry) masonry.append(cards);
     else results.append(...cards);
     shown += cards.length;
@@ -370,8 +401,8 @@ async function search(reset, seed = localDate()) {
   } finally {
     if (request === listRequest) {
       loading = false;
-      // 哨兵仍在視窗內時繼續載入；失敗時 canLoadMore 為 false，不會自動重試。
-      scroller?.check();
+      // 重新量測新增卡片後的哨兵位置，避免用載入前的空列表位置觸發預抓。
+      if (!loadFailed) scroller?.refresh();
     }
   }
 }

@@ -20,6 +20,7 @@ def main(argv=None):
         cmd = sub.add_parser(name)
         cmd.add_argument("--root", default=settings.release_root())
         if name == "prune":
+            cmd.add_argument("--keep-recent", type=int, choices=range(21), default=3)
             cmd.add_argument("--service-stopped", action="store_true")
         else:
             cmd.add_argument("version")
@@ -63,7 +64,7 @@ def main(argv=None):
         from .releases import activate, validate, prune
         root = Path(args.root).resolve()
         if args.command == "prune":
-            result = prune(root, service_stopped=args.service_stopped)
+            result = prune(root, service_stopped=args.service_stopped, keep_recent=args.keep_recent)
         elif args.command == "validate":
             result = validate(root, args.version)
         else:

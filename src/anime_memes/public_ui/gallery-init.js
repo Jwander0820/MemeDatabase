@@ -52,6 +52,7 @@ byId("sort").onchange = () => { renderTags(); search(true); };
 more.onclick = () => search(retryFromStart);
 // 捲到列表底部自動載入下一頁；不支援 IntersectionObserver 時 scroller 為 null，沿用按鈕。
 scroller = window.MemeInfiniteScroll?.create(byId("sentinel"), {
+  rootMargin: "0px",
   canLoad: canLoadMore,
   onLoad: () => search(false),
 });

@@ -24,7 +24,12 @@
     }, {rootMargin: `0px 0px ${rootMargin} 0px`});
     observer.observe(sentinel);
     // check：重新搜尋或重試成功後呼叫，若哨兵仍在視窗內就繼續載入。
-    return {check: run, disconnect: () => observer.disconnect()};
+    const refresh = () => {
+      visible = false;
+      observer.disconnect();
+      observer.observe(sentinel);
+    };
+    return {check: run, refresh, disconnect: () => observer.disconnect()};
   }
   window.MemeInfiniteScroll = {create};
 })();

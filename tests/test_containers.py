@@ -93,6 +93,9 @@ class ContainerTest(unittest.TestCase):
                 docker("exec", "-T", "public-api", "python", "-c",
                        "import pathlib; p=pathlib.Path('/releases/write-test');\ntry: p.write_text('bad')\nexcept OSError: pass\nelse: raise AssertionError('mount writable')")
                 docker("exec", "-T", "public-nginx", "nginx", "-t")
+                self.assertEqual(http("/health/ready")[0], 200)
+                self.assertIn("404 Not Found", docker("exec", "-T", "public-nginx", "sh", "-c",
+                    "wget -O /dev/null http://127.0.0.1:8080/health/ready 2>&1 || true"))
                 for svc in ("public-nginx", "private-nginx"):
                     # 非 root 且丟棄所有 capability（CapEff 全 0），根檔案系統唯讀。
                     docker("exec", "-T", svc, "sh", "-c",
@@ -152,7 +155,7 @@ class ContainerTest(unittest.TestCase):
                 new_item = json.loads(http("/api/v1/entries")[2])["items"][0]
                 self.assertEqual(http(new_item["thumbnail_url"])[0], 200)
                 time.sleep(0.6)
-                self.assertEqual(json.loads(http("/api/v1/entries?version=" + old)[2])["items"][0]["quote_text"], "container test")
+                self.assertEqual(http("/api/v1/entries?version=" + old)[0], 410)
                 docker("exec", "-T", "private-api", "python", "-m", "src.anime_memes.runtime", "rollback", "--root", "/releases", old)
                 time.sleep(0.6)
                 self.assertEqual(json.loads(http("/api/v1/entries")[2])["version"], old)

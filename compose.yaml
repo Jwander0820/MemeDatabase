@@ -23,6 +23,7 @@ x-nginx-tmpfs: &nginx-tmpfs
 services:
   public-api:
     <<: *common
+    networks: [public_internal]
     profiles: [public]
     build: {context: ., target: public}
     environment:
@@ -49,11 +50,12 @@ services:
       retries: 3
   public-nginx:
     <<: *common
+    networks: [public_edge, public_internal]
     profiles: [public]
     build: {context: ., dockerfile: deploy/Dockerfile.nginx, target: public}
     depends_on:
       public-api: {condition: service_healthy}
-    ports: ["127.0.0.1:${PUBLIC_PORT:-3637}:8080"]
+    ports: ["127.0.0.1:${PUBLIC_PORT:-3637}:8081"]
     environment:
       SEARCH_RATE: ${SEARCH_RATE:-2r/s}
       SEARCH_BURST: ${SEARCH_BURST:-10}
@@ -71,12 +73,13 @@ services:
     pids_limit: 64
     cpus: 0.5
     healthcheck:
-      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/health/live"]
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8081/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
   private-api:
     <<: *common
+    networks: [private_net]
     profiles: [private]
     build: {context: ., target: private}
     environment:
@@ -110,6 +113,7 @@ services:
       retries: 3
   private-nginx:
     <<: *common
+    networks: [private_net]
     profiles: [private]
     build: {context: ., dockerfile: deploy/Dockerfile.nginx, target: private}
     depends_on:
@@ -129,6 +133,7 @@ services:
       retries: 3
   private-mcp:
     <<: *common
+    networks: [private_net]
     profiles: [mcp]
     build: {context: ., target: mcp}
     environment:
@@ -153,6 +158,7 @@ services:
     # VPS 對外入口：cloudflared 主動連出到 Cloudflare，主機不需開放任何連入 port。
     # Cloudflare 控制台的公開主機名稱指向 http://public-nginx:8080（見 docs/vps-deployment.md）。
     <<: *common
+    networks: [public_edge]
     profiles: [tunnel]
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07}
     command: [tunnel, --no-autoupdate, run]
@@ -165,3 +171,9 @@ services:
     mem_limit: 128m
     pids_limit: 128
     cpus: 0.5
+
+networks:
+  public_edge:
+  public_internal:
+    internal: true
+  private_net:

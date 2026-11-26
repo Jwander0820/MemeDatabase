@@ -168,6 +168,8 @@ DiscordChatExporter_rawdata_sample/data/*.json
 .agents/
 .venv
 
-# Claude Code 本機設定與工作樹副本（.claude/launch.json 等共用設定不在此列）
+# 專案本機工具設定與工作樹副本
+/.codex/
+/.claude/launch.json
 .claude/worktrees/
 .claude/settings.local.json
