@@ -183,7 +183,7 @@ function detailTemplate(item) {
       <label class="field"><span>梗圖名稱（選填）</span><input name="display_title" value="${attr(item.display_title || "")}"></label>
       <label class="field"><span>也可以這樣搜（選填，每行一個替代詞）</span><textarea name="search_aliases">${escapeHtml((item.search_aliases || []).join("\n"))}</textarea></label>
       <div class="field-grid">
-        <label class="field"><span>${T.manualTags}</span><input name="tags" value="${attr((item.manual_tags || []).join(", "))}"></label>
+        <label class="field"><span>${T.tags}</span><input name="tags" value="${attr((item.tags || []).join(", "))}"></label>
         <label class="field"><span>${T.status}</span><select name="status">${statusOptions}</select></label>
       </div>
       <label class="field"><span>圖片出處（選填）</span><input type="url" name="source_page" value="${attr(item.source_page || "")}"></label>

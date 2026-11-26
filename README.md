@@ -12,15 +12,17 @@
 - PaddleOCR / EasyOCR 輔助辨識，GIF / MP4 / MOV / WEBM / M4V 不做 OCR
 - taxonomy v2 規則標籤、人工標籤、Agent／本地 LLM 候選標籤與人工審核
 - Notion 匯入用 CSV 匯出
-- 本地 Flask Web UI：搜尋、篩選、瀏覽、編輯欄位、編輯人工標籤、收藏、狀態切換、永久刪除
+- 本地 Flask Web UI：搜尋、篩選、瀏覽、手動新增、編輯欄位與完整標籤、收藏、狀態切換、永久刪除
 
-目前使用 **SQLite＋Flask**。後端支援梗圖名稱、替代搜尋詞、繁簡／標點正規化、多詞跨欄位搜尋、`-排除`／`作品:詞` 欄位限定／引號片語語法與分層相關度排序，標籤亦可獨立精確篩選。私人管理頁可編輯梗圖名稱與替代詞，並與人工標籤一起儲存。管理列表預設在搜尋時按相關度排序，也可手動切換。見[本機匯入與編輯規格](docs/local-import-editor-spec.md)。
+目前使用 **SQLite＋Flask**。後端支援梗圖名稱、替代搜尋詞、繁簡／標點正規化、多詞跨欄位搜尋、`-排除`／`作品:詞` 欄位限定／引號片語語法與分層相關度排序，標籤亦可獨立精確篩選。私人管理頁可編輯梗圖名稱與替代詞，並與完整標籤一起儲存。管理列表預設在搜尋時按相關度排序，也可手動切換。見[本機匯入與編輯規格](docs/local-import-editor-spec.md)。
 
 ## 發展方向與文件
 
-後端已拆出本機管理、公開唯讀搜尋、發布工具與私人選用 MCP。公開版由 Nginx 供應縮圖與轉送 API，SQLite／媒體以容器外目錄掛載；公開資料可驗證後切換版本。私人管理頁可選圖、檢查、匯出及啟用版本，公開搜尋頁支援預覽、分享與取圖。
+後端已拆出本機管理、公開唯讀搜尋、發布工具與私人選用 MCP。公開版由 Nginx 供應縮圖與轉送 API，SQLite／媒體以容器外目錄掛載；公開資料可驗證後切換版本。私人管理頁可選圖、檢查、匯出及啟用版本，公開搜尋頁支援預覽、分享與取圖。發布會重用未變動圖片的驗證與轉檔結果，仍完整檢查目前公開資料與發布包；首次大量圖片處理仍需較久時間。
 
 操作與 API 契約見 [雙版本後端與發布操作](docs/backend-refactor.md)。公開版不提供 Agent 專用接口或 MCP；私人管理版保留既有 UI，另可啟用唯讀 MCP。公開與私人入口不可混用，私人管理端預設只綁 localhost。
+
+公開頁另提供「我的梗圖」：使用者可用與管理頁共用的表單新增／編輯圖片，內容只存目前瀏覽器的 IndexedDB，不寫入 VPS、R2 或公開 DB。支援本地搜尋、下載、刪除與帶格式版本的 JSON 備份匯入／匯出；跨裝置不自動同步，清理瀏覽器或版本格式變更可能影響資料，應定期備份。可選「儲存並準備投稿郵件」，預填寄給 `meme@jwander.net` 的格式，由使用者在郵件 App 手動附圖與寄出；本站不提供投稿上傳／寄信 API，投稿不會直接公開上架。
 
 | 入口 | 內容 |
 |---|---|
@@ -34,7 +36,7 @@
 ## 重要資料位置
 
 - 主資料庫：`data/anime_memes.sqlite3`
-- 資料庫備份：`data/backups/`（清理曾保留 3 份；後續 migration 另新增備份，不自動淘汰）
+- 資料庫備份：`data/backups/`（同步前建立、不自動淘汰；自行執行 migration 前仍須先備份）
 - 歷史檢查紀錄：`data/archive/`
 - 原始資料保存：`data/original_data/`
 - 完整附件：`data/attachments/`
@@ -61,7 +63,7 @@ python -m venv .venv
 - `requirements-ocr.txt`：管理＋既有 PaddleOCR GPU，僅本機資料準備時選裝，需相容 Python／CUDA。
 - `requirements-mcp.txt`：基礎＋官方 MCP SDK，私人 MCP 選裝。
 
-OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。清單是直接依賴，尚非完整 lockfile。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
+OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。`requirements*.txt` 宣告直接依賴；Docker 另使用 `requirements-locks/*-py312-linux.txt` 鎖定完整間接依賴與 SHA-256，安裝時同時驗證宣告與鎖檔。Python、Nginx 與預設 cloudflared 映像固定 digest；更新方式見[建置鎖檔與映像更新](docs/backend-refactor.md#建置鎖檔與映像更新)。鎖檔適用 Linux／Python 3.12，本機 OCR／GPU 環境維持選用。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
 
 本機 Docker 的[私人管理頁](http://localhost:3636)（`/browse` 為本機簡潔瀏覽）與[模擬公開頁](http://localhost:3637)使用獨立入口；不走 Docker 的 `web` 指令預設在 3638。首次啟動、隔離資料與換版驗收見[本機操作說明](docs/backend-refactor.md#dockernginx-本機啟動)。
 
@@ -77,7 +79,9 @@ OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，
 http://127.0.0.1:3638
 ```
 
-Web UI 預設顯示 `ready` 資料，可切換 `ignored` 或 `all`。點卡片會開啟 detail drawer，可以修改作品名稱、說話者、圖片台詞、狀態、備註與人工標籤。側欄的「手動新增梗圖」可上傳 JPG、PNG、WebP 或 GIF（上限 50 MB），並直接寫入本地附件、縮圖與 SQLite；這類資料不會影響 Discord 增量同步游標。
+Web UI 預設顯示 `ready` 資料，可切換待審核、`ignored` 或 `all`。點卡片會開啟 detail drawer，可以修改名稱、作品、說話者、台詞、替代詞、出處、狀態、備註與完整標籤。側欄的「手動新增梗圖」可點選、拖入或貼上 JPG、PNG、WebP 或 GIF（HTTP 請求上限 50 MB），支援中文檔名；這類資料不影響 Discord 增量同步游標。新增成功後畫面更新失敗時，只需重試讀取，不必重新上傳。
+
+公開頁的收藏保存在訪客自己的瀏覽器；收藏列表最多顯示最近 200 張，超出的較早收藏仍保留，畫面會提示數量。取消部分收藏後重新搜尋可查看較早的收藏。清除瀏覽器資料會清掉收藏；本機 `/browse` 使用資料庫收藏，不套用這個顯示上限。
 
 永久刪除會移除該筆 `meme_entries`、人工/自動標籤關聯、收藏、review 紀錄。如果該 attachment 沒有被其他 entry 共用，也會刪除 `attachments` 資料列，以及本地原圖和縮圖。這個操作不進回收區。
 
@@ -149,7 +153,7 @@ Review／Notion CSV 會在公式開頭的文字前加入單引號，避免試算
 
 永久刪除會保留附件 ID 的刪除紀錄，重新匯入同一份 Discord 匯出也不會重建該筆資料。無效或超過 Pillow 安全限制的圖片會標記為 `invalid_image`，後續下載／縮圖批次會跳過；需要重新下載驗證時可使用 `download-attachments --all --force`。HTML／SVG 等附件只提供下載，不在本地編輯器來源內執行。
 
-前端狀態回歸測試可執行 `node --test tests/test_web_state.cjs`，涵蓋收藏草稿保留、請求順序與分頁重試。
+前端狀態回歸測試涵蓋收藏、草稿保留、請求順序與分頁重試；完整命令見下方「測試」。這些是模擬 DOM 的狀態測試，真實瀏覽器及 Docker 驗收另行執行。
 
 匯出未標籤圖片給 Codex／Antigravity 等可讀圖 Agent：
 
@@ -165,7 +169,7 @@ Agent 逐張讀圖並建立 `results.jsonl` 後，匯入待審核候選：
 
 候選不會直接成為正式標籤；請在 Web UI 項目明細接受或拒絕。完整格式與安全規則見 [`docs/agent-image-tagging-guide.md`](docs/agent-image-tagging-guide.md)。
 
-圖片匯出會實際解碼，損壞圖片計入 `skipped_invalid`。人工標籤欄位只編輯人工來源；規則及已接受的候選標籤顯示於圖片下方。接受／拒絕候選會保留尚未儲存的欄位內容。taxonomy 在 Web App 啟動時同步，修改設定後須重啟服務。
+圖片匯出會實際解碼，損壞圖片計入 `skipped_invalid`。管理頁的標籤欄編輯完整正式標籤：保留的標籤維持原來源，新加的記為人工；移除的標籤不論人工、規則或已接受候選來源都會刪除。候選未接受前不列入正式標籤。接受／拒絕候選會保留尚未儲存的欄位內容。taxonomy 在 Web App 啟動時同步，修改設定後須重啟服務。
 
 舊 `import-llm-tags` 已 deprecated，請改用上述工作匯出／結果匯入流程。舊入口仍會驗證名稱、數量、信心度與理由；錯誤行不會留下部分候選，有錯誤時 exit code 為 2。
 
@@ -190,7 +194,8 @@ rem 先預覽，再發布所有 ready 項目
 ## 圖片尺寸與 R2
 
 - 原圖：只存在本機（`data/attachments`），不公開。
-- 480P 縮圖（長邊 ≤854、短邊 ≤480，WebP）：本機縮圖與 VPS 發布包使用；匯出時由本地原圖重新產生，無原圖則退回既有縮圖。
+- 本機管理縮圖：`build-thumbnails` 與手動新增仍使用最長邊 420 px 的 WebP；GIF 不產一般縮圖。
+- 480P 縮圖（長邊 ≤854、短邊 ≤480，WebP）：`build-media --kind thumb` 與公開發布包使用；匯出時由本地原圖重新產生，無原圖則退回既有縮圖。
 - 720P 大圖（長邊 ≤1280、短邊 ≤720，WebP，存於 `data/web`）：上傳 R2 作為公開「原圖」。
 
 ```bat
@@ -235,4 +240,11 @@ src\commands\build_media.cmd --kind all --missing
 ```bat
 .venv\Scripts\python.exe -m unittest discover -s tests
 .venv\Scripts\python.exe -m compileall src tests
+node --test tests/test_web_state.cjs tests/test_gallery_state.cjs tests/test_infinite_scroll.cjs
 ```
+
+真實 Docker 整合測試需明確設定 `RUN_CONTAINER_TESTS=1`，GPU smoke test 需 `RUN_PADDLEOCR_GPU_TEST=1`；一般測試會略過這兩項。Docker 測試使用隔離館藏，執行方式見[驗證紀錄與限制](docs/backend-refactor.md#驗證紀錄與限制)。
+
+## 授權
+
+程式碼與文件採用 [MIT License](LICENSE)。個人館藏、憑證、模型及第三方圖片不隨原始碼提供；第三方內容沿用各自的授權。

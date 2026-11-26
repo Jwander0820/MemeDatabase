@@ -62,6 +62,8 @@ def create_app(
     app.config["THUMBNAIL_DIR"] = str(thumbnail_dir)
     app.config["MAX_CONTENT_LENGTH"] = MAX_MANUAL_UPLOAD_BYTES
     app.config["RELEASE_ROOT"] = str(release_root)
+    from .vps_publication import VpsPublication
+    app.extensions['vps_publication'] = VpsPublication(release_root, Path(db_path).resolve().parent)
 
     with closing(connect(db_path)) as conn:
         init_db(conn)

@@ -624,6 +624,35 @@ class PipelineTest(unittest.TestCase):
             finally:
                 conn.close()
 
+    def test_web_api_manual_upload_accepts_chinese_filenames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
+            root = Path(tmp)
+            db_path = root / "memes.sqlite3"
+            attachment_dir = root / "attachments"
+            app = create_app(db_path=db_path, attachment_dir=attachment_dir, thumbnail_dir=root / "thumbs")
+            client = app.test_client()
+            for name in ("烈海王復活.png", "復活.PNG", "meme.png"):
+                image_bytes = BytesIO()
+                Image.new("RGB", (32, 32), "#336699").save(image_bytes, "PNG")
+                image_bytes.seek(0)
+                response = client.post("/api/entries/manual", data={"image": (image_bytes, name)},
+                                       content_type="multipart/form-data")
+                self.assertEqual(response.status_code, 201, name)
+                item = client.get("/api/entries/" + response.get_json()["key"]).get_json()
+                self.assertTrue(Path(item["local_path"]).exists(), name)
+                self.assertEqual(Path(item["local_path"]).suffix, ".png", name)
+            response = client.post("/api/entries/manual", data={"image": (BytesIO(b"plain text"), "復活.png")},
+                                   content_type="multipart/form-data")
+            self.assertEqual(response.status_code, 400)
+            conn = connect(db_path)
+            try:
+                self.assertEqual(count(conn, "meme_entries"), 3)
+            finally:
+                conn.close()
+            self.assertEqual(len(list(attachment_dir.iterdir())), 3)
+
     def test_web_api_permanent_delete_removes_unshared_media(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

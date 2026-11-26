@@ -1,11 +1,12 @@
-# 基底映像鎖定到明確的修補版本與 Debian 版本代號，建置結果不會因標籤漂移而改變。
-# 同一標籤仍會收到系統套件的安全更新：定期以 `docker compose build --pull` 重新取得（docs/vps-deployment.md 6.2），
-# 要升級 Python 修補版本時再手動調整這裡的標籤。
-FROM python:3.12.15-slim-bookworm AS base
+# 基底映像以標籤＋多架構 digest 固定；安全更新須明確更新 digest（見 docs/backend-refactor.md）。
+FROM python:3.12.15-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY requirements.txt ./
-RUN pip install -r requirements.txt && useradd --uid 10001 --create-home app
+COPY requirements-locks/public-py312-linux.txt ./requirements-locks/
+COPY LICENSE ./
+# 先讀含雜湊的鎖檔，再讀來源宣告，避免 pip 25 將重複需求視為沒有雜湊。
+RUN pip install --require-hashes --only-binary=:all: -r requirements-locks/public-py312-linux.txt -r requirements.txt && useradd --uid 10001 --create-home app
 RUN mkdir -p src/anime_memes && touch src/__init__.py src/anime_memes/__init__.py
 COPY src/anime_memes/settings.py src/anime_memes/text.py src/anime_memes/search.py src/anime_memes/urls.py src/anime_memes/public_data.py src/anime_memes/releases.py src/anime_memes/release_bundle.py src/anime_memes/public_web.py src/anime_memes/runtime.py ./src/anime_memes/
 
@@ -14,8 +15,10 @@ USER 10001
 CMD ["python", "-m", "src.anime_memes.runtime", "public", "--host", "0.0.0.0"]
 
 FROM base AS private
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client && rm -rf /var/lib/apt/lists/*
 COPY requirements-admin.txt ./
-RUN pip install -r requirements-admin.txt
+COPY requirements-locks/admin-py312-linux.txt ./requirements-locks/
+RUN pip install --require-hashes --only-binary=:all: -r requirements-locks/admin-py312-linux.txt -r requirements-admin.txt
 COPY src/anime_memes ./src/anime_memes
 COPY config ./config
 RUN mkdir -p /data /releases && chown app:app /data /releases
@@ -24,7 +27,8 @@ CMD ["python", "-m", "src.anime_memes.runtime", "private", "--host", "0.0.0.0"]
 
 FROM base AS mcp
 COPY requirements-mcp.txt ./
-RUN pip install -r requirements-mcp.txt
+COPY requirements-locks/mcp-py312-linux.txt ./requirements-locks/
+RUN pip install --require-hashes --only-binary=:all: -r requirements-locks/mcp-py312-linux.txt -r requirements-mcp.txt
 COPY src/anime_memes/queries.py src/anime_memes/private_mcp.py ./src/anime_memes/
 USER 10001
 CMD ["python", "-m", "src.anime_memes.private_mcp"]

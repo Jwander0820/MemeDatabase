@@ -18,7 +18,7 @@ let loading = false;
 let loadFailed = false;
 let hasMore = false;
 const loadHint = byId("loadHint");
-const canLoadMore = () => !loading && !loadFailed && hasMore && !dialog.open;
+const canLoadMore = () => !loading && !loadFailed && hasMore && !dialog.open && !byId('publicContent')?.hidden;
 let activeTag = "";
 // 本機簡潔瀏覽：由本機後端的 meta 宣告；公開 API 不回傳 mode，公開站不會出現管理入口。
 let localMode = false;
@@ -350,6 +350,8 @@ async function search(reset) {
       const asked = Math.min(favoriteIds.length, MAX_FAVORITE_QUERY);
       if (asked > data.total) statusLine.textContent += `（另有 ${asked - data.total} 張收藏已下架）`;
     }
+    const favoriteNotice = favoriteListNotice();
+    if (favoriteNotice) statusLine.textContent += ` ${favoriteNotice}`;
     hasMore = fetched < data.total;
     more.textContent = "載入更多";
     // 有自動載入時不顯示按鈕；全部載完則在列表底部顯示提示（查無結果不顯示）。

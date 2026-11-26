@@ -163,23 +163,7 @@
         </span>
       </label>
 
-      <div class="create-fields">
-        <label class="field"><span>作品名稱</span><input name="anime_title" autocomplete="off"></label>
-        <label class="field"><span>說話者</span><input name="speaker" autocomplete="off"></label>
-        <label class="field create-wide"><span>圖片台詞</span><textarea name="quote_text" placeholder="輸入圖片中的主要台詞"></textarea></label>
-        <label class="field create-wide"><span>梗圖名稱（選填）</span><input name="display_title"></label>
-        <label class="field create-wide"><span>也可以這樣搜（選填，每行一個替代詞）</span><textarea name="search_aliases"></textarea></label>
-        <label class="field"><span>標籤</span><input name="tags"></label>
-        <label class="field"><span>狀態</span>
-          <select name="status">
-            <option value="ready">可用</option>
-            <option value="needs_review">待審核</option>
-            <option value="ignored">已忽略</option>
-          </select>
-        </label>
-        <label class="field create-wide"><span>圖片出處（選填）</span><input type="url" name="source_page" placeholder="https://"></label>
-        <label class="field create-wide"><span>備註</span><textarea name="notes" placeholder="選填，例如圖片來源或待確認事項"></textarea></label>
-      </div>
+      <div class="create-fields" data-meme-fields="admin"></div>
 
       <div id="createError" class="form-error" role="alert" aria-live="polite"></div>
       <div class="create-actions">
@@ -195,17 +179,38 @@
         <div>
           <p class="create-kicker">公開館藏</p>
           <h2 id="publicationTitle">發布管理</h2>
-          <p>依序檢查、匯出新版本，再啟用讓公開頁切換到這一版。</p>
+          <p>先檢查並匯出；可啟用本機測試版，或將已匯出的版本發布到 VPS 正式站。</p>
         </div>
         <form method="dialog"><button class="icon-button ghost" aria-label="關閉" autofocus>×</button></form>
       </div>
       <div class="publication-steps">
         <button id="checkPublication"><span class="step-no">1</span>檢查</button>
         <button id="exportPublication" disabled><span class="step-no">2</span>匯出</button>
-        <button id="activatePublication" class="primary" disabled><span class="step-no">3</span>啟用此版</button>
+        <button id="activatePublication" class="primary" disabled><span class="step-no">3</span>本機啟用</button>
       </div>
       <p id="publicationStatus" role="status"></p>
       <div id="publicationReport"></div>
+      <section class="vps-panel" aria-labelledby="vpsPublicationTitle">
+        <h3 id="vpsPublicationTitle">發布到 VPS 正式站</h3>
+        <p>只傳缺少的縮圖與新版資料庫。關閉視窗或重新整理不會取消發布，可再次開啟查看結果。</p>
+        <details id="vpsSettings">
+          <summary>VPS 連線設定</summary>
+          <form id="vpsSettingsForm" class="vps-settings-form">
+            <label>SSH 主機別名或 user@host<input name="ssh_host" required maxlength="200" autocomplete="off" placeholder="myvps"></label>
+            <label>VPS 發布目錄<input name="release_root" required autocomplete="off" placeholder="/srv/memedatabase/releases"></label>
+            <p>需先在本機設定 SSH 金鑰與主機指紋；不在網頁輸入密碼或私鑰。</p>
+            <button type="submit">儲存連線設定</button>
+          </form>
+        </details>
+        <label for="vpsVersion">要發布的本機版本</label>
+        <select id="vpsVersion" disabled><option value="">尚無已匯出的版本</option></select>
+        <label class="vps-activate"><input id="vpsActivate" type="checkbox">安裝驗證成功後，立即啟用正式站新版</label>
+        <button id="publishVps" class="primary" type="button" disabled>推送到 VPS</button>
+        <button id="refreshVps" type="button">重新整理狀態</button>
+        <p id="vpsStatus" role="status">正在讀取 VPS 發布設定…</p>
+        <progress id="vpsProgress" aria-label="VPS 發布進行中" hidden></progress>
+        <ol id="vpsEvents" class="vps-events"></ol>
+      </section>
       <details class="purge-panel">
         <summary>徹底清除舊版本與已撤回的圖片</summary>
         <p>取消公開並啟用新版後，被撤回的圖仍可能留在舊版本、舊縮圖與 R2 上。這裡會刪除目前啟用版本以外的所有舊版本、只被它們使用的縮圖，以及不再需要的 R2 大圖。刪除後無法退回舊版本。</p>
@@ -217,7 +222,8 @@
       </details>
     </section>
   </dialog>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="toast" class="toast" popover="manual" role="status" aria-live="polite"></div>
+  <script src="/assets/meme-form.js"></script>
   <script src="/static/publication.js"></script>
   <script src="/assets/infinite-scroll.js"></script>
   <script src="/assets/masonry.js"></script>

@@ -12,6 +12,11 @@ let toastTimer = 0;
 function showToast(message) {
   clearTimeout(toastTimer);
   toast.textContent = message;
+  // 以 popover 進入 top layer，並在每次顯示時重新開啟，確保提示疊在開著的 modal 對話框之上。
+  if (typeof toast.showPopover === "function") {
+    if (toast.matches(":popover-open")) toast.hidePopover();
+    toast.showPopover();
+  }
   toast.classList.add("show");
   const duration = Math.min(6000, 3000 + String(message).length * 40);
   toastTimer = setTimeout(() => toast.classList.remove("show"), duration);

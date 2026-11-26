@@ -218,7 +218,7 @@ class MaintenanceTest(unittest.TestCase):
         self.assertEqual([tuple(row) for row in rows], [('嗆人','auto','reaction_roast'),('嗆人','manual','reaction_roast')])
         self.assertEqual(self.conn.execute("SELECT reason FROM entry_tags WHERE source='manual'").fetchone()[0], 'canonical')
 
-    def test_manual_tag_api_preserves_rule_and_accepted_suggestion(self):
+    def test_tag_api_replaces_all_sources_and_keeps_retained_source(self):
         run = self.export()
         self.import_results(self.result(run))
         suggestion = self.conn.execute('SELECT id FROM tag_suggestions').fetchone()[0]
@@ -227,11 +227,13 @@ class MaintenanceTest(unittest.TestCase):
         add_entry_tag(self.conn, 'entry1', '人工測試', 'manual')
         self.conn.commit()
         client = create_app(db_path=self.db).test_client()
-        self.assertEqual(client.get('/api/entries/entry1').get_json()['manual_tags'], ['人工測試'])
-        response = client.put('/api/entries/entry1/tags', json={'tags': '新人工'})
+        self.assertEqual(set(client.get('/api/entries/entry1').get_json()['tags']), {'嗆人', '工作', '人工測試'})
+        response = client.put('/api/entries/entry1/tags', json={'tags': '嗆人, 新人工'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(set(response.get_json()['tags']), {'新人工', '工作', '嗆人'})
-        self.assertEqual(response.get_json()['manual_tags'], ['新人工'])
+        self.assertEqual(set(response.get_json()['tags']), {'嗆人', '新人工'})
+        rows = dict(self.conn.execute("SELECT tag_name, source FROM entry_tags WHERE entry_key='entry1'").fetchall())
+        self.assertEqual(rows, {'嗆人': 'suggestion', '新人工': 'manual'})
+
 
     def test_concurrent_opposite_review_cannot_create_accepted_tag(self):
         from unittest.mock import Mock
@@ -290,3 +292,36 @@ class MaintenanceTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ListTagsCommandTests(unittest.TestCase):
+    def run_cli(self, *argv):
+        # 不經過 main()：main 會載入 .env 並污染其他測試的環境變數。
+        args = build_parser().parse_args(list(argv))
+        out = StringIO()
+        with redirect_stdout(out):
+            args.func(args)
+        return out.getvalue()
+
+    def test_list_tags_is_read_only_and_filters_free_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "t.sqlite3"
+            with closing(connect(db)) as conn:
+                init_db(conn)
+                conn.execute("PRAGMA foreign_keys=OFF")  # 只測清單輸出，不建完整條目
+                for key in ("a", "b"):
+                    add_entry_tag(conn, key, "自由標籤", "manual")
+                add_entry_tag(conn, "a", "冷門", "manual")
+                conn.commit()
+            before = db.read_bytes()
+            data = json.loads(self.run_cli("--db", str(db), "list-tags", "--format", "json", "--min-count", "2"))
+            names = {tag["name"]: tag for tag in data["tags"]}
+            self.assertIn("嗆人", names)
+            self.assertTrue(names["嗆人"]["in_taxonomy"])
+            self.assertEqual(names["自由標籤"]["count"], 2)
+            self.assertNotIn("冷門", names)
+            self.assertNotIn("多人對話", names)  # 停用的 taxonomy 標籤不列出
+            self.assertEqual(db.read_bytes(), before)
+            text = self.run_cli("--db", str(Path(tmp) / "missing.sqlite3"), "list-tags")
+            self.assertIn("嗆人", text)
+            self.assertFalse((Path(tmp) / "missing.sqlite3").exists())

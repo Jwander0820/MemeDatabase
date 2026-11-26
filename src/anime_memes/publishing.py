@@ -4,6 +4,8 @@ from __future__ import annotations
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 import json
+import logging
+import time
 import os
 import re
 from pathlib import Path
@@ -21,11 +23,19 @@ from .releases import digest, validate, version_name
 from .search import NORMALIZATION_VERSION
 from .paths import resolve_local
 from .r2 import R2Config, R2Error, store_from_env
-from .renditions import UNSUPPORTED_SUFFIXES, ensure_web_rendition, is_video, render_webp, sha256_bytes
+from .renditions import PRESETS, UNSUPPORTED_SUFFIXES, ensure_web_rendition, is_video, render_webp
 from .urls import original_url
+from .publication_cache import PILLOW_VERSION, PublicationCache, fingerprint
 
 ROOT = settings.ROOT
 _DEFAULT_STORE = object()  # 代表「由環境變數建立 R2 儲存」
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+log.propagate = False
+if not log.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    log.addHandler(handler)
 
 
 def update_selection(conn, key, data):
@@ -166,22 +176,23 @@ def _decodable(path):
         return False
 
 
-def _thumbnail_source(row):
+def _thumbnail_source(row, cache=None):
     """公開縮圖來源：優先本地原圖，其次既有縮圖；皆不可用時回傳 None。"""
     original = local_original(row)
-    if original is not None and _decodable(original):
+    decode = (lambda path: cache.decodable(path, _decodable)) if cache else _decodable
+    if original is not None and decode(original):
         return original
     if row["thumbnail_path"]:
         try:
             path = thumbnail_path(row)
         except ValueError:
             return None
-        if _decodable(path):
+        if path.is_file() and decode(path):
             return path
     return None
 
 
-def check(conn, *, r2_enabled=False):
+def check(conn, *, r2_enabled=False, cache=None):
     report = {"valid": True, "count": 0, "items": [], "errors": [],
               "warnings": ["請人工確認圖片內容及公開文字；自動檢查不保證內容合規。"]}
     if r2_enabled:
@@ -207,7 +218,7 @@ def check(conn, *, r2_enabled=False):
         if not row["public_original_url"] and not row["r2_url"]:
             if not r2_enabled or original is None:
                 warnings.append("僅發布縮圖，無外部原圖")
-        if _thumbnail_source(row) is None:
+        if _thumbnail_source(row, cache) is None:
             errors.append("縮圖不存在或無法解碼")
         report["items"].append({"key": row["key"], "errors": errors, "warnings": warnings})
         report["valid"] = report["valid"] and not errors
@@ -217,21 +228,29 @@ def check(conn, *, r2_enabled=False):
     return report
 
 
-def check_database(db_path):
+def check_database(db_path, *, force=False):
+    started = time.perf_counter()
+    operation_id = uuid.uuid4().hex[:12]
+    log.info('publication_check_started id=%s full=%s', operation_id, force)
     try:
         r2_enabled = R2Config.from_env() is not None
         config_error = None
     except ValueError as exc:
         r2_enabled, config_error = False, str(exc)
-    with snapshot(db_path) as conn:
-        report = check(conn, r2_enabled=r2_enabled)
+    with closing(PublicationCache(db_path, force=force)) as cache:
+        with snapshot(db_path) as conn:
+            report = check(conn, r2_enabled=r2_enabled, cache=cache)
+        report['media_validation'] = dict(cache.stats)
     if config_error:
         report["errors"].append(config_error)
         report["valid"] = False
+    report['duration_seconds'] = round(time.perf_counter()-started, 3)
+    log.info('publication_check_finished id=%s count=%s valid=%s seconds=%s media=%s',
+             operation_id, report['count'], report['valid'], report['duration_seconds'], cache.stats)
     return report
 
 
-def prepare_public_media(db_path, store, *, web_dir=None):
+def prepare_public_media(db_path, store, *, web_dir=None, cache=None):
     """為發布選取且無手動原圖網址的項目產生 720P 並上傳 R2；可重複執行。"""
     web_dir = web_dir or settings.web_dir()
     summary = {"uploaded": 0, "reused": 0, "skipped": 0, "errors": [], "warnings": []}
@@ -242,7 +261,19 @@ def prepare_public_media(db_path, store, *, web_dir=None):
         for row in rows:
             key = row["key"]
             try:
-                path, sha = ensure_web_rendition(conn, row["id"], web_dir=web_dir)
+                force = False
+                original = conn.execute('SELECT local_path FROM attachments WHERE id=?', (row['id'],)).fetchone()[0]
+                original = resolve_local(original, 'ATTACHMENT') if original else None
+                signature = [1, PILLOW_VERSION, cache.source_signature(original), vars(PRESETS['web'])] if cache and original and original.is_file() else None
+                if signature:
+                    force = cache.get('web', original, signature) is None
+                path, sha = ensure_web_rendition(conn, row["id"], web_dir=web_dir, force=force)
+                if digest(path) != sha:
+                    path, sha = ensure_web_rendition(conn, row['id'], web_dir=web_dir, force=True)
+                if signature:
+                    if fingerprint(original) != signature[2][0]:
+                        raise ValueError('圖片在轉檔期間變動，請重試')
+                    cache.put('web', original, signature, True)
                 object_key = store.key_for(sha)
                 if row["r2_key"] == object_key and row["r2_url"]:
                     conn.commit()
@@ -368,23 +399,27 @@ def purge_releases(db_path, root, *, store=_DEFAULT_STORE, keep_recent=0, dry_ru
 
 
 def export_release(db_path, root, *, store=_DEFAULT_STORE):
+    started = time.perf_counter()
     root = Path(root).resolve()
     if store is _DEFAULT_STORE:
         store = store_from_env()  # R2 設定不完整時拋出 ValueError，與其他輸入錯誤一致
-    with export_lock(root):
+    with export_lock(root), closing(PublicationCache(db_path)) as cache:
         media_summary = None
         if store is not None:
             # 先離線檢查；未通過就不產圖、不上傳，避免尚未確認可公開的圖片先出現在公開 bucket。
             with snapshot(db_path) as source:
-                precheck = check(source, r2_enabled=True)
+                precheck = check(source, r2_enabled=True, cache=cache)
             if precheck["valid"]:
-                media_summary = prepare_public_media(db_path, store)
+                media_summary = prepare_public_media(db_path, store, cache=cache)
         with snapshot(db_path) as source:
-            return _export_snapshot(source, root, store is not None, media_summary)
+            result = _export_snapshot(source, root, store is not None, media_summary, cache=cache)
+        log.info('publication_export_finished exported=%s seconds=%.3f media=%s',
+                 result['exported'], time.perf_counter()-started, cache.stats)
+        return result
 
 
-def _export_snapshot(source, root, r2_enabled, media_summary):
-    report = check(source, r2_enabled=r2_enabled)
+def _export_snapshot(source, root, r2_enabled, media_summary, cache=None):
+    report = check(source, r2_enabled=r2_enabled, cache=cache)
     upload_failed = bool(media_summary and media_summary["errors"])
     if upload_failed:
         by_key = {item["key"]: item for item in report["items"]}
@@ -396,6 +431,7 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
                 report["errors"].append(failure["key"] + "：" + message)
         report["valid"] = False
     version = version_name(datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:12])
+    report['media_validation'] = dict(cache.stats)
     reports = root / "reports"
     reports.mkdir(exist_ok=True)
     (reports / (version + ".json")).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -412,19 +448,10 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
             target.executescript(SCHEMA)
             target.execute("INSERT INTO metadata VALUES(?,?,?)", (SCHEMA_VERSION, NORMALIZATION_VERSION, version))
             for row in selected_rows(source):
-                output = staging / "image.webp"
-                # render_webp 以全新像素圖輸出，不攜帶來源 EXIF／ICC／文字 metadata。
-                data, thumb_width, thumb_height = render_webp(_thumbnail_source(row), "thumb")
-                output.write_bytes(data)
-                hash_value = digest(output)
+                # 快取只重用已通過檔案變動檢查、且成品雜湊正確的衍生圖。
+                hash_value, thumb_width, thumb_height = cache.thumbnail(
+                    _thumbnail_source(row, cache), media, render_webp, PRESETS['thumb'])
                 filename = hash_value + ".webp"
-                destination = media / filename
-                if destination.exists():
-                    if digest(destination) != hash_value:
-                        raise ValueError("既有媒體內容與雜湊不一致")
-                    output.unlink()
-                else:
-                    os.replace(output, destination)
                 media_hashes[filename] = hash_value
                 tags = sorted({r[0] for r in source.execute("SELECT tag_name FROM entry_tags WHERE entry_key=?", (row["key"],))})
                 aliases = [r[0] for r in source.execute("SELECT alias_text FROM entry_search_aliases WHERE entry_key=? ORDER BY alias_normalized", (row["key"],))]
@@ -443,6 +470,8 @@ def _export_snapshot(source, root, r2_enabled, media_summary):
         (staging / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         os.replace(staging, final)
         validate(root, version)
+        report['media_validation'] = dict(cache.stats)
+        (reports / (version + '.json')).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         return {"exported": True, "version": version, "report": report, "media": media_summary}
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)

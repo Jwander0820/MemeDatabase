@@ -111,7 +111,7 @@ def render_webp(source: str | Path, preset_name: str, *, animated: bool = False)
     return buffer.getvalue(), clean.width, clean.height
 
 
-def write_atomic(path: str | Path, data: bytes) -> None:
+def write_atomic(path: str | Path, data: bytes, *, mode: int | None = None) -> None:
     """先寫入同目錄暫存檔，再以 os.replace 取代目標。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -119,6 +119,8 @@ def write_atomic(path: str | Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
+        if mode is not None:
+            os.chmod(tmp_name, mode)
         os.replace(tmp_name, target)
     except BaseException:
         try:

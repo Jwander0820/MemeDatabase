@@ -93,7 +93,10 @@ function renderPublicationReport(report) {
   }
 }
 
-document.querySelector("#openPublication").onclick = () => publicationDialog.showModal();
+document.querySelector("#openPublication").onclick = () => {
+  publicationDialog.showModal();
+  refreshVpsPublication();
+};
 async function runPublication(action) {
   checkPublication.disabled = exportPublication.disabled = activatePublication.disabled = true;
   if (action !== "activate") {
@@ -105,7 +108,7 @@ async function runPublication(action) {
     const data = await publicationRequest("/api/publication/" + action, "POST",
       action === "activate" ? {version: exportedVersion} : {});
     if (action === "activate") {
-      publicationStatus.textContent = `已啟用 ${data.version}，公開館藏共 ${data.count} 筆。`;
+      publicationStatus.textContent = `本機已啟用 ${data.version}，共 ${data.count} 筆；VPS 正式站需另外推送。`;
       exportedVersion = "";
     } else {
       const report = data.report || data;
@@ -115,6 +118,7 @@ async function runPublication(action) {
       const media = data.media;
       const mediaText = media ? `（已上傳 ${media.uploaded} 張、沿用 ${media.reused} 張至 R2）` : "";
       publicationStatus.textContent = exportedVersion ? `已匯出 ${exportedVersion}${mediaText}，等待啟用。` : "檢查完成";
+      if (exportedVersion) await refreshVpsPublication(exportedVersion);
     }
   } catch (error) {
     if (error.report) renderPublicationReport(error.report);
@@ -127,6 +131,117 @@ async function runPublication(action) {
 checkPublication.onclick = () => runPublication("check");
 exportPublication.onclick = () => runPublication("export");
 activatePublication.onclick = () => runPublication("activate");
+
+// VPS 發布使用背景工作；只在上一個查詢結束後安排下一次，避免重疊輪詢。
+const vpsSettingsForm = document.querySelector('#vpsSettingsForm');
+const vpsVersion = document.querySelector('#vpsVersion');
+const vpsActivate = document.querySelector('#vpsActivate');
+const publishVps = document.querySelector('#publishVps');
+const refreshVps = document.querySelector('#refreshVps');
+const vpsStatus = document.querySelector('#vpsStatus');
+const vpsProgress = document.querySelector('#vpsProgress');
+const vpsEvents = document.querySelector('#vpsEvents');
+let vpsTimer = null;
+let vpsLoading = false;
+let vpsStarting = false;
+let vpsConfigLoaded = false;
+let vpsState = null;
+let vpsVersionsKey = '';
+
+function renderVpsPublication(data, preferredVersion) {
+  vpsState = data;
+  const job = data.job;
+  const running = job?.status === 'running';
+  if (!vpsConfigLoaded) {
+    vpsSettingsForm.elements.ssh_host.value = data.config.ssh_host;
+    vpsSettingsForm.elements.release_root.value = data.config.release_root;
+    vpsConfigLoaded = true;
+  }
+  const key = JSON.stringify(data.versions);
+  if (key !== vpsVersionsKey) {
+    const selected = preferredVersion || vpsVersion.value;
+    vpsVersion.replaceChildren();
+    for (const item of data.versions) {
+      const option = document.createElement('option');
+      option.value = item.version;
+      option.textContent = `${item.version}（${item.count} 筆）`;
+      vpsVersion.append(option);
+    }
+    if (data.versions.some(item => item.version === selected)) vpsVersion.value = selected;
+    vpsVersionsKey = key;
+  } else if (preferredVersion) vpsVersion.value = preferredVersion;
+  vpsVersion.disabled = running || vpsStarting || !data.versions.length;
+  vpsActivate.disabled = running || vpsStarting;
+  for (const element of vpsSettingsForm.elements) element.disabled = running || vpsStarting;
+  publishVps.disabled = running || vpsStarting || !data.config.ssh_host || !data.ssh_available || !data.ssh_ready || !data.versions.length;
+  vpsProgress.hidden = !running;
+  if (running) vpsProgress.removeAttribute('value');
+  let message = !data.config.ssh_host ? '請先設定 VPS 連線目標。' :
+    !data.ssh_available ? '本機服務缺少 SSH／SCP 工具。' :
+    !data.ssh_ready ? 'SSH 金鑰或主機指紋尚未設定，請依部署文件完成本機設定。' : '已就緒，請選擇要推送的版本。';
+  if (job) {
+    const prefix = {running: '發布中', succeeded: '完成', failed: '失敗', interrupted: '結果待確認'}[job.status] || job.status;
+    message = `${prefix}：${job.stage}。目標 ${job.target}，版本 ${job.version}。`;
+    if (job.bundle) message += ` 傳送 ${job.bundle.media} 張縮圖、沿用 ${job.bundle.media_reused} 張，發布包 ${(job.bundle.bytes / 1024 / 1024).toFixed(2)} MB。`;
+    if (job.error) message += ' ' + job.error;
+  }
+  vpsStatus.textContent = message;
+  vpsEvents.replaceChildren();
+  for (const event of job?.events || []) {
+    const line = document.createElement('li');
+    line.textContent = `${new Date(event.time).toLocaleTimeString()}　${event.message}`;
+    vpsEvents.append(line);
+  }
+}
+
+async function refreshVpsPublication(preferredVersion) {
+  if (vpsLoading) return;
+  clearTimeout(vpsTimer);
+  vpsLoading = true;
+  try {
+    const data = await publicationRequest('/api/publication/vps', 'GET');
+    renderVpsPublication(data, preferredVersion);
+  } catch (error) {
+    vpsStatus.textContent = '暫時無法查詢發布狀態；工作可能仍在執行，請勿重複推送。' + error.message;
+    publishVps.disabled = true;
+  } finally {
+    vpsLoading = false;
+    if (publicationDialog.open && vpsState?.job?.status === 'running') {
+      vpsTimer = setTimeout(() => refreshVpsPublication(), 2000);
+    }
+  }
+}
+
+vpsSettingsForm.onsubmit = async event => {
+  event.preventDefault();
+  try {
+    await publicationRequest('/api/publication/vps/config', 'PUT', {
+      ssh_host: vpsSettingsForm.elements.ssh_host.value.trim(),
+      release_root: vpsSettingsForm.elements.release_root.value.trim()
+    });
+    vpsConfigLoaded = false;
+    await refreshVpsPublication();
+  } catch (error) { vpsStatus.textContent = '設定未儲存：' + error.message; }
+};
+publishVps.onclick = async () => {
+  if (vpsStarting || vpsLoading || vpsState?.job?.status === 'running') return;
+  vpsStarting = true;
+  renderVpsPublication(vpsState);
+  try {
+    const job = await publicationRequest('/api/publication/vps', 'POST', {version: vpsVersion.value, activate: vpsActivate.checked});
+    vpsState.job = job;
+    renderVpsPublication(vpsState);
+  } catch (error) {
+    vpsStatus.textContent = '未能確認發布是否啟動，請重新整理狀態後再操作：' + error.message;
+  } finally {
+    vpsStarting = false;
+    // 保留「重新整理」查詢結果作為下一次操作依據，避免網路錯誤後直接重送。
+    publishVps.disabled = true;
+    await refreshVpsPublication();
+  }
+};
+refreshVps.onclick = () => refreshVpsPublication();
+publicationDialog.addEventListener('close', () => clearTimeout(vpsTimer));
 
 // ---------- 徹底清除 ----------
 const previewPurge = document.querySelector("#previewPurge");

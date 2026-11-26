@@ -26,13 +26,15 @@ const T = {
   deleteConfirm: "\u6c38\u4e45\u522a\u9664\u9019\u7b46\u8cc7\u6599\u8207\u672c\u5730\u5716\u7247\uff1f\u6b64\u64cd\u4f5c\u4e0d\u6703\u9032\u56de\u6536\u5340\u3002",
   deleteFailed: "\u522a\u9664\u5931\u6557",
   deleted: "\u5df2\u6c38\u4e45\u522a\u9664",
-  created: "\u5df2\u65b0\u589e\u5230\u8cc7\u6599\u5eab",
+  created: "\u5df2\u65b0\u589e",
+  createdRefreshFailed: "\u5df2\u65b0\u589e\uff0c\u756b\u9762\u66f4\u65b0\u5931\u6557",
+  createUnknown: "\u7121\u6cd5\u78ba\u8a8d\u662f\u5426\u5df2\u65b0\u589e\uff0c\u8acb\u5148\u6838\u5c0d\u9928\u85cf\u518d\u91cd\u8a66",
+  retry: "\u91cd\u8a66",
   createFailed: "\u65b0\u589e\u5931\u6557\uff0c\u8acb\u6aa2\u67e5\u5716\u7247\u8207\u6b04\u4f4d",
   suggestions: "AI\uff0fAgent \u5019\u9078\u6a19\u7c64",
   accept: "\u63a5\u53d7",
   reject: "\u62d2\u7d55",
   decisionFailed: "\u5019\u9078\u6a19\u7c64\u5be9\u6838\u5931\u6557",
-  manualTags: "人工標籤",
   decisionRefreshFailed: "審核已完成，清單更新失敗，請重新整理",
 };
 
@@ -200,7 +202,7 @@ function setChipCount(node, count) {
 
 async function loadMeta() {
   const response = await fetch("/api/meta");
-  if (!response.ok) return;
+  if (!response.ok) return false;
   const data = await response.json();
   const reviewCount = (data.statuses || []).find((row) => row.status === "needs_review")?.count || 0;
   setChipCount(needsReviewCount, reviewCount);
@@ -218,6 +220,7 @@ async function loadMeta() {
     });
     tagList.appendChild(button);
   });
+  return true;
 }
 
 // added：載入下一頁時只把新卡片接在後面。整份重畫會讓網格瞬間清空、頁面高度歸零，

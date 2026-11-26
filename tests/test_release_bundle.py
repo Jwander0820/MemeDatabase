@@ -1,3 +1,4 @@
+from contextlib import closing
 import io
 import json
 import os
@@ -12,7 +13,7 @@ from PIL import Image
 from src.anime_memes.db import connect, init_db
 from src.anime_memes.publishing import export_release, update_selection
 from src.anime_memes.r2 import R2_ENV_VARS
-from src.anime_memes.release_bundle import build_bundle, install_bundle
+from src.anime_memes.release_bundle import build_bundle, install_bundle, media_inventory
 from src.anime_memes.releases import validate
 
 
@@ -25,9 +26,11 @@ class ReleaseBundleTest(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {"MEMES_WEB_DIR": str(self.base / "web")}))
         self.enterContext(patch.dict(os.environ, {name: "" for name in R2_ENV_VARS}))
         conn = connect(self.base / "admin.sqlite3")
+        self.conn = conn
         self.addCleanup(conn.close)
         init_db(conn)
         thumb = self.base / "thumb.png"
+        self.thumb = thumb
         Image.new("RGB", (300, 200), "red").save(thumb)
         conn.execute("INSERT INTO discord_messages(id,timestamp,content) VALUES('0','2026-11-24','x')")
         conn.execute("INSERT INTO attachments(id,message_id,thumbnail_path,local_path,file_name) VALUES('0','0',?,NULL,NULL)", (str(thumb),))
@@ -89,6 +92,71 @@ class ReleaseBundleTest(unittest.TestCase):
         validate(self.target, self.version)
         self.assertFalse((self.target / "current.json").exists())
         self.assertEqual([p for p in self.target.iterdir() if p.name.startswith(".incoming-")], [])
+
+    def next_bundle(self):
+        result = export_release(self.base / 'admin.sqlite3', self.releases, store=None)
+        bundle = self.base / 'delta.tar.gz'
+        stats = build_bundle(self.releases, result['version'], bundle, inventory=media_inventory(self.target))
+        return result['version'], bundle, stats
+
+    def test_delta_metadata_only_keeps_media_and_rollback_version(self):
+        install_bundle(self.target, self.bundle, activate=True)
+        self.conn.execute("UPDATE meme_entries SET quote_text='new text'")
+        self.conn.commit()
+        version, bundle, stats = self.next_bundle()
+        self.assertEqual(stats['media'], 0)
+        self.assertEqual(stats['media_reused'], 1)
+        with tarfile.open(bundle) as tar:
+            self.assertEqual(len(tar.getmembers()), 2)
+        install_bundle(self.target, bundle, activate=True)
+        self.assertEqual(json.loads((self.target/'current.json').read_text())['version'], version)
+        validate(self.target, self.version)
+        from src.anime_memes.public_data import open_readonly
+        with closing(open_readonly(self.target/'versions'/version/'public.sqlite3')) as conn:
+            self.assertEqual(conn.execute('SELECT quote_text FROM entries').fetchone()[0], 'new text')
+
+    def test_delta_changed_image_sends_new_hash_and_preserves_old(self):
+        install_bundle(self.target, self.bundle, activate=True)
+        Image.new('RGB', (300, 200), 'blue').save(self.thumb)
+        version, bundle, stats = self.next_bundle()
+        self.assertEqual(stats['media'], 1)
+        install_bundle(self.target, bundle, activate=True)
+        self.assertEqual(len(list((self.target/'media').glob('*.webp'))), 2)
+        self.assertNotEqual(validate(self.target, version)['media'], self.manifest['media'])
+        validate(self.target, self.version)
+
+    def test_delta_removed_entry_updates_db_without_deleting_rollback_media(self):
+        install_bundle(self.target, self.bundle, activate=True)
+        update_selection(self.conn, 'meme_0', {'publish_selected': False})
+        version, bundle, stats = self.next_bundle()
+        self.assertEqual(stats['media'], 0)
+        install_bundle(self.target, bundle, activate=True)
+        self.assertEqual(validate(self.target, version)['count'], 0)
+        self.assertEqual(len(list((self.target/'media').glob('*.webp'))), 1)
+        validate(self.target, self.version)
+
+    def test_delta_missing_remote_media_never_activates(self):
+        delta = self.base/'delta.tar.gz'
+        build_bundle(self.releases, self.version, delta, inventory=media_inventory(self.releases))
+        with self.assertRaises((ValueError, FileNotFoundError)):
+            install_bundle(self.target, delta, activate=True)
+        self.assertFalse((self.target/'current.json').exists())
+        self.assertFalse((self.target/'versions'/self.version).exists())
+
+    def test_inventory_omits_corrupt_media(self):
+        (self.target/'media').mkdir()
+        name = next(iter(self.manifest['media']))
+        (self.target/'media'/name).write_bytes(b'corrupt')
+        self.assertEqual(media_inventory(self.target)['media'], {})
+        (self.target/'media'/name).write_bytes((self.releases/'media'/name).read_bytes())
+        self.assertEqual(media_inventory(self.target)['media'], self.manifest['media'])
+
+    def test_invalid_inventory_rejected_before_bundle_write(self):
+        for inventory in ([], {}, {'inventory_version':1,'media':[]},
+                          {'inventory_version':1,'media':{'../x':'x'}}):
+            with self.subTest(inventory=inventory), self.assertRaises(ValueError):
+                build_bundle(self.releases, self.version, self.base/'invalid.tar.gz', inventory=inventory)
+        self.assertFalse((self.base/'invalid.tar.gz').exists())
 
     def test_install_with_activate(self):
         result = install_bundle(self.target, self.bundle, activate=True)

@@ -101,9 +101,15 @@ def _replace_manual_tags(conn, key, tags):
         tag_values = [item.strip() for item in tags if item.strip()]
     else:
         raise ValueError("tags must be a string or list")
-    conn.execute("DELETE FROM entry_tags WHERE entry_key = ? AND source = 'manual'", (key,))
-    for tag in dedupe(tag_values):
-        add_entry_tag(conn, key, tag, "manual", None, "web editor")
+    # 編輯欄位代表這則的完整標籤：移除的標籤不論來源都刪掉，保留的標籤維持原來源，新加的記為人工。
+    wanted = dedupe(tag_values)
+    existing = {row[0] for row in conn.execute("SELECT tag_name FROM entry_tags WHERE entry_key = ?", (key,))}
+    removed = existing - set(wanted)
+    if removed:
+        conn.executemany("DELETE FROM entry_tags WHERE entry_key = ? AND tag_name = ?", [(key, tag) for tag in removed])
+    for tag in wanted:
+        if tag not in existing:
+            add_entry_tag(conn, key, tag, "manual", None, "web editor")
 
 
 def delete_entry(conn, key, attachment_root, thumbnail_root):
@@ -171,8 +177,11 @@ def create_manual_entry(conn, form, upload, attachment_root, thumbnail_root, *, 
     if upload is None or not upload.filename:
         raise ValueError("請選擇圖片檔案")
 
-    original_name = secure_filename(upload.filename) or "manual-image"
-    suffix = Path(original_name).suffix.lower()
+    # 副檔名取自原始檔名：secure_filename 會移除非 ASCII 字元，純中文主檔名會連同「.」一起消失。
+    suffix = Path(upload.filename.replace("\\", "/")).suffix.lower()
+    original_name = secure_filename(upload.filename)
+    if not Path(original_name).suffix:
+        original_name = f"manual-image{suffix}"
     if suffix not in MANUAL_IMAGE_SUFFIXES:
         raise ValueError("僅支援 JPG、PNG、WebP 或 GIF 圖片")
 

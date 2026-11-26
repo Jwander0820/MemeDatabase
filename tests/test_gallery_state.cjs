@@ -128,6 +128,39 @@ function memoryStorage(initial = {}) {
   const data = {...initial};
   return {data, getItem: key => (key in data ? data[key] : null), setItem(key, value) { data[key] = String(value); }};
 }
+
+test('公開收藏顯示最近 200 張的限制與較早收藏數量，保留原有紀錄', async () => {
+  const ids = Array.from({length: 201}, (_,index) => (index + 1).toString(16).padStart(32, '0'));
+  const stored = JSON.stringify(ids);
+  const storage = memoryStorage({'meme-db-favorites': stored});
+  const g = gallery(false, storage);
+  g.pending.length = 0;
+  g.run('favoritesOnly = true');
+  g.search(true);
+  const request = g.pending.shift();
+  const asked = new URLSearchParams(request.url.split('?')[1]).get('ids').split(',');
+  assert.deepEqual(asked, ids.slice(0, 200));
+  await g.respond(request, {version: 'v1', page: 1, total: 199, items: []});
+  await g.respond(g.pending.shift(), {version: 'v1', tags: []});
+  assert.match(g.node('status').textContent, /最多顯示最近 200 張/);
+  assert.match(g.node('status').textContent, /另有 1 張較早的收藏仍保留/);
+  assert.match(g.node('status').textContent, /另有 1 張收藏已下架/);
+  assert.equal(storage.data['meme-db-favorites'], stored);
+});
+
+test('本機收藏沿用資料庫查詢，不套用公開收藏的顯示上限', async () => {
+  const g = gallery();
+  g.pending.length = 0;
+  g.run('favoritesOnly = true; localMode = true');
+  g.search(true);
+  const request = g.pending.shift();
+  const params = new URLSearchParams(request.url.split('?')[1]);
+  assert.equal(params.get('favorite'), '1');
+  assert.equal(params.has('ids'), false);
+  await g.respond(request, {version: 'local', page: 1, total: 201, items: []});
+  await g.respond(g.pending.shift(), {version: 'local', tags: [], mode: 'local'});
+  assert.doesNotMatch(g.node('status').textContent, /200 張|此瀏覽器/);
+});
 const today = () => {
   const now = new Date();
   const pad = value => String(value).padStart(2, '0');

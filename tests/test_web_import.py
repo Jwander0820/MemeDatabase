@@ -112,6 +112,50 @@ class ImportApprovedTests(unittest.TestCase):
         self.assertEqual(run(["first.png"], True), ["imported"])
         self.assertEqual(len(list((self.tmp / "att").iterdir())), 2)
 
+    def test_舊附件讀取失敗只回報一次並暫停本機圖(self):
+        (self.tmp / "legacy.png").write_bytes(png_bytes())
+        (self.tmp / "new1.png").write_bytes(png_bytes("GIF"))
+        (self.tmp / "new2.png").write_bytes(png_bytes("WEBP"))
+        args = self.args([self.row(url=None, local_path="legacy.png")], True)
+        args.local_root = self.tmp
+        self.assertEqual(web_import.import_approved(args)[0]["status"], "imported")
+        with closing(sqlite3.connect(self.db)) as conn:
+            conn.execute("UPDATE meme_entries SET local_import_sha256=NULL")
+            conn.commit()
+            legacy_id = conn.execute("SELECT attachment_id FROM meme_entries").fetchone()[0]
+        legacy_path = next((self.tmp / "att").iterdir()).resolve()
+        original_open = Path.open
+        legacy_opens = []
+
+        def guarded_open(path, *a, **kw):
+            if Path(path).resolve() == legacy_path:
+                legacy_opens.append(path)
+                raise PermissionError("拒絕存取")
+            return original_open(path, *a, **kw)
+
+        rows = [self.row(url=None, local_path="new1.png"), self.row(url=None, local_path="new2.png"), self.row()]
+        for apply in (False, True):
+            legacy_opens.clear()
+            args = self.args(rows, apply)
+            args.local_root = self.tmp
+            with patch.object(Path, "open", guarded_open), patch.object(web_import, "fetch_image", side_effect=fake_fetch):
+                results = web_import.import_approved(args)
+            self.assertEqual(len(legacy_opens), 1)
+            line_rows = [r for r in results if "line" in r]
+            legacy_rows = [r for r in results if "legacy_attachment" in r]
+            self.assertEqual([r["status"] for r in line_rows[:2]], ["skipped", "skipped"])
+            self.assertEqual(line_rows[2]["status"], "imported" if apply else "ready")
+            self.assertEqual(len(legacy_rows), 1)
+            self.assertEqual(legacy_rows[0]["legacy_attachment"], legacy_id)
+            self.assertEqual(legacy_rows[0]["status"], "error")
+        with closing(sqlite3.connect(self.db)) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM meme_entries").fetchone()[0], 2)
+        args = self.args(rows, True)
+        args.local_root = self.tmp
+        with patch.object(web_import, "fetch_image", side_effect=fake_fetch):
+            results = web_import.import_approved(args)
+        self.assertEqual([r["status"] for r in results], ["imported", "imported", "duplicate"])
+
     def test_雙連線同時正式匯入只建立一份(self):
         args = self.args([self.row(url=None, local_path="same.png")], True)
         args.local_root = self.tmp

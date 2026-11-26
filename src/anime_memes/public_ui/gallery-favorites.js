@@ -4,6 +4,7 @@
 // 本機簡潔瀏覽：與管理頁共用同一份收藏（後端 entry_favorites）。
 const FAVORITES_KEY = "meme-db-favorites";
 const MAX_FAVORITE_QUERY = 200;
+// 這是收藏列表的顯示範圍；較早的收藏仍保存在瀏覽器，不自動刪除。
 let favoritesOnly = false;
 let favoriteIds = [];
 try {
@@ -12,6 +13,13 @@ try {
 } catch {}
 // 同一張圖可能同時出現在卡片與詳情，切換後要一起更新。
 const favoriteButtons = new Map();
+
+function favoriteListNotice() {
+  if (localMode || !favoritesOnly) return "";
+  const limit = `收藏保存在此瀏覽器；列表最多顯示最近 ${MAX_FAVORITE_QUERY} 張。`;
+  const earlier = Math.max(0, favoriteIds.length - MAX_FAVORITE_QUERY);
+  return earlier ? `${limit}另有 ${earlier} 張較早的收藏仍保留，取消部分收藏後重新搜尋即可查看。` : limit;
+}
 
 function isFavorite(item) {
   return localMode ? Boolean(item.favorite) : favoriteIds.includes(item.id);

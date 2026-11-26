@@ -10,6 +10,23 @@ from .web_common import error_response
 publication_bp = Blueprint("publication", __name__)
 
 
+@publication_bp.get('/api/publication/vps')
+def vps_status():
+    response = jsonify(current_app.extensions['vps_publication'].snapshot())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@publication_bp.put('/api/publication/vps/config')
+def vps_config():
+    return jsonify(current_app.extensions['vps_publication'].save_config(request.get_json(silent=True)))
+
+
+@publication_bp.post('/api/publication/vps')
+def vps_start():
+    return jsonify(current_app.extensions['vps_publication'].start(request.get_json(silent=True))), 202
+
+
 @publication_bp.route("/api/entries/<key>/publication", methods=["GET", "PATCH"])
 def publication(key):
     from .publishing import selection, update_selection

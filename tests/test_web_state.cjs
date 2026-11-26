@@ -543,3 +543,151 @@ test('showToast cancels the previous timer and scales duration with length', asy
   assert.equal(delays[0], 3040);
   assert.equal(delays[1], 6000);
 });
+
+// 新增梗圖對話框：模擬開啟、關閉與送出。
+async function createHarness() {
+  const h = await harness();
+  const dialog = h.node('#createDialog');
+  const form = h.node('#createForm');
+  form.elements = {tags: {}, search_aliases: {value: ''}};
+  form.reset = () => {};
+  h.node('#createPreview').removeAttribute = () => {};
+  h.node('#createPreview').closest = () => ({classList: {add() {}, remove() {}}});
+  h.context.FormData = class { set() {} };
+  const buttons = [];
+  h.context.document.createElement = () => {
+    const button = h.node(Symbol());
+    button.style = {};
+    buttons.push(button);
+    return button;
+  };
+  dialog.showModal = () => {};
+  dialog.close = () => dialog.handlers.close();
+  const save = h.node('#saveCreate');
+  const error = h.node('#createError');
+  const toast = h.node('#toast');
+  const open = () => h.node('#openCreate').handlers.click();
+  const submit = () => form.handlers.submit({preventDefault() {}});
+  return {h, dialog, form, save, error, toast, open, submit, buttons};
+}
+
+const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test('close 事件在視窗重新開啟後才送達時，不會清空新的草稿', async () => {
+  const c = await createHarness();
+  const lateClose = c.dialog.handlers.close;
+  c.dialog.close = () => { c.dialog.open = false; };  // 先關閉，事件稍後才送達
+  c.dialog.showModal = () => { c.dialog.open = true; };
+  c.h.fetch(async () => new Promise(() => {}));
+  c.open();
+  c.submit();
+  await flush();
+  c.dialog.close();
+  c.open();
+  c.error.textContent = '草稿 B 的錯誤';
+  lateClose();  // 遲到的 close 事件
+  assert.equal(c.error.textContent, '草稿 B 的錯誤');
+  assert.equal(c.save.disabled, false);
+});
+
+test('過期的新增成功回應只顯示頁面提示，不會關閉或重設新的草稿', async () => {
+  const c = await createHarness();
+  const posts = [];
+  c.h.fetch(async (url, options) => {
+    if (options?.method === 'POST') {
+      const pending = deferred();
+      posts.push(pending);
+      return pending.promise;
+    }
+    return url === '/api/meta' ? {ok: true, json: async () => ({tags: []})} : {ok: true, json: async () => ({items: [], page: 1, total: 0})};
+  });
+  c.open();
+  c.submit();
+  await flush();
+  c.dialog.close();
+  c.open();
+  c.submit();
+  await flush();
+  c.error.textContent = '草稿 B 的錯誤';
+  assert.equal(posts.length, 2);
+  assert.equal(c.save.disabled, true);
+  let closed = 0;
+  c.dialog.handlers.close = () => { closed++; };
+  posts[0].resolve({ok: true, json: async () => ({key: 'a', status: 'needs_review'})});
+  await flush(); await flush();
+  assert.equal(closed, 0);
+  assert.equal(c.save.disabled, true);
+  assert.equal(c.error.textContent, '草稿 B 的錯誤');
+  assert.equal(c.toast.textContent, '已新增');
+});
+
+test('過期的新增失敗回應不會在新草稿顯示錯誤或解鎖送出鈕', async () => {
+  const c = await createHarness();
+  const posts = [];
+  c.h.fetch(async () => {
+    const pending = deferred();
+    posts.push(pending);
+    return pending.promise;
+  });
+  c.open();
+  c.submit();
+  await flush();
+  c.dialog.close();
+  c.open();
+  c.submit();
+  await flush();
+  posts[0].resolve({ok: false, json: async () => ({error: {message: '欄位不合法'}})});
+  await flush(); await flush();
+  assert.equal(c.error.textContent, '');
+  assert.equal(c.save.disabled, true);
+  assert.equal(c.toast.textContent, '欄位不合法');
+});
+
+test('新增成功後畫面更新失敗，重試只重讀資料而不重新 POST', async () => {
+  const c = await createHarness();
+  let posts = 0;
+  let refreshOk = false;
+  const reads = [];
+  c.h.fetch(async (url, options) => {
+    if (options?.method === 'POST') {
+      posts++;
+      return {ok: true, status: 201, json: async () => ({key: 'new', status: 'needs_review'})};
+    }
+    reads.push(url);
+    if (!refreshOk) throw new Error('offline');
+    if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
+    if (url.startsWith('/api/entries/new')) return entryResponse('new');
+    return {ok: true, json: async () => ({items: [], page: 1, total: 0})};
+  });
+  c.open();
+  c.submit();
+  await flush(); await flush(); await flush();
+  assert.equal(posts, 1);
+  assert.equal(c.toast.textContent, '已新增，畫面更新失敗');
+  const retry = c.buttons.at(-1);
+  assert.equal(retry.textContent, '重試');
+  refreshOk = true;
+  retry.handlers.click();
+  await flush(); await flush(); await flush();
+  assert.equal(posts, 1);
+  assert.equal(c.toast.textContent, '已新增');
+  assert.ok(reads.includes('/api/entries/new'));
+});
+
+test('新增遇到驗證錯誤時保留對話框草稿並顯示原因；無回應則提示先核對館藏', async () => {
+  const c = await createHarness();
+  let closed = 0;
+  c.dialog.handlers.close = () => { closed++; };
+  c.h.fetch(async () => ({ok: false, status: 400, json: async () => ({error: {message: '圖片已存在'}})}));
+  c.open();
+  c.submit();
+  await flush(); await flush();
+  assert.equal(closed, 0);
+  assert.equal(c.error.textContent, '圖片已存在');
+  assert.equal(c.save.disabled, false);
+  c.h.fetch(async () => { throw new Error('network'); });
+  c.submit();
+  await flush(); await flush();
+  assert.equal(closed, 0);
+  assert.equal(c.error.textContent, '無法確認是否已新增，請先核對館藏再重試');
+});

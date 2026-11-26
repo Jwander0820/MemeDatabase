@@ -52,21 +52,30 @@ def read_local_image(local_root, rel_path):
 
 
 def legacy_local_hashes(conn, columns):
-    """舊版匯入器以 local-meme 命名附件，但未保存內容指紋。"""
+    """舊版匯入器以 local-meme 命名附件，但未保存內容指紋。
+
+    回傳 (指紋集合, 無法讀取的舊附件清單)。清單每項為 (attachment_id, 原因)；
+    原本就缺少原檔的舊紀錄不列入，沿用既有規格。
+    """
     if not conn or "web_image_url" not in columns:
-        return set()
-    sql = """SELECT a.local_path FROM meme_entries e JOIN attachments a ON a.id=e.attachment_id
+        return set(), []
+    sql = """SELECT a.id, a.local_path FROM meme_entries e JOIN attachments a ON a.id=e.attachment_id
              WHERE e.web_image_url IS NULL AND e.pairing_method='manual_upload'
              AND a.file_name IN ('local-meme.jpg','local-meme.png','local-meme.gif','local-meme.webp')"""
     if "local_import_sha256" in columns:
         sql += " AND e.local_import_sha256 IS NULL"
     hashes = set()
-    for (stored,) in conn.execute(sql):
+    failures = []
+    for attachment_id, stored in conn.execute(sql):
         path = resolve_local(stored, "ATTACHMENT")
-        if path and path.is_file():
+        if not (path and path.is_file()):
+            continue
+        try:
             with path.open("rb") as stream:
                 hashes.add(hashlib.file_digest(stream, "sha256").hexdigest())
-    return hashes
+        except OSError as exc:
+            failures.append((attachment_id, str(exc)))
+    return hashes, failures
 
 
 def import_approved(args):
@@ -83,6 +92,7 @@ def import_approved(args):
             conn = stack.enter_context(closing(sqlite3.connect(uri, uri=True)))
         columns = {r[1] for r in conn.execute("PRAGMA table_info(meme_entries)")} if conn else set()
         known_local = None
+        legacy_blocked = False
         if "web_image_url" in columns:
             seen.update(r[0] for r in conn.execute("SELECT web_image_url FROM meme_entries WHERE web_image_url IS NOT NULL"))
         for number, line in enumerate(lines, 1):
@@ -112,15 +122,23 @@ def import_approved(args):
                     if value is not None and not isinstance(value, str):
                         raise ValueError(f"{src} 須為文字或 null")
                     form[dest] = value or ""
+                if not url and known_local is None:
+                    # 每批只核對一次舊附件；核對無法完成時暫停本批所有本機圖寫入，維持跨批去重保證。
+                    known_local, failures = legacy_local_hashes(conn, columns)
+                    if "local_import_sha256" in columns:
+                        known_local.update(r[0] for r in conn.execute(
+                            "SELECT local_import_sha256 FROM meme_entries WHERE local_import_sha256 IS NOT NULL"))
+                    for attachment_id, reason in failures:
+                        results.append({"legacy_attachment": attachment_id, "status": "error",
+                                        "error": f"舊附件無法讀取：{reason}"})
+                    legacy_blocked = bool(failures)
+                if not url and legacy_blocked:
+                    result.update(status="skipped", error="舊附件核對未完成，本機圖未處理")
+                    continue
                 loader = fetch_image(url) if url else read_local_image(local_root, local_rel)
                 with closing(loader) as upload:
                     digest = None
                     if not url:
-                        if known_local is None:
-                            known_local = legacy_local_hashes(conn, columns)
-                            if "local_import_sha256" in columns:
-                                known_local.update(r[0] for r in conn.execute(
-                                    "SELECT local_import_sha256 FROM meme_entries WHERE local_import_sha256 IS NOT NULL"))
                         digest = hashlib.file_digest(upload.stream, "sha256").hexdigest()
                         upload.stream.seek(0)
                         if digest in known_local:

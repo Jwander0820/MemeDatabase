@@ -27,7 +27,7 @@ class ContainerTest(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix="anime-containers-") as tmp:
             root = Path(tmp)
-            for folder in ["attachments", "thumbnails"]:
+            for folder in ["attachments", "thumbnails", "deploy-ssh"]:
                 (root / folder).mkdir()
             image = root / "thumbnails" / "a.webp"
             Image.new("RGB", (420, 315), "blue").save(image)
@@ -72,6 +72,24 @@ class ContainerTest(unittest.TestCase):
                 docker("up", "-d", "--build", "--wait", "--wait-timeout", "90")
                 docker("exec", "-T", "public-api", "python", "-c",
                        "import importlib.util,pathlib; assert all(importlib.util.find_spec(m) is None for m in ['PIL','mcp','paddle','paddleocr','torch']); assert not pathlib.Path('/app/src/anime_memes/web.py').exists()")
+                docker('exec', '-T', 'private-api', 'python', '-c',
+                       "import shutil; assert shutil.which('ssh') and shutil.which('scp')")
+                inventory = json.loads(docker('exec', '-T', 'public-api', 'python', '-m',
+                                              'src.anime_memes.runtime', 'media-inventory', '--root', '/releases'))
+                self.assertTrue(inventory['media'])
+                # 公開映像沒有 Pillow，仍應能打包、安裝只有 DB／manifest 的增量包。
+                docker('exec', '-T', 'public-api', 'python', '-c',
+                       "from pathlib import Path; import json,os,shutil,tempfile,tarfile; "
+                       "from src.anime_memes.release_bundle import build_bundle,install_bundle,media_inventory; "
+                       "r=Path('/releases'); v=json.loads((r/'current.json').read_text())['version']; "
+                       "t=tempfile.TemporaryDirectory(); p=Path(t.name); target=p/'target'; "
+                       "os.umask(0o077); (target/'media').mkdir(parents=True); "
+                       "inventory=media_inventory(r); "
+                       "[shutil.copyfile(r/'media'/name,target/'media'/name) for name in inventory['media']]; "
+                       "b=p/'delta.tar.gz'; result=build_bundle(r,v,b,inventory=inventory); assert result['media']==0; "
+                       "install_bundle(target,b,activate=True); "
+                       "assert (target/'media').stat().st_mode & 0o777 == 0o755; "
+                       "assert all(path.stat().st_mode & 0o777 == 0o644 for path in (target/'media').iterdir()); t.cleanup()")
                 docker("exec", "-T", "public-api", "python", "-c",
                        "import pathlib; p=pathlib.Path('/releases/write-test');\ntry: p.write_text('bad')\nexcept OSError: pass\nelse: raise AssertionError('mount writable')")
                 docker("exec", "-T", "public-nginx", "nginx", "-t")
@@ -111,18 +129,28 @@ class ContainerTest(unittest.TestCase):
                     self.assertEqual(http(path)[0], 404)
                 self.assertEqual(http("/api/v1/entries", method="POST", data={})[0], 405)
                 self.assertEqual(http("/", private=True)[0], 200)
+                vps_status = json.loads(http('/api/publication/vps', private=True)[2])
+                self.assertTrue(vps_status['ssh_available'])
+                self.assertFalse(vps_status['ssh_ready'])
+                self.assertEqual(http('/api/publication/vps')[0], 404)
                 item = json.loads(http("/api/entries", private=True)[2])["items"][0]
                 self.assertTrue(item["has_local_image"])
                 self.assertEqual(http(item["thumbnail_url"], private=True)[0], 200)
                 self.assertEqual(http(item["attachment_url"], private=True)[0], 200)
                 self.assertEqual(http("/api/entries/meme_a", private=True, method="PATCH", data={"quote_text": "new container version"})[0], 200)
+                # 由 Linux 私人容器重新產圖，驗證 UID 101 能讀 UID 10001 的公開成品。
+                docker("exec", "-T", "private-api", "python", "-c",
+                       "from PIL import Image; Image.new('RGB',(800,600),'red').save('/data/attachments/a.png')")
                 result = json.loads(http("/api/publication/export", private=True, method="POST", data={})[2])
                 self.assertTrue(result["exported"])
+                self.assertEqual(result["report"]["media_validation"]["thumbnails_rendered"], 1)
                 self.assertEqual(json.loads(http("/api/v1/entries")[2])["version"], old)
                 self.assertEqual(http("/api/publication/activate", private=True, method="POST",
                                       data={"version": result["version"]})[0], 200)
                 time.sleep(0.6)
                 self.assertEqual(json.loads(http("/api/v1/entries")[2])["items"][0]["quote_text"], "new container version")
+                new_item = json.loads(http("/api/v1/entries")[2])["items"][0]
+                self.assertEqual(http(new_item["thumbnail_url"])[0], 200)
                 time.sleep(0.6)
                 self.assertEqual(json.loads(http("/api/v1/entries?version=" + old)[2])["items"][0]["quote_text"], "container test")
                 docker("exec", "-T", "private-api", "python", "-m", "src.anime_memes.runtime", "rollback", "--root", "/releases", old)

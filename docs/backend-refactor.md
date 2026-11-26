@@ -1,6 +1,6 @@
 # 雙版本後端與發布操作
 
-更新於 2026-11-24。本文涵蓋私人發布管理、公開搜尋頁、API 與本機 Docker 操作。
+更新於 2026-11-26。本文涵蓋私人發布管理、公開搜尋頁、API、本機 Docker 與建置鎖定；VPS 操作見[部署手冊](vps-deployment.md)。個別歷史驗證數值保留原日期與範圍，不代表當前部署狀態。
 
 ## 架構與模組
 
@@ -29,7 +29,33 @@
 | requirements-ocr.txt | 管理＋既有 PaddleOCR GPU，引擎仍需相容本機環境 |
 | requirements-mcp.txt | 基礎＋官方 mcp 2.3.0，私人唯讀選用 |
 
-所有預設 Docker target 不安裝 OCR。公開 Python target 只複製執行公開 API 必要模組；公開 Nginx target 不含管理前端。私人 MCP target 不含 Pillow 或完整管理庫寫入程式。版本固定的是直接依賴，尚非完整 transitive lockfile。
+所有預設 Docker target 不安裝 OCR。公開 Python target 只複製執行公開 API 必要模組；公開 Nginx target 不含管理前端。私人 MCP target 不含 Pillow 或完整管理庫寫入程式。直接依賴由上述清單宣告，部署完整版本及雜湊由下列鎖檔固定。
+
+## 建置鎖檔與映像更新
+
+`requirements-locks/public-py312-linux.txt`、`admin-py312-linux.txt`、`mcp-py312-linux.txt` 分別對應三種 Python Docker target，包含完整直接／間接依賴及 SHA-256。Docker 仍用 pip，搭配 `--require-hashes --only-binary=:all:`；同時讀取直接依賴與鎖檔，宣告有變更但鎖檔未同步時會因衝突或缺少雜湊而失敗，不會悄悄裝入其他版本。管理與 MCP 的鎖檔沿用公開基礎的版本限制。
+
+更新直接依賴後，從 repo 根目錄執行：
+
+```powershell
+.\scripts\lock_dependencies.ps1
+# 明確更新符合直接依賴限制的間接套件時：
+.\scripts\lock_dependencies.ps1 -Upgrade
+```
+
+腳本從 Dockerfile 取得固定的 Python 基底，在暫存 Linux／Python 3.12 容器使用 `pip==26.3`、`pip-tools==7.7.0` 產生鎖檔；不改動本機 `.venv`，也不匯入館藏或執行同步。預設沿用鎖檔既有版本，需更新間接依賴時才加 `-Upgrade`。產出需與來源宣告一同檢查，並重建相關 target、執行測試。Linux 鎖檔不宣稱涵蓋其他作業系統、Python 版本或 OCR／CUDA；這些環境仍依各自的 requirements 清單安裝或另外產生鎖檔。
+
+Python、Nginx 基底及預設 cloudflared 都固定「版本標籤＋多架構 digest」。單純 `build --pull` 只會拉回相同內容，不會自動取得安全修補。更新時先從原映像 registry 查證 digest，例如：
+
+```powershell
+docker buildx imagetools inspect python:3.12.15-slim-bookworm
+docker buildx imagetools inspect nginxinc/nginx-unprivileged:1.30.6-alpine
+docker buildx imagetools inspect cloudflare/cloudflared:2026.10.0
+```
+
+使用輸出最上層的映像索引 digest 更新 Dockerfile／`deploy/Dockerfile.nginx`／Compose，不以單一 CPU 架構的子 manifest 取代。Python 版本變更時須重產鎖檔。若 `.env` 明確設定 `CLOUDFLARED_VERSION`，它會覆寫 Compose 預設，值也應使用 `版本@sha256:已查證的digest`。本次不提供映像位元組完全一致的保證；固定的是基底內容與套件安裝輸入。
+
+依據：[pip 雜湊驗證](https://pip.pypa.io/en/stable/topics/secure-installs/)、[pip-tools 鎖檔](https://pip-tools.pypa.io/en/stable/#using-hashes)、[Docker 固定基底 digest](https://docs.docker.com/build/building/best-practices/#pin-base-image-versions)。
 
 ## 本機 migration 與管理接口
 
@@ -90,7 +116,7 @@
 
 取消公開用 `--selected no`，清空原圖網址用 `--original-url ''`。取消選擇或刪除本機項目後，需再次匯出並啟用新版才會從公開搜尋移除；歷史版本與長快取媒體不會因此立即失效；需徹底移除時執行 `publication purge`（或管理頁「徹底清除」），刪除未保留的舊版本、只被它們使用的縮圖與不再需要的 R2 大圖，並依輸出網址清除 Cloudflare 快取。緊急情況仍可先停用公開入口。check／export 不合格 exit code 2；其他執行錯誤非零。API 的輸出根目錄由 create_app 的 release_root 或私人 runtime 的 MEMES_RELEASE_ROOT 設定；CLI 明確使用 --root。
 
-匯出先用 SQLite backup API 取得一致管理快照，再將選定欄位輸入全新公開庫。公開縮圖優先由本地原圖以 480P 預設（長邊 ≤854、短邊 ≤480、WebP quality 78）重新產生，無可用原圖時退回既有縮圖；不放大，重建像素去掉 EXIF／ICC。原始縮圖與原圖不被覆蓋。
+匯出先用 SQLite backup API 取得一致管理快照，再將選定欄位輸入全新公開庫。公開縮圖優先由本地原圖以 480P 預設（長邊 ≤854、短邊 ≤480、WebP quality 78）產生，無可用原圖時退回既有縮圖；不放大，重建像素去掉 EXIF／ICC，未變動時可沿用已驗證成品。原始縮圖與原圖不被覆蓋。公開縮圖位於發布目錄的 `media/`，本機與 VPS 都由公開 Nginx 直接供應；原子寫入成品的權限明確設為 `0644`，讓產圖帳號 UID 10001 與 Nginx UID 101 可共用讀取，快取重用時也會修正缺少的跨帳號讀取權限。
 
 若已設定 MEMES_R2_* 環境變數，匯出在取得快照前會先為已選取且無手動原圖網址的項目產生 720P WebP，以內容雜湊為物件鍵（HEAD 不存在才 PUT）上傳 R2，並寫回 attachments.r2_key／r2_url；任一上傳失敗則不建立版本，錯誤寫入報告。公開庫 original_url 為手動網址，否則為 R2 網址，皆無則僅縮圖。公開端不代理外部圖片，也不執行縮圖。
 
@@ -139,19 +165,35 @@ docker compose --profile public up -d
 .venv\Scripts\python.exe -m src.anime_memes.runtime install-bundle --root /releases [--activate] /bundle.tar.gz
 ```
 
-bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite3` 與該版本引用的 `media/<sha256>.webp`，不含 reports 與 current.json。install-bundle 在寫入任何檔案前先檢查全部成員（僅允許白名單內的一般檔案、單一版本、無重複、無絕對路徑／`..`／連結），解壓到 `.incoming-*` 暫存目錄，已存在的版本拒絕覆寫，已存在的媒體需雜湊與檔名相符才略過，最後呼叫 validate；驗證失敗會移除剛安裝的版本資料夾。只有加上 `--activate` 才會切換 current.json，且一律經 `releases.activate` 原子寫入，不會被直接覆寫。
+bundle 先驗證版本，完整打包 `versions/<V>/manifest.json`、`public.sqlite3`；未指定 `--inventory REMOTE.json` 時帶入該版本全部縮圖，指定時只帶入遠端清單缺少的 `media/<sha256>.webp`。清單由 VPS 的 `runtime media-inventory --root /releases` 產生，實際核對內容 SHA-256，略過損壞或符號連結檔案；不含 reports 與 current.json。增量包依賴該 VPS 已有的媒體，不能當作獨立完整備份。
 
-`scripts/push_release.ps1` 串起整個流程（本機打包、scp、ssh 以公開映像執行 install-bundle、清除暫存檔），每步檢查結束碼：
+install-bundle 在寫入任何檔案前先檢查全部成員（僅允許白名單內的一般檔案、單一版本、無重複、無絕對路徑／`..`／連結），解壓到 `.incoming-*` 暫存目錄，已存在的版本拒絕覆寫，已存在的媒體需雜湊與檔名相符才略過，最後對新 DB、完整媒體清單及所有實際檔案呼叫 validate；驗證失敗會移除剛安裝的版本資料夾，保留目前啟用指標。比對後遠端被清理造成缺檔時同樣阻擋啟用，重新取得清單並打包即可；既有物件雜湊錯誤則中止，須先查明損壞原因。公開檔案權限設為 `0644`，媒體目錄為 `0755`。只有加上 `--activate` 才會切換 current.json，且一律經 `releases.activate` 原子寫入，不會被直接覆寫。
+
+`scripts/push_release.ps1` 預設先透過 SSH 以唯讀掛載取得遠端縮圖清單，再本機增量打包、scp、ssh 以公開映像執行 install-bundle、清除暫存檔，每步檢查結束碼：
 
 ```powershell
-.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases [-Activate] [-DryRun]
+.\scripts\push_release.ps1 -Version VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases [-Activate] [-Full] [-DryRun]
 ```
 
-前提：VPS 已有公開映像（預設 `memedatabase-public-api`）與發布目錄，且該目錄允許 UID 10001 寫入；SSH 認證使用你既有的 ssh 設定，腳本不處理密碼或 token。`-DryRun` 只印出命令，不執行任何步驟。
+前提：VPS 已有支援 `media-inventory` 的新版公開映像（預設 `memedatabase-public-api`）與發布目錄，且該目錄允許 UID 10001 寫入；舊映像需先更新，或以 `-Full` 退回完整傳輸。清單取得或解析失敗時停止，不默默改為全量上傳。SSH 認證使用你既有的 ssh 設定，腳本不處理密碼或 token。`-DryRun` 只印出命令，不執行任何步驟。
+
+新增或換圖以內容雜湊決定是否傳輸，僅修改文字／標籤時只更新 DB 與 manifest。刪除或取消公開直接反映在新 DB，啟用後從搜尋移除；不以 SQL 差異逐筆修改線上庫，也不在安裝時刪除舊版媒體。舊檔依既有 `-Prune` 保留最新三版及目前啟用版後清理；徹底撤回仍需另外處理 R2 與 CDN 快取。
 
 完整的 VPS 首次部署、Cloudflare Tunnel 設定與日常維運見 [VPS 部署手冊](vps-deployment.md)。
 
+私人管理頁已整合上述增量流程：`GET /api/publication/vps` 取得連線設定、最近工作與可選版本，`PUT /api/publication/vps/config` 儲存 `ssh_host`／`release_root`，`POST /api/publication/vps` 以 `{version, activate}` 啟動背景發布並立即回傳 202。設定不接受指令或金鑰，遠端僅執行固定的 Docker 發布命令；輪詢不經公開站。重新整理可恢復進度與結果，本機程序重新啟動則標示舊工作結果待確認，不自動重試。權限、專用 SSH 目錄及使用步驟見部署手冊「從本機發布管理操作」。
+
 ## 公開搜尋契約
+
+### 瀏覽器個人館藏與手動投稿
+
+公開搜尋 API 仍為唯讀，沒有新增投稿或個人圖片寫入端點。「我的梗圖」與私人管理庫互不相通，圖片 Blob 及欄位只存在目前網站 origin 的 IndexedDB `memedatabase-personal`（版本 1、`memes` store）；本地搜尋不呼叫公開搜尋 API。不同裝置、瀏覽器、網域、協定或 port 不共用資料，例如本機測試站與正式網域需以備份自行搬移。這不代表整個網站離線可用，載入網頁與查詢公開館藏仍需網路。
+
+圖片只接受 JPEG／PNG／WebP／GIF，驗證大小、檔頭，支援時另以瀏覽器解碼確認；每張上限 10 MB、500 筆、圖片總量 60 MB，並受實際瀏覽器空間限制。保存成功以 IndexedDB transaction complete 為準；額滿或交易失敗不回報成功。請求持續儲存只能降低自動回收機會，無法防止使用者清除網站資料或裝置故障。
+
+備份是 JSON，`format: memedatabase-personal`、`version: 1`，內含欄位與 base64 圖片，上限 100 MB。匯入先驗證整份備份及所有圖片，成功後以單一交易新增，重複 ID 略過，不覆寫既有資料；格式不支援、任一圖片損壞或交易失敗都不做部分匯入。這是第一版格式，目前支援 v1；未來有格式調整時需明確新增相容轉換，不直接清空 IndexedDB，未知版本則拒絕匯入並保留使用者原檔。備份不含公開收藏或公開 DB。
+
+表單欄位由 `public_ui/meme-form.js` 共用，樣式共用 `web_static/catalog.css`，管理頁額外提供工作狀態欄位。個人卡片、來源及投稿文字以文字節點／表單值顯示，不將使用者輸入當成 HTML。投稿只建立固定收件人 `meme@jwander.net` 的 mailto 草稿，另提供複製格式與下載圖片；超過連結長度限制時提示手動貼上全文。UI 不自動附檔、不代寄、不聲稱已寄達。信箱仍須處理垃圾信與不可信附件；此流程減少公開投稿 API 的攻擊面，但不是零風險保證。核准後仍由管理者在私人端匯入／建檔，再依現有發布流程上架。
 
 | 接口 | 用途 |
 |---|---|
@@ -163,7 +205,9 @@ bundle 先驗證版本，只打包 `versions/<V>/manifest.json`、`public.sqlite
 
 列表預設每頁 24、最多 60，page 1–10000；sort 為 relevance、updated、created（最近新增，依建立時間）、title、random。`sort=random` 必須帶 `seed`（1–32 字元，僅 `A-Za-z0-9_-`，否則 400），順序為 `sha256(seed:id)`，同 seed 分頁穩定不重複；沒有 q、tag、ids 時只取 `home_random=1`，排除標籤預設為 `content_sexual_innuendo`、`content_perverted`（環境變數 `MEMES_HOME_EXCLUDED_TAGS` 以逗號分隔覆寫），有任何篩選則不排除。本機瀏覽 `/api/v1/entries` 語意相同（沒有 q、tag、favorite 時排除，依 entry_tags 的 tag_id 判斷）；管理 API `/api/entries` 新增 `sort=created`，random 維持原行為、不做首頁排除。q 最長 256 字／16 詞。有查詢預設相關度，否則最近更新；保留繁簡、標點、多詞、標籤／別名搜尋規則，並支援 `-排除`、`作品:詞` 欄位限定、引號片語與 `field` 搜尋範圍參數（work／speaker／quote／title／tag／alias，見 [DB 與搜尋規格 5.4](database-search-spec.md)）。不接受 status、favorite、missing_image 或其他管理參數。
 
-列表回傳 `{version, items, total, page, page_size}`；單筆 `{version, item}`。item 欄位為 id、display_title、resolved_title、speaker、anime_title、quote_text、tags、search_aliases、thumbnail_url、original_url、updated_at、created_at；OCR 不參與搜尋，也不寫入公開快照（第 3 版起）。API 無長時間快取，圖片雜湊 URL 使用一年 immutable 快取。
+列表回傳 `{version, items, total, page, page_size}`；單筆 `{version, item}`。item 欄位為 id、display_title、resolved_title、speaker、anime_title、quote_text、tags、search_aliases、thumbnail_url、original_url、updated_at、created_at；OCR 不參與搜尋，也不寫入公開快照（第 3 版起）。未指定版本的 API 使用 `no-store`，明確指定版本的成功回應使用一年 immutable 快取；錯誤不長期快取。圖片雜湊 URL 同樣使用一年 immutable 快取。
+
+公開頁的收藏只保存在訪客瀏覽器，以 `ids` 查詢最新仍可用的資料；單次最多 200 個 ID。收藏列表顯示最近 200 張，並說明顯示上限、超出範圍的較早收藏數量，以及已下架數量；較早紀錄不自動刪除。本機 `/browse` 透過 `favorite=1` 查詢管理庫收藏，不使用這個顯示上限。
 
 錯誤格式為 `{error: {code, message}}`，涵蓋 400 invalid_request、404 not_found、405 method_not_allowed、410 version_expired、503 not_ready。Nginx 限流回傳 429；其預設 HTML 錯誤頁不遵循 API JSON 格式，前端須先判斷 HTTP status。
 
@@ -188,7 +232,7 @@ docker compose -p memedatabase-frontend-qa --profile public up -d --build --wait
 4. 在私人頁取消選取後再檢查、匯出，此時重新搜尋仍可找到該圖。啟用新版，再按公開頁「搜尋」，確認結果更新。後續換版可直接在頁面操作。
 5. 結束測試可執行 `docker compose -p memedatabase-frontend-qa --profile public --profile private down`。測試館藏保留於上述主機目錄。
 
-Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 次／秒、burst 10，SEARCH_RATE／SEARCH_BURST 可覆寫。未信任任意 X-Forwarded-For；部署到既有代理或 Tunnel 時應另外設定明確可信來源，否則多位使用者可能共用入口 IP 的限流額度。
+Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 次／秒、burst 10，SEARCH_RATE／SEARCH_BURST 可覆寫。未信任任意 X-Forwarded-For；公開設定已從本機／私有網段的 Cloudflare Tunnel 來源讀取 `CF-Connecting-IP`，其安全前提是公開 port 只綁 localhost，外部請求僅透過受控 Tunnel。若改成其他入口或信任來源，須重新檢查真實 IP 與限流設定。
 
 | 環境變數 | 預設／用途 |
 |---|---|
@@ -205,6 +249,20 @@ Compose 預設公開後端上限 192 MB、Nginx 64 MB、私人後端 384 MB、MC
 
 ## 私人選用 MCP
 
+私人管理頁 `/api/publication/` 的 Nginx 上游回應等待為 600 秒（10 分鐘），涵蓋檢查、匯出、啟用與清理；一般 API 與公開服務維持原設定。這是兩次讀取上游資料之間的等待上限，並非保證匯出能在 10 分鐘內完成。收到 504 不代表後端工作已取消，請先查看日誌與發布結果，避免連續重試。
+
+發布檢查與匯出會重用圖片驗證及轉檔結果：每次仍檢查目前勾選公開的所有資料、狀態與網址，並讀取來源圖片計算 SHA-256；來源內容、檔案資訊、Pillow 版本與轉檔規格相同時，省略重複解碼，重用 480P 縮圖與 720P 大圖。只修改文字或標籤也會重新產生公開資料快照，但無須重新編碼未變動的圖片。縮圖與 720P 成品在重用前會核對內容雜湊；發布包仍完整驗證資料庫與媒體清單。
+
+快取位於管理資料庫同一目錄的 `.publication-cache.sqlite3`，屬私人、可丟棄的加速資料，不隨公開發布包匯出；刪除後會重新驗圖與產圖。僅儲存成功的圖片驗證結果；快取讀寫失敗會記錄警告並退回正常處理。若要強制逐張解碼，可執行：
+
+```powershell
+.venv\Scripts\python.exe -m src.anime_memes --db data/anime_memes.sqlite3 publication check --full
+```
+
+首次檢查、首次匯出、大量新圖或 R2 上傳仍可能超過 10 分鐘，長作業可使用 CLI。目前仍為同步請求，尚無背景工作或即時進度。`docker compose -p memedatabase logs --tail 100 private-api private-nginx` 可查看檢查起訖、耗時、解碼／重用數及 Nginx 請求與錯誤；匯出報告另外保存在 releases 的 `reports/*.json`。這些操作日誌不等同具使用者身分的完整異動稽核紀錄。
+
+R2 物件使用圖片內容 SHA-256 命名；已成功記錄於管理庫的大圖會跳過上傳，未記錄時也先 HEAD 確認物件是否存在。一般重試不會產生同內容的另一個物件，但連線中斷或重試可能增加請求／傳輸。同時只允許一個匯出持有 `.export.lock`；不要在仍有工作執行時手動移除此鎖。每張上傳成功後即提交紀錄，重新匯出可沿用已完成部分，但可能建立另一個發布版本；匯出本身不會啟用版本。
+
 ```powershell
 # token 請自行安全產生並透過環境注入，不提交實際值。
 $env:MEMES_MCP_TOKEN = '<至少32字元的隨機ASCII值>'
@@ -217,9 +275,11 @@ docker compose --profile private --profile mcp up -d --build
 
 ## 驗證紀錄與限制
 
+2026-11-26 更新建置鎖定後，Python 287 項測試執行完成（285 通過、Docker／GPU 選用項目 2 項略過），Node 狀態測試 44 項通過。另行啟用真實 Docker 整合測試通過，涵蓋三種 Python 與兩種 Nginx 映像、私人 MCP 及發布換版。三份鎖檔預設重跑後 SHA-256 相同；隔離安裝預檢確認未同步的直接版本、新增但未鎖定的依賴與錯誤套件雜湊均被拒絕。容器測試環境為 Linux／amd64，不代表已驗證其他架構、GPU、正式 VPS 或本輪真實瀏覽器流程。
+
 測試涵蓋既有功能、公開欄位隔離、整批阻擋、縮圖／路徑、版本固定與並行切換、損壞回復、唯讀連線、MCP 協定與權限。容器已實際建置並驗證 Nginx 設定、管理靜態頁與圖片、公開 API、縮圖快取與限流、公開映像無 Pillow／OCR／MCP、掛載 DB 寫入失敗。
 
-真實 Docker 整合測試 `tests/test_containers.py` 已通過，耗時約 95 秒：臨時管理庫的 API 修改及匯出、容器外啟用新版、公開 API 不重啟即讀新版、指定舊版、rollback、強制重建公開容器後版本保留，以及私人 MCP 握手／搜尋皆成功。測試自行建立臨時資料並在 finally 關閉隔離 Compose 專案，不碰正式館藏。重跑方式：
+2026-11-26 真實 Docker 整合測試 `tests/test_containers.py` 已通過，耗時約 108 秒：臨時管理庫的 API 修改及匯出、容器外啟用新版、公開 API 不重啟即讀新版、指定舊版、rollback、強制重建公開容器後版本保留，以及私人 MCP 握手／搜尋皆成功。測試自行建立臨時資料並在 finally 關閉隔離 Compose 專案，不碰正式館藏。重跑方式：
 
 ```powershell
 $env:RUN_CONTAINER_TESTS = '1'
@@ -229,6 +289,6 @@ Remove-Item Env:RUN_CONTAINER_TESTS
 
 需可存取 Docker daemon、套件來源與 loopback，測試使用主機 port 18865、18875、8766，請先確定未被其他程序占用。一般回歸不啟用此環境變數，GPU smoke test 同樣需要另行 opt-in。容器測試時公開 API 約 27 MiB、Nginx 約 4 MiB，僅小型 fixture 的瞬間值，非正式負載或容量上限。
 
-使用實際館藏副本中的 981 筆合格候選，暖查詢中位數約 11–14 ms；複製欄位擴充到 9,810 筆約 122–133 ms。Windows 測量程序包含 Pillow／匯出模組，RSS 約 42–45 MB，不代表公開容器 RAM。標籤查詢計畫使用 idx_public_tag 覆蓋索引，任意文字仍掃描，不宣稱全文索引加速或 VPS 容量。
+2026-11-24 使用實際館藏副本中的 981 筆合格候選，暖查詢中位數約 11–14 ms；複製欄位擴充到 9,810 筆約 122–133 ms。Windows 測量程序包含 Pillow／匯出模組，RSS 約 42–45 MB，不代表公開容器 RAM。這些是歷史基準，不代表目前館藏筆數。標籤查詢計畫使用 idx_public_tag 覆蓋索引，任意文字仍掃描，不宣稱全文索引加速或 VPS 容量。
 
-VPS 部署、TLS、遠端管理帳號、PostgreSQL 與 OCR Docker 留待後續規劃。
+VPS 首次部署、Cloudflare Tunnel／HTTPS、推送與回復已有[部署手冊](vps-deployment.md)及 `scripts/push_release.ps1`；實際主機的資源、外部存取與還原驗收需另行記錄，不能從本機容器測試推定。遠端管理登入、PostgreSQL 與 OCR Docker 不屬於目前交付；管理庫與原圖的完整備份／異地保存仍待補齊。

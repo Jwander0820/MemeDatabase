@@ -26,7 +26,7 @@
 
 ## 程式架構
 
-依賴使用 `requirements.txt`（公開基礎）、`requirements-admin.txt`（圖片管理與發布）、`requirements-ocr.txt`（本機選用 OCR）、`requirements-mcp.txt`（私人選用 MCP）。不得將 OCR／CUDA／模型套件加入部署基礎清單，也不要再建立單數 `requirement.txt` 或用整個開發環境的 pip freeze 覆蓋基礎清單。公開 runtime 不得 import web／management／publishing 等管理模組；後端與發布操作見 `docs/backend-refactor.md`。
+直接依賴使用 `requirements.txt`（公開基礎）、`requirements-admin.txt`（圖片管理與發布）、`requirements-ocr.txt`（本機選用 OCR）、`requirements-mcp.txt`（私人選用 MCP）。Docker 使用 `requirements-locks/*-py312-linux.txt` 的完整版本與 SHA-256；變更部署依賴後以 `scripts/lock_dependencies.ps1` 重產鎖檔，不手改產出內容。不得將 OCR／CUDA／模型套件加入部署基礎清單，也不要再建立單數 `requirement.txt` 或用整個開發環境的 pip freeze 覆蓋基礎清單。公開 runtime 不得 import web／management／publishing 等管理模組；後端、鎖檔與發布操作見 `docs/backend-refactor.md`。
 
 ```text
 src/anime_memes/
@@ -124,6 +124,12 @@ Agent 圖片標籤工作：
 ```
 
 操作前必須閱讀 `docs/agent-image-tagging-guide.md`。Agent 只能輸出結果 JSONL，不得直接修改 SQLite。
+
+任何需要選標籤或新增標籤的工作（蒐集新梗圖、AI 標註、修改 taxonomy），先閱讀 `.claude/skills/meme-tags/SKILL.md`，並以下列指令取得目前的標籤清單（唯讀）：
+
+```bat
+.venv\Scripts\python.exe -m src.anime_memes list-tags --min-count 3
+```
 
 測試：
 

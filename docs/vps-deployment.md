@@ -217,7 +217,7 @@ RELEASE_ROOT=/srv/memedatabase/releases
 # SEARCH_RATE=2r/s
 # SEARCH_BURST=10
 # PUBLIC_PORT=3637
-# CLOUDFLARED_VERSION=2026.10.0
+# CLOUDFLARED_VERSION=版本@sha256:已查證的映像索引digest（預設使用 compose.yaml 的固定值）
 EOF
 chmod 600 .env
 ```
@@ -264,15 +264,47 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3637/health/ready   # 
 
 ## 6. 日常操作
 
+### 從本機發布管理操作
+
+本機管理頁的「發布管理」已提供「發布到 VPS 正式站」。先在本機檢查並匯出版本，再選擇已匯出的版本、按「推送到 VPS」。預設只安裝；勾選「安裝驗證成功後，立即啟用正式站新版」才會切換線上版本。「本機啟用」只影響本機測試站，不會更新 VPS。這個功能只發布館藏，不更新 Docker 程式映像。
+
+連線目標（SSH 主機別名或 `user@host`、遠端發布目錄）可在此區的「VPS 連線設定」儲存；設定與最近一次工作結果放在私人資料目錄 `vps-publication/`，不隨公開發布包上傳。背景工作會顯示比對、打包、傳輸、安裝等階段，以及需傳送／沿用的縮圖數與包大小；目前沒有逐位元組的傳輸百分比。關閉對話框或重新整理後，可重新開啟查看結果。同時只允許一個 UI 發布工作；不要與 PowerShell 上傳腳本同時執行。
+
+使用本機 Docker 私人服務時，請先在 `data/deploy-ssh/`（或 `${PRIVATE_DATA_ROOT}/deploy-ssh/`）放入專用的 `id_ed25519` 與已核對的 `known_hosts`；可另放 `config` 設定主機別名，例如：
+
+```sshconfig
+Host myvps
+    HostName 你的VPS主機名稱或IP
+    User deploy
+```
+
+私鑰需能以非互動方式使用，且公鑰已安裝到 VPS 部署帳號。主機指紋應先從可信來源確認，不要略過驗證；網頁不接收密碼／私鑰，也不自動接受陌生主機指紋。此專用目錄只掛載到私人容器 `/deploy-ssh`；執行時複製到私有暫存並設為 `0600`，避免 Windows 掛載權限造成 OpenSSH 拒絕。不得提交這些檔案。若是原生 Python 管理服務，則沿用該執行帳號的 SSH config／agent；可用 `MEMES_VPS_SSH_DIR` 指定相同的專用目錄。
+
+VPS 須先部署支援 `media-inventory` 的公開映像（預設 `memedatabase-public-api`；需要時由私人服務的 `MEMES_VPS_IMAGE` 指定其他名稱），並完成發布目錄權限設定。本機私人 Docker 已安裝 OpenSSH client，公開映像不安裝此工具。
+
+頁面顯示「完成」代表遠端安裝／啟用指令成功，仍應實際開啟公開網址檢查。每次推送會先確認此版本是否已安裝：內容完全相同時直接沿用，需要時可勾選啟用，不再重傳；同名但內容不同則拒絕覆寫。連線逾時或本機服務重啟可能無法確認遠端是否完成；畫面會標示失敗或結果待確認，不自動重試。請先確認遠端工作已結束，再手動重試。本機服務重啟後不會自動接續舊工作。目前未提供遠端取消或系統通知；關閉頁面不會取消發布。
+
 ### 6.1 發布新版本
 
 本機匯出新版本後：
+
+上傳腳本預設採縮圖增量傳輸：先取得 VPS 已有且雜湊正確的縮圖清單，只上傳缺少的縮圖；DB 與完整 manifest 每次都更新。縮圖在本機產生，VPS 不下載 R2 大圖重新產圖。需先更新 VPS 公開映像以支援 `media-inventory`；舊映像可加 `-Full` 使用完整傳輸，清單查詢失敗時不會繼續上傳。
 
 ```powershell
 .\scripts\push_release.ps1 -Version NEW_VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases -Activate
 ```
 
 不加 `-Activate` 只安裝並驗證，不切換目前版本；之後可在 VPS 以 `activate` 切換（見 6.3）。已存在的版本不會被覆寫。
+
+改文字／標籤只更新資料快照；新增或換圖只傳新雜湊圖片。刪除資料／取消公開在啟用新 DB 後生效，舊縮圖先保留供回滾，後續依 `-Prune` 清理未被保留版本引用的檔案。增量包依賴目標 VPS 的既有縮圖；離線完整備份請使用 `-Full`。此清理不會刪除 R2 或清除 CDN 快取。
+
+加上 `-Prune` 會在安裝後自動清理舊版本（見 6.4），保留最新三版與目前啟用版本，避免 VPS 上累積太多版本：
+
+```powershell
+.\scripts\push_release.ps1 -Version NEW_VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases -Activate -Prune
+```
+
+清理時會短暫停止公開服務（約數秒），不論 prune 成功與否都會重新啟動。compose 目錄不是 `/opt/memedatabase` 時以 `-RemoteComposeDir` 指定。
 
 ### 6.2 程式更新
 
@@ -284,7 +316,7 @@ docker compose --profile public --profile tunnel up -d --build --wait
 
 若更新包含公開資料結構（schema）版本升級，舊版本會因不相容而無法 ready，需在本機重新匯出並推送、啟用新版本。
 
-**映像的安全更新**：主機的自動更新不會更新容器內的系統與套件。建議每月（或基底映像有安全公告時）重新拉取基底映像並重建：
+**映像的安全更新**：主機的自動更新不會更新容器內的系統與套件。Python、Nginx 與預設 cloudflared 已固定 digest，單純 `build --pull` 仍是同一份內容。建議每月（或有安全公告時）先在本機查證並更新基底 digest／套件宣告，以 `scripts/lock_dependencies.ps1 -Upgrade` 重產鎖檔、測試，再同步原始碼至 VPS 重建；完整流程見[建置鎖檔與映像更新](backend-refactor.md#建置鎖檔與映像更新)：
 
 ```bash
 cd /opt/memedatabase
@@ -293,7 +325,7 @@ docker compose --profile public --profile tunnel up -d --wait
 docker image prune -f   # 清掉被取代的舊映像
 ```
 
-cloudflared 的版本由 `.env` 的 `CLOUDFLARED_VERSION` 固定（預設見 compose.yaml）；要升級時改這個值後重新 `up -d`，確認連線正常。
+cloudflared 預設版本與 digest 見 compose.yaml；`.env` 的 `CLOUDFLARED_VERSION` 可覆寫，應填 `版本@sha256:已查證的digest`。明確只填版本標籤會取消預設的內容鎖定。升級後重新 `up -d` 並確認連線正常。
 
 ### 6.3 回到舊版與其他 runtime 指令
 
@@ -359,9 +391,9 @@ docker compose logs --since 1h --timestamps public-nginx | grep 'search status='
 | VPS 主機 | — | SSH 只允許金鑰、自動安全更新（4.2）；定期重建映像（6.2） |
 | Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
 | 公開 API | 只接受讀取；參數白名單；分頁、查詢長度（256 字／16 詞）、收藏數（200）上限；資料庫唯讀且只含已發布欄位 | — |
-| 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；基底映像鎖定到明確版本（Python `3.12.15-slim-bookworm`、Nginx `1.30.6-alpine`） | — |
+| 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；Python／Nginx 基底與預設 cloudflared 固定版本及 digest，三種 Python 部署使用完整版本與 SHA-256 鎖檔 | 明確更新 digest／鎖檔並重建，才能取得安全修補 |
 
-尚未處理、風險較低的強化項目：基底映像只鎖定標籤而未鎖定 digest、Python 間接依賴沒有完整鎖定檔。
+建置鎖檔適用 Linux／Python 3.12，未包含本機 OCR／CUDA。固定 digest 與雜湊不等於已完成安全更新或主機負載驗收；更新與還原仍依維運流程執行。
 
 ### 其他提醒
 

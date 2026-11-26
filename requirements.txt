@@ -1,5 +1,5 @@
 # 輕量公開搜尋服務基礎，不包含管理圖片、OCR 或 MCP。
-# 僅列直接依賴，間接依賴由 pip 解析；這不是完整鎖定檔。
+# 僅宣告直接依賴；Docker 同時以 requirements-locks/public-py312-linux.txt 鎖定完整版本與 SHA-256。
 # 不包含 OCR、CUDA、模型或 GPU 套件。
 Flask==3.1.3
 waitress==3.0.2

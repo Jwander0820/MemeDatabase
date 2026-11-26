@@ -1,5 +1,7 @@
 openCreate.addEventListener("click", () => {
-  createError.textContent = "";
+  // 開啟時一律重設：上一次的 close 事件可能還沒送達，不能讓新草稿沿用舊內容或舊的送出鎖。
+  clearCreateForm();
+  createFormActive = true;
   createDialog.showModal();
 });
 
@@ -79,9 +81,53 @@ closeOnBackdrop(createDialog, createFormIsBlank);
 if (globalThis.MemeTagInput) globalThis.MemeTagInput.mount(createForm.elements.tags);
 closeOnBackdrop(document.querySelector("#publicationDialog"));
 
+// 每次開啟或關閉新增視窗都換一個編號；送出時記下編號，回應回來時編號不同代表視窗已屬於別的草稿。
+let createSession = 0;
+// 目前這次開啟的表單是否尚未重設；確保每次開啟只重設一次。
+let createFormActive = false;
+
+// 顯示頁面層級提示（不在對話框內）；action 為可選的操作按鈕，提示會停留較久。
+function showCreateNotice(message, action = null) {
+  showToast(message);
+  if (!action) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = action.label;
+  button.style.pointerEvents = "auto";
+  button.style.marginLeft = "12px";
+  button.addEventListener("click", action.run);
+  toast.appendChild(button);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 30000);
+}
+
+// 只重新讀取統計、清單與新增的那筆；絕不重新 POST。任何一步失敗都會丟出例外。
+async function refreshAfterCreate(key, showDetail) {
+  if (await loadMeta() === false) throw new Error("meta refresh failed");
+  await loadEntries(true);
+  if (state.loadFailed) throw new Error("entries refresh failed");
+  if (!showDetail()) return;
+  const requestId = ++state.detailRequest;
+  const item = await fetchEntry(key);
+  if (requestId === state.detailRequest && showDetail()) renderDetail(item);
+}
+
+async function refreshCreatedEntry(key, showDetail, isRetry = false) {
+  try {
+    await refreshAfterCreate(key, showDetail);
+    // 首次成功時「已新增」已顯示過；重試成功才需要蓋掉先前的失敗提示。
+    if (isRetry) showCreateNotice(T.created);
+  } catch (_error) {
+    showCreateNotice(T.createdRefreshFailed, {label: T.retry, run: () => refreshCreatedEntry(key, showDetail, true)});
+  }
+}
+
 createForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (saveCreate.disabled) return;
+  const session = createSession;
+  const owns = () => session === createSession;
+  let created = false;
   createError.textContent = "";
   saveCreate.disabled = true;
   try {
@@ -89,38 +135,75 @@ createForm.addEventListener("submit", async (event) => {
     const body = new FormData(createForm);
     const aliases = createForm.elements.search_aliases.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
     body.set("search_aliases", JSON.stringify(aliases));
-    const response = await fetch("/api/entries/manual", {
-      method: "POST",
-      body,
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      createError.textContent = errorMessage(data, T.createFailed);
+    let response;
+    try {
+      response = await fetch("/api/entries/manual", {
+        method: "POST",
+        body,
+      });
+    } catch (_error) {
+      // 請求已送出但沒有回應：伺服器可能已建立，不能讓使用者直接重送。
+      if (owns()) createError.textContent = T.createUnknown;
+      else showCreateNotice(T.createUnknown);
       return;
     }
-    createDialog.close();
-    searchInput.value = "";
-    setSearchField("");
-    statusFilter.value = data.status;
-    sortFilter.value = "";
-    favoriteOnly.checked = false;
-    missingImage.checked = false;
-    noTags.checked = false;
-    publishedOnly.checked = false;
-    unpublishedOnly.checked = false;
-    state.tag = "";
-    await loadMeta();
-    await loadEntries(true);
-    await openEntry(data.key);
-    showToast(T.created);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const reason = errorMessage(data, T.createFailed);
+      if (owns()) createError.textContent = reason;
+      else showCreateNotice(reason);
+      return;
+    }
+    if (!data.key) {
+      if (owns()) createError.textContent = T.createUnknown;
+      else showCreateNotice(T.createUnknown);
+      return;
+    }
+    created = true;
+    showCreateNotice(T.created);
+    let showDetail = () => false;
+    if (owns()) {
+      closeCreateDialog();
+      const after = createSession;
+      showDetail = () => after === createSession;
+      searchInput.value = "";
+      setSearchField("");
+      statusFilter.value = data.status;
+      sortFilter.value = "";
+      favoriteOnly.checked = false;
+      missingImage.checked = false;
+      noTags.checked = false;
+      publishedOnly.checked = false;
+      unpublishedOnly.checked = false;
+      state.tag = "";
+    }
+    await refreshCreatedEntry(data.key, showDetail);
   } catch (_error) {
-    createError.textContent = T.createFailed;
+    // 已收到 201 之後的錯誤只影響畫面，不能讓使用者以為要重新上傳。
+    if (created) showCreateNotice(T.createdRefreshFailed);
+    else if (owns()) createError.textContent = T.createFailed;
+    else showCreateNotice(T.createFailed);
   } finally {
-    saveCreate.disabled = false;
+    if (owns()) saveCreate.disabled = false;
   }
 });
 
 function resetCreateForm() {
+  // close 事件是非同步送達的：若送達時視窗已重新開啟給下一份草稿，就不能清空或換掉它的編號。
+  if (createDialog.open || !createFormActive) return;
+  createFormActive = false;
+  clearCreateForm();
+}
+
+// 程式主動關閉時同步完成重設，之後才送達的 close 事件就不會再換一次編號。
+function closeCreateDialog() {
+  createDialog.close();
+  resetCreateForm();
+}
+
+function clearCreateForm() {
+  createSession += 1;
+  saveCreate.disabled = false;
   createForm.reset();
   createForm.elements?.tags?.tagInput?.setValue("");
   createError.textContent = "";

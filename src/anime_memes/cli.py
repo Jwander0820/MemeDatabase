@@ -126,6 +126,11 @@ def build_parser() -> argparse.ArgumentParser:
     corrections.add_argument("--mark-ready", action="store_true")
     corrections.set_defaults(func=cmd_import_review_corrections)
 
+    list_tags = sub.add_parser("list-tags", help="列出 taxonomy 標籤與館藏中使用中的標籤（唯讀）")
+    list_tags.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    list_tags.add_argument("--min-count", type=int, default=1, help="分類外標籤至少被幾則使用才列出（預設 1）")
+    list_tags.set_defaults(func=cmd_list_tags)
+
     manual = sub.add_parser("import-manual-tags", help="Import manual_tags.csv")
     manual.add_argument("csv_path")
     manual.set_defaults(func=cmd_import_manual_tags)
@@ -185,6 +190,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     publication = sub.add_parser("publication", help="Manage local publication selection and export")
     actions = publication.add_subparsers(dest="publication_action", required=True)
+    check_public = actions.add_parser('check', help='檢查公開選取項目')
+    check_public.add_argument('--full', action='store_true', help='強制逐張解碼，不沿用驗證結果')
     choose = actions.add_parser("select")
     choose.add_argument("key")
     choose.add_argument("--selected", choices=["yes", "no"])
@@ -274,7 +281,7 @@ def cmd_publication(args):
             except ValueError as exc:
                 raise SystemExit(f"錯誤：{exc}")
     elif args.publication_action == "check":
-        result = check_database(args.db)
+        result = check_database(args.db, force=args.full)
     elif args.publication_action == "purge":
         from .publishing import purge_releases
         result = purge_releases(args.db, args.root, keep_recent=args.keep_recent, dry_run=args.dry_run)
@@ -410,6 +417,40 @@ def cmd_import_review_corrections(args: argparse.Namespace) -> None:
     with closing(connect(args.db)) as conn:
         summary = import_review_corrections(conn, args.csv_path, mark_ready=args.mark_ready)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_list_tags(args: argparse.Namespace) -> None:
+    import sqlite3
+    from .tags import tag_catalog
+
+    db = Path(args.db)
+    if db.is_file():
+        uri = db.resolve().as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
+            catalog = tag_catalog(conn)
+    else:  # 沒有資料庫時仍可列出 taxonomy，使用次數為 0
+        with closing(sqlite3.connect(":memory:")) as conn:
+            conn.execute("CREATE TABLE entry_tags(entry_key TEXT, tag_name TEXT)")
+            catalog = tag_catalog(conn)
+    catalog["tags"] = [tag for tag in catalog["tags"] if tag["in_taxonomy"] or tag["count"] >= args.min_count]
+    if args.format == "json":
+        print(json.dumps(catalog, ensure_ascii=False, indent=2))
+        return
+    labels = {category["id"]: category["label"] for category in catalog["categories"]}
+    print(f"每則最多 {catalog['max_tags_per_entry']} 個標籤。括號內為別名，最後的數字為使用則數。\n")
+    for category_id, label in labels.items():
+        rows = [tag for tag in catalog["tags"] if tag["in_taxonomy"] and tag["category"] == category_id]
+        if not rows:
+            continue
+        print(f"## {label}（{category_id}）")
+        for tag in rows:
+            alias = f"（{'、'.join(tag['aliases'])}）" if tag["aliases"] else ""
+            print(f"- {tag['name']}{alias}：{tag['description']} [{tag['count']}]")
+        print()
+    free = [tag for tag in catalog["tags"] if not tag["in_taxonomy"]]
+    if free:
+        print(f"## 分類外的自由標籤（至少 {args.min_count} 則使用）")
+        print("、".join(f"{tag['name']} {tag['count']}" for tag in free))
 
 
 def cmd_import_manual_tags(args: argparse.Namespace) -> None:
