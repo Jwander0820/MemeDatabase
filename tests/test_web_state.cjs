@@ -427,26 +427,49 @@ test('accepting the last suggestion keeps the list, marks processed, and arrows 
 test('decision button handler does not reload the list', async () => {
   const h = await harness();
   const urls = [];
+  const form = h.node('#editForm');
+  form.dataset = {};
+  for (const name of ['display_title', 'search_aliases', 'source_page', 'speaker', 'quote_text', 'status', 'notes']) {
+    form[name] = {name, value: ''};
+  }
+  form.tags = {name: 'tags', value: 'original'};
+  form.anime_title = {name: 'anime_title', value: 'original', focus() {}};
+  form.elements = [form.tags, form.anime_title];
+  const section = {querySelector: () => null, remove() {}};
+  const card = {
+    isConnected: true, querySelectorAll: () => [button], closest: () => section, remove() {},
+  };
   const button = {
     dataset: {suggestionId: '1', decision: 'accepted'}, disabled: false, handlers: {},
     addEventListener(type, fn) { this.handlers[type] = fn; },
-    closest: () => ({isConnected: false, querySelectorAll: () => [button]}),
+    closest: () => card,
   };
   h.context.document.querySelectorAll = selector => (selector === '[data-suggestion-id]' ? [button] : []);
   h.run('state.items = [{key: "a"}, {key: "b"}]; state.total = 2;');
   h.node('#pendingSuggestions').checked = true;
-  h.fetch(async url => {
+  const saved = [];
+  h.fetch(async (url, options) => {
     urls.push(url);
+    if (options?.method === 'PATCH') saved.push(JSON.parse(options.body));
     if (url === '/api/meta') return {ok: true, json: async () => ({tags: []})};
     if (url.includes('/decision')) return {ok: true, json: async () => ({id: 1, status: 'accepted', label: 'x'})};
     return {ok: true, json: async () => ({key: 'a', tags: [], manual_tags: [], tag_suggestions: []})};
   });
-  h.run('bindDetailForm({key: "a", tags: [], tag_suggestions: [{id: 1}]})');
+  h.run('state.selected = {key: "a", tags: ["original"], tag_suggestions: [{id: 1}]}; bindDetailForm(state.selected)');
+  form.tags.value = 'draft';
+  form.anime_title.value = 'edited title';
   await button.handlers.click();
+  assert.equal(form.tags.value, 'draft, x');
+  assert.equal(form.anime_title.value, 'edited title');
+  assert.equal(h.run('state.formSnapshot.tags'), 'original, x');
+  assert.equal(h.run('hasUnsavedChanges()'), true);
   assert.equal(h.run('state.items.length'), 2);
   assert.equal(h.run('state.processed.has("a")'), true);
   assert.ok(urls.every(url => !url.startsWith('/api/entries?')));
   assert.ok(urls.includes('/api/entries/a'));
+  await form.handlers.submit({preventDefault() {}});
+  assert.equal(saved[0].tags, 'draft, x');
+  assert.equal(saved[0].anime_title, 'edited title');
 });
 
 test('saving does not reload the list and refreshes the form snapshot', async () => {

@@ -223,6 +223,12 @@
     });
 
     const api = {
+      appendSavedTag(label) {
+        if (!values.includes(label)) {
+          values.push(label);
+          sync();
+        }
+      },
       setValue(next) {
         values = [...new Set(split(Array.isArray(next) ? next.join(",") : next))];
         field.value = "";

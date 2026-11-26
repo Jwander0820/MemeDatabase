@@ -243,7 +243,17 @@ function bindDetailForm(item) {
           card.remove();
           if (!section.querySelector(".suggestion-card")) section.remove();
           item.tag_suggestions = item.tag_suggestions.filter((suggestion) => suggestion.id !== decision.id);
-          if (decision.status === "accepted") item.tags = [...new Set([...item.tags, decision.label])];
+          if (decision.status === "accepted") {
+            item.tags = [...new Set([...item.tags, decision.label])];
+            const tags = form.tags;
+            const withAcceptedTag = (value) => {
+              const labels = value.split(/[,，、;；\n]/).map((label) => label.trim()).filter(Boolean);
+              return [...new Set([...labels, decision.label])].join(", ");
+            };
+            if (tags.tagInput) tags.tagInput.appendSavedTag(decision.label);
+            else tags.value = withAcceptedTag(tags.value);
+            state.formSnapshot.tags = withAcceptedTag(state.formSnapshot.tags);
+          }
           document.querySelector("#detailTags").innerHTML = item.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("");
           (nextButton || form.anime_title).focus();
         }
@@ -306,6 +316,7 @@ function bindDetailForm(item) {
       notes: form.notes.value,
     };
     const submitted = formValues();
+    if (payload.tags === state.formSnapshot.tags) delete payload.tags;
     const stillOpen = () => document.querySelector("#editForm") === form && state.selected?.key === item.key;
     form.dataset.saving = "true";
     try {
