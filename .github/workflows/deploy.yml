@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           trap 'docker logout ghcr.io' EXIT
+          build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           for service in api nginx; do
             dockerfile=Dockerfile
             if [[ $service == nginx ]]; then dockerfile=deploy/Dockerfile.nginx; fi
@@ -79,6 +80,7 @@ jobs:
             docker buildx build --platform linux/amd64 --file "$dockerfile" --target public \
               --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
               --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --build-arg "BUILD_REVISION=$GITHUB_SHA" --build-arg "BUILD_TIME=$build_time" \
               --tag "ghcr.io/jwander0820/memedatabase-public-$service:sha-$GITHUB_SHA" \
               --metadata-file "$metadata" --push .
             digest=$(jq -er '."containerimage.digest"' "$metadata")

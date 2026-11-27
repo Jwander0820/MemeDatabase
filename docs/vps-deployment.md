@@ -328,6 +328,12 @@ restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-publication \
 3. 儲存庫變數 `VPS_GHCR_DEPLOY_ENABLED=true` 時，透過受限 SSH 把同一次提交的兩個映像 digest 交給 VPS；VPS 確認提交仍是 `main` 最新版、拉取並核對映像後才更新容器，健康檢查失敗會恢復上次成功的映像。
 4. 結果記在 `/opt/memedatabase/.ghcr-deployed.env`（提交與映像 digest）。需要重跑時，從 Actions 對 `main` 手動執行部署 workflow。
 
+**確認上線版本**：部署 workflow 會把提交 SHA 與建置時間（UTC）寫進兩個公開映像。
+
+- 公開站頁尾最右邊的淡灰色 7 碼就是提交短碼，滑鼠停在上面會顯示建置時間；與 GitHub `main` 最新提交的短碼相同即代表已部署。也可以檢視原始碼找 `<meta name="build-version">`。
+- `GET /api/v1/meta`（不帶 `version`）回傳 `build.revision`、`build.built_at`，反映執行中的 API 映像。帶 `version` 的回應會被長期快取，不含版號。
+- 首頁 `/` 是 `no-cache`，重新整理就會拿到最新頁面；本機建置沒有版號，頁尾不顯示。
+
 測試用的 Python 版本一律從 `Dockerfile` 的基底映像讀取（目前 3.15），本機與 CI 不另外維護版本號。
 
 **首次設定**（已完成則略過）：
