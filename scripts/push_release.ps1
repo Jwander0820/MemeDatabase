@@ -11,8 +11,7 @@
   未加 -Activate 時只安裝並驗證，不切換 current.json；current.json 只由 activate 原子切換。
   資料庫與 manifest 每次完整打包，縮圖預設僅傳遠端缺少的檔案；-Full 改用完整發布包。
   遠端公開映像須支援 media-inventory；舊映像請先更新，或使用 -Full。
-  -Prune：安裝（與啟用）完成後，在 VPS 停公開服務、執行 prune（保留最新三版與目前啟用版本），
-          無論 prune 成功與否都重新啟動服務。停機約數秒，期間未快取的請求會失敗。
+  -Prune：安裝（與啟用）完成後，在 VPS 執行 prune（保留最新三版與目前啟用版本），不需停服務。
   -KeepRecent：搭配 -Prune 指定保留的近期版本數，0 只保留啟用版。
   -DryRun：只印出將執行的命令，本機 bundle 步驟也不執行，不產生任何檔案。
 
@@ -64,9 +63,8 @@ if ($Activate) { $ActivateFlag = " --activate" }
 $RemoteCommand = "docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases -v ${RemoteBundle}:/bundle.tar.gz:ro $Image python -m src.anime_memes.runtime install-bundle --root /releases /bundle.tar.gz$ActivateFlag"
 $InventoryCommand = "docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases:ro $Image python -m src.anime_memes.runtime media-inventory --root /releases"
 
-$Compose = "docker compose --profile public --profile tunnel"
-# 停服務 -> prune -> 不論 prune 結果都重新啟動，最後回傳 prune 的結束碼。
-$PruneCommand = "cd $RemoteComposeDir && $Compose stop && { docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases $Image python -m src.anime_memes.runtime prune --root /releases --service-stopped --keep-recent $KeepRecent; rc=`$?; $Compose up -d --wait || exit 1; exit `$rc; }"
+# 公開 API 只讀啟用版，清理不需停服務。
+$PruneCommand = "docker run --rm --user 10001:10001 -v ${RemoteReleaseRoot}:/releases $Image python -m src.anime_memes.runtime prune --root /releases --keep-recent $KeepRecent"
 $Total = 5
 if (-not $Full) { $Total++ }
 if ($Prune) { $Total++ }
