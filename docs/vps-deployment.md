@@ -158,7 +158,7 @@ sudo apt install unattended-upgrades
 sudo dpkg-reconfigure -plow unattended-upgrades
 ```
 
-這只更新主機套件，不會更新容器映像；映像的更新見 6.2。
+這只更新主機套件，不會更新容器映像；映像更新見 6.2。
 
 #### 選用：fail2ban
 
@@ -175,29 +175,25 @@ sudo usermod -aG docker deploy # 重新登入後生效
 
 提醒：docker 群組成員等同 root 權限，只給信任的帳號，並使用 SSH 金鑰、停用密碼登入。
 
-### 4.4 取得程式碼
+### 4.4 部署目錄與設定檔
 
-最簡單的做法是在 VPS 上 clone 整個 repo（`data/` 已在 `.gitignore`，不會有資料）：
+VPS 不放原始碼，也不在 VPS 建置映像；公開映像由 GitHub Actions 建好推到 GHCR（見 6.2）。
 
-```bash
-sudo mkdir -p /opt/memedatabase && sudo chown "$USER": /opt/memedatabase
-git clone https://github.com/Jwander0820/MemeDatabase.git /opt/memedatabase
-cd /opt/memedatabase
-```
+- `/opt/memedatabase`：部署目錄，只放 `.env` 與部署狀態（`.ghcr-deployed.env`），**不是 git checkout**，不要在這裡 `git pull` 或從這裡安裝腳本。
+- `/etc/memedatabase/`：Compose 設定（`compose.yaml`、`compose.ghcr.yaml`），root 擁有、模式 `0644`。
+- `/usr/local/sbin/`：程式部署與館藏發布兩支受限指令（見 6.2、6.4）。
 
-公開映像建置只需要 `compose.yaml`、`Dockerfile`、`deploy/`、`src/anime_memes/`、`requirements.txt`、`.dockerignore`；`config/` 只有 private target 才用，public build 不需要。
-
-替代方案（VPS 不想放原始碼）：在本機建置後 `docker save` 再於 VPS `docker load`，但 compose 檔與 `deploy/` 仍需要放到 VPS，之後更新也要重做，一般不建議：
-
-```powershell
-docker compose --profile public build
-docker save memedatabase-public-api memedatabase-public-nginx -o memedatabase-public.tar
-scp memedatabase-public.tar myvps:/tmp/
-```
+設定檔一律從 GitHub raw 取得 `main` 的版本：
 
 ```bash
-docker load -i /tmp/memedatabase-public.tar && rm /tmp/memedatabase-public.tar
+base=https://raw.githubusercontent.com/Jwander0820/MemeDatabase/main
+sudo mkdir -p /opt/memedatabase /etc/memedatabase
+sudo curl -fsSL "$base/compose.yaml" -o /etc/memedatabase/compose.yaml
+sudo curl -fsSL "$base/deploy/compose.ghcr.yaml" -o /etc/memedatabase/compose.ghcr.yaml
+sudo chmod 0644 /etc/memedatabase/*.yaml
 ```
+
+Compose 拓樸（`compose.yaml`／`deploy/compose.ghcr.yaml`）有變更時，同樣以上述指令重新下載；一般程式更新不需要。
 
 ### 4.5 建立發布目錄
 
@@ -212,11 +208,10 @@ compose 對發布目錄的掛載設了 `create_host_path: false`：在 Linux 的
 
 ### 4.6 建立 .env
 
-在 `/opt/memedatabase/.env`：
+在 `/opt/memedatabase/.env`（部署以 root 執行，檔案由 root 擁有）：
 
 ```bash
-umask 077
-cat > .env <<'EOF'
+sudo tee /opt/memedatabase/.env >/dev/null <<'EOF'
 CLOUDFLARE_TUNNEL_TOKEN=<tunnel token>
 RELEASE_ROOT=/srv/memedatabase/releases
 COMPOSE_PROFILES=public,tunnel
@@ -226,22 +221,21 @@ COMPOSE_PROFILES=public,tunnel
 # PUBLIC_PORT=3637
 # CLOUDFLARED_VERSION=版本@sha256:已查證的映像索引digest（預設使用 compose.yaml 的固定值）
 EOF
-chmod 600 .env
+sudo chmod 600 /opt/memedatabase/.env
 ```
 
-不需要任何 R2、Discord 或 MCP 變數。`.env` 含秘密，不可提交。
+不需要任何 R2、Discord 或 MCP 變數。`.env` 含秘密，不可提交。既有 Tunnel 的 token 可從 Cloudflare「概觀 → 新增副本 → Docker」複製，取安裝指令中 `--token` 後面的值。
 
-若先啟動公開容器，將 `COMPOSE_PROFILES` 設為 `public`。取得 token 後改為 `public,tunnel`，再執行 `sudo docker compose up -d --wait`。既有 Tunnel 的 token 可從 Cloudflare「概觀 → 新增副本 → Docker」複製，取安裝指令中 `--token` 後面的值。
+### 4.7 啟動
 
-### 4.7 建置與啟動
+公開 API 與 Nginx 由 GitHub Actions 第一次部署時拉取 GHCR 映像並啟動（依 6.2 完成設定後，從 Actions 手動執行一次部署）。Compose 專案名稱固定為 `memedatabase`，容器為 `memedatabase-public-api-1` 等。
+
+程式部署只更新 public-api 與 public-nginx，不動 cloudflared。公開容器正常後，以同一組 Compose 參數啟動 Tunnel：
 
 ```bash
-cd /opt/memedatabase
-docker compose --profile public build
-docker compose --profile public --profile tunnel up -d --wait
+sudo docker compose --project-directory /opt/memedatabase --env-file /opt/memedatabase/.env \
+  -f /etc/memedatabase/compose.yaml --profile tunnel up -d --no-deps cloudflared
 ```
-
-映像名稱固定為 `memedatabase-public-api`、`memedatabase-public-nginx`（compose 頂層 `name: memedatabase`）。
 
 ### 4.8 驗證
 
@@ -321,63 +315,48 @@ restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-publication \
 
 清理不需停止公開服務。
 
-### 6.2 程式更新
+### 6.2 程式更新（GitHub Actions＋GHCR）
 
-**目前的 VPS 排程**由 `memedatabase-deploy.timer` 約每兩分鐘查一次 GitHub `main`。服務以 root 執行 `/usr/local/sbin/memedatabase-deploy`，同一版本略過建置，有新版才更新 Compose。最後成功版本記在 `/opt/memedatabase/.git/memedatabase-deployed`。
+推送到 `main` 就會部署，不需要登入 VPS：
 
-```bash
-systemctl list-timers memedatabase-deploy.timer
-sudo journalctl -u memedatabase-deploy.service -n 30 --no-pager
-```
+1. PR 階段由 [CI workflow](../.github/workflows/ci.yml) 跑 Python 單元測試、腳本語法、Compose 設定與前端測試（不建置、不部署）。
+2. 合併到 `main` 後，[部署 workflow](../.github/workflows/deploy.yml) 再跑一次測試，建置兩個 `linux/amd64` 公開映像推到 GHCR。
+3. 儲存庫變數 `VPS_GHCR_DEPLOY_ENABLED=true` 時，透過受限 SSH 把同一次提交的兩個映像 digest 交給 VPS；VPS 確認提交仍是 `main` 最新版、拉取並核對映像後才更新容器，健康檢查失敗會恢復上次成功的映像。
+4. 結果記在 `/opt/memedatabase/.ghcr-deployed.env`（提交與映像 digest）。需要重跑時，從 Actions 對 `main` 手動執行部署 workflow。
 
-**切換到 GitHub Actions 與 GHCR**。推送 `main` 或手動執行 [部署 workflow](../.github/workflows/deploy.yml) 時，Actions 會檢查部署設定與前端測試，再以內建 `GITHUB_TOKEN` 建置並推送兩個 `linux/amd64` 映像。啟用部署開關後，VPS 透過受限 SSH 收到同一次提交的兩個映像 digest，兩個映像都拉取、核對 revision 後才更新公開 API 與 Nginx。館藏目錄和 Tunnel 沿用現有配置。
+測試用的 Python 版本一律從 `Dockerfile` 的基底映像讀取（目前 3.15），本機與 CI 不另外維護版本號。
 
-1. 在 MemeDatabase 的 Settings → Environments 建立 `production`，將部署分支限制為 `main`。設定 `VPS_HOST`、`VPS_PORT`、`VPS_USER`（`ubuntu`）、`VPS_KNOWN_HOSTS`、`VPS_SSH_KEY`。前四項可以沿用已核對的 VPS 連線資料，SSH 私鑰使用梗圖站程式部署專用金鑰。
-2. 用既有管理 SSH 安裝 [程式部署腳本](../deploy/vps-code-deploy.sh) 至 `/usr/local/sbin/memedatabase-ghcr-deploy`，由 root 擁有，模式 `0755`。將 `compose.yaml` 和 [GHCR override](../deploy/compose.ghcr.yaml) 安裝至 `/etc/memedatabase/`，由 root 擁有，模式 `0644`。程式部署公鑰的 `authorized_keys` 條目如下：
+**首次設定**（已完成則略過）：
+
+1. GitHub Settings → Environments 建立 `production`，部署分支限 `main`，設定 `VPS_HOST`、`VPS_PORT`、`VPS_USER`（`ubuntu`）、`VPS_KNOWN_HOSTS`、`VPS_SSH_KEY`（程式部署專用金鑰）。
+2. 在 VPS 安裝程式部署指令（Compose 設定見 4.4）：
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Jwander0820/MemeDatabase/main/deploy/vps-code-deploy.sh -o /tmp/memedatabase-ghcr-deploy
+   sudo install -o root -g root -m 0755 /tmp/memedatabase-ghcr-deploy /usr/local/sbin/memedatabase-ghcr-deploy
+   rm /tmp/memedatabase-ghcr-deploy
+   ```
+
+   程式部署公鑰的 `authorized_keys` 條目：
 
    ```text
    restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-ghcr-deploy \"$SSH_ORIGINAL_COMMAND\"" ssh-ed25519 <程式部署專用公開金鑰>
    ```
 
-3. 首次推送前先停用舊輪詢，避免它看到新提交後在 VPS 建置。讓 GitHub 的儲存庫變數 `VPS_GHCR_DEPLOY_ENABLED` 維持未設定或 `false`，首次 workflow 只建置映像。停止 timer 不會停止站台容器。
-
-   ```bash
-   sudo systemctl disable --now memedatabase-deploy.timer
-   systemctl is-active memedatabase-deploy.service
-   ```
-
-4. 首次建置後，到 GitHub Packages 將 `memedatabase-public-api`、`memedatabase-public-nginx` 設為 **Public**，讓 VPS 匿名拉取。將儲存庫變數 `VPS_GHCR_DEPLOY_ENABLED` 設為 `true`，從 Actions 對 `main` 手動執行一次部署。
-5. 到 VPS 讀回 `/opt/memedatabase/.ghcr-deployed.env` 的提交與映像 digest，檢查容器、`/health/live` 與正式站。健康檢查失敗會嘗試恢復上次成功的映像。首次切換失敗時會嘗試恢復原有的本機映像。後續 Compose 拓樸變更需另外同步到 `/etc/memedatabase/`，一般程式更新只需推送。切回舊輪詢前先關閉 GitHub 的部署開關，並確認過渡期保留的 checkout 與本機映像。
-
-**手動重建**適用於初始安裝或需要人工排查時。
-
-```bash
-cd /opt/memedatabase
-git pull
-docker compose --profile public --profile tunnel up -d --build --wait
-```
+3. 舊的 `memedatabase-deploy.timer`（VPS 輪詢並自行建置）已停用；部署指令偵測到它在執行會拒絕部署。
+4. 首次建置後，到 GitHub Packages 將 `memedatabase-public-api`、`memedatabase-public-nginx` 設為 **Public**，讓 VPS 匿名拉取，再把 `VPS_GHCR_DEPLOY_ENABLED` 設為 `true`。
 
 若更新包含公開資料結構（schema）版本升級，舊版本會因不相容而無法 ready，需在本機重新匯出並推送、啟用新版本。
 
-**映像的安全更新**：主機的自動更新不會更新容器內的系統與套件。Python、Nginx 與預設 cloudflared 已固定 digest，單純 `build --pull` 仍是同一份內容。建議每月（或有安全公告時）先在本機查證並更新基底 digest／套件宣告，以 `scripts/lock_dependencies.ps1 -Upgrade` 重產鎖檔、測試，再同步原始碼至 VPS 重建；完整流程見[建置鎖檔與映像更新](backend-refactor.md#建置鎖檔與映像更新)：
-
-```bash
-cd /opt/memedatabase
-docker compose --profile public --profile tunnel build --pull
-docker compose --profile public --profile tunnel up -d --wait
-docker image prune -f   # 清掉被取代的舊映像
-```
-
-cloudflared 預設版本與 digest 見 compose.yaml；`.env` 的 `CLOUDFLARED_VERSION` 可覆寫，應填 `版本@sha256:已查證的digest`。明確只填版本標籤會取消預設的內容鎖定。升級後重新 `up -d` 並確認連線正常。
+**映像與依賴更新**：主機的自動更新不會更新容器內容。Python、Nginx 與預設 cloudflared 都固定「版本＋digest」，由 [Dependabot](../.github/dependabot.yml) 每月檢查基底映像、cloudflared 與 GitHub Actions 並開 PR；合併後照一般程式更新流程部署。Python 套件鎖檔不交給 Dependabot，以 `scripts/lock_dependencies.ps1 -Upgrade` 手動重產（見[建置鎖檔與映像更新](backend-refactor.md#建置鎖檔與映像更新)）。cloudflared 不隨程式部署更新，版本變更後需重新下載 `compose.yaml` 並以 4.7 的指令重啟。`.env` 的 `CLOUDFLARED_VERSION` 可覆寫預設，應填 `版本@sha256:已查證的digest`。被取代的舊映像可用 `sudo docker image prune -f` 清除。
 
 ### 6.3 回到舊版與其他 runtime 指令
 
-在 VPS 以公開映像執行 runtime 指令（`--root /releases` 對應 `-v` 掛載）。回到舊版：
+在 VPS 以執行中公開 API 的映像執行 runtime 指令（`--root /releases` 對應 `-v` 掛載）。GHCR 部署的映像沒有 `memedatabase-public-api` 這個本機名稱，先取出映像 ID：
 
 ```bash
-docker run --rm --user 10001:10001 \
-  -v /srv/memedatabase/releases:/releases \
-  memedatabase-public-api \
+image=$(sudo docker inspect --type container --format '{{.Image}}' memedatabase-public-api-1)
+sudo docker run --rm --user 10001:10001 -v /srv/memedatabase/releases:/releases "$image" \
   python -m src.anime_memes.runtime rollback --root /releases OLD_VERSION
 ```
 
@@ -385,46 +364,51 @@ docker run --rm --user 10001:10001 \
 
 ### 6.4 清理舊版本
 
-`prune` 保留最新三個版本與目前啟用版本，其餘版本與不再被引用的縮圖才刪除。服務執行中即可清理：公開 API 每個請求只讀目前啟用版，指定其他版本一律回 410，被刪的版本不會再被讀到。
+`prune` 保留最新三個版本與目前啟用版本，其餘版本與不再被引用的縮圖才刪除。服務執行中即可清理：公開 API 每個請求只讀目前啟用版，指定其他版本一律回 410。
 
-受限發布指令（`/usr/local/sbin/memedatabase-publication`）在 `activate` 或 `install-and-activate` 成功後會自動執行清理；清理失敗只記警告，不影響已完成的啟用。這支指令不會隨程式自動更新，改版後需由 root 重新安裝：
+受限發布指令（`/usr/local/sbin/memedatabase-publication`）在 `activate` 或 `install-and-activate` 成功後會自動清理（`--keep-recent 3`）；清理失敗只記警告，不影響已完成的啟用。這支指令不會隨程式部署更新，改版後由 root 從 GitHub raw 重新安裝：
 
 ```bash
-cd /opt/memedatabase && sudo install -o root -g root -m 0755 deploy/vps-publication.sh /usr/local/sbin/memedatabase-publication
+curl -fsSL https://raw.githubusercontent.com/Jwander0820/MemeDatabase/main/deploy/vps-publication.sh -o /tmp/memedatabase-publication
+sudo install -o root -g root -m 0755 /tmp/memedatabase-publication /usr/local/sbin/memedatabase-publication
+rm /tmp/memedatabase-publication
 ```
 
-舊版公開映像的 `prune` 仍要求停服務，在映像更新前自動清理會失敗並只留下警告。手動清理：
+手動清理：
 
 ```bash
-docker run --rm --user 10001:10001 \
-  -v /srv/memedatabase/releases:/releases \
-  memedatabase-public-api \
+image=$(sudo docker inspect --type container --format '{{.Image}}' memedatabase-public-api-1)
+sudo docker run --rm --user 10001:10001 -v /srv/memedatabase/releases:/releases "$image" \
   python -m src.anime_memes.runtime prune --root /releases
 ```
 
 ## 7. 檢查與疑難排解
 
+VPS 沒有原始碼目錄，Compose 指令要帶部署目錄與設定檔；可先定義簡寫：
+
 ```bash
-docker compose --profile public --profile tunnel ps
-docker compose logs cloudflared
-docker compose logs public-nginx public-api
+dc() { sudo docker compose --project-directory /opt/memedatabase --env-file /opt/memedatabase/.env \
+  -f /etc/memedatabase/compose.yaml --profile public --profile tunnel "$@"; }
+dc ps
+dc logs cloudflared
+dc logs public-nginx public-api
 ```
 
 查看最近一小時到達公開站的關鍵字搜尋（含翻頁）：
 
 ```sh
-docker compose logs --since 1h --timestamps public-nginx | grep 'search status='
+dc logs --since 1h --timestamps public-nginx | grep 'search status='
 ```
 
 每行代表一次請求，例如 `search status=200 seconds=0.024` 表示成功且耗時 24 毫秒。429 表示限流，5xx 表示伺服器錯誤。這份存取日誌省略搜尋詞、訪客 IP、健康檢查與一般瀏覽；瀏覽器或 CDN 直接回應的請求也不會出現。
 
-- cloudflared 無法連線：看 `docker compose logs cloudflared`。token 空白或錯誤、VPS 無法連出，都會在這裡顯示。確認 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 正確且沒有多餘空白或引號。
+- cloudflared 無法連線：看 `dc logs cloudflared`。token 空白或錯誤、VPS 無法連出，都會在這裡顯示。確認 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 正確且沒有多餘空白或引號。
 - 網站 502／1033 等：先在 VPS 用 `curl http://127.0.0.1:3637/health/live` 確認 public-nginx 正常，再確認控制台 Public Hostname 的 Service 是 `HTTP` 與 `public-nginx:8080`。
 - 429：搜尋限流依訪客 IP 計算。Nginx 只信任私有網段與 127.0.0.1 來源的 `CF-Connecting-IP` 作為真實 IP。若所有人都被一起限流，表示 Nginx 看到的是同一個來源 IP（例如沒有取到 `CF-Connecting-IP`），請檢查請求是否真的經過 Cloudflare／cloudflared，必要時暫時調高 `SEARCH_RATE`、`SEARCH_BURST` 並重建。
 - 首次部署報目錄不存在（類似 `bind source path does not exist`）：`create_host_path: false` 的設計，代表 `RELEASE_ROOT` 或其下的 `media` 目錄還沒建立，或 `.env` 的路徑有誤。依 4.5 建立後再 `up`。
 - `install-bundle` 權限錯誤：發布目錄需由 UID 10001 擁有（`chown -R 10001:10001`）。
 - `/health/ready` 一直 503：尚未啟用任何版本，或版本與目前程式的 schema 不相容；用 `activate` 或重新匯出推送。
-- 映像名稱：預設 `memedatabase-public-api` 與 `push_release.ps1` 的 `-Image` 預設一致。若用 `-p` 指定其他 compose 專案名稱，映像名稱會不同，需以 `-Image <名稱>` 指定，例如 `-Image memedatabase-public-api`。
+- 映像名稱：GHCR 部署後 VPS 上沒有 `memedatabase-public-api` 這個本機映像名稱。建議用管理頁搭配受限發布指令（自動使用執行中公開 API 的映像）；若仍用 `push_release.ps1` 的傳統模式，以 `-Image` 指定 `.ghcr-deployed.env` 記錄的 GHCR 映像。
 
 ## 8. 安全提醒
 
@@ -434,10 +418,10 @@ docker compose logs --since 1h --timestamps public-nginx | grep 'search status='
 |---|---|---|
 | Cloudflare 邊緣 | — | HTTPS、HSTS、最低 TLS 1.2（3.4）；WAF、邊緣限流、Bot（3.5）；快取規則（3.3） |
 | 網路 | Tunnel 只連出，VPS IP 不公開；所有 port 只綁 127.0.0.1 | 防火牆只開 SSH（4.2） |
-| VPS 主機 | — | SSH 只允許金鑰、自動安全更新（4.2）；定期重建映像（6.2） |
+| VPS 主機 | — | SSH 只允許金鑰、自動安全更新（4.2）；合併 Dependabot 映像更新 PR（6.2） |
 | Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
 | 公開 API | 只接受讀取；參數白名單；分頁、查詢長度（256 字／16 詞）、收藏數（200）上限；資料庫唯讀且只含已發布欄位 | — |
-| 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；Python／Nginx 基底與預設 cloudflared 固定版本及 digest，三種 Python 部署使用完整版本與 SHA-256 鎖檔 | 明確更新 digest／鎖檔並重建，才能取得安全修補 |
+| 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；Python／Nginx 基底與預設 cloudflared 固定版本及 digest，三種 Python 部署使用完整版本與 SHA-256 鎖檔 | 合併 Dependabot PR 或重產鎖檔後部署，才能取得安全修補 |
 
 建置鎖檔適用 Linux 與 Dockerfile 基底映像的 Python 版本，未包含本機 OCR／CUDA。固定 digest 與雜湊不等於已完成安全更新或主機負載驗收；更新與還原仍依維運流程執行。
 

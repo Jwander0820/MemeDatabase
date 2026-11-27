@@ -1,11 +1,12 @@
 # 文件索引
 
-新工作先閱讀整體規格，再依需求查 DB 規格或操作手冊。規格中的目標功能不代表已實作；目前可用操作以專案 README 與程式為準。
+新工作先閱讀整體規格，再依需求查 DB 規格或操作手冊。規格中的目標功能不代表已實作；目前可用操作以 README、本機操作手冊與程式為準。
 
 | 文件 | 用途 | 狀態 |
 |---|---|---|
+| [本機操作手冊](local-operations.md) | 安裝依賴、Web UI、常用 CLI、批次發布、圖片尺寸與 R2、徹底撤回、測試 | 現行操作手冊（自 README 移出的細節） |
 | [雙版本後端與發布操作](backend-refactor.md) | 管理／公開服務、發布 API／CLI、版本切換、Docker／Nginx、依賴鎖檔、私人 MCP | 現行架構與操作入口 |
-| [VPS 部署手冊](vps-deployment.md) | Cloudflare Tunnel、首次部署、推送版本、回復與日常維運 | 部署操作；主機負載與還原驗收另行記錄 |
+| [VPS 部署手冊](vps-deployment.md) | Cloudflare Tunnel、首次部署、GHCR 程式部署、推送館藏、回復與日常維運 | 部署操作；主機負載與還原驗收另行記錄 |
 | [本機圖片匯入與管理頁編輯規格](local-import-editor-spec.md) | 圖片去重、草稿保護、整筆儲存、名稱與替代詞搜尋 | 行為與驗收條件 |
 | [手動新增與本機匯入修正規格](manual-upload-import-fixes.md) | 中文檔名、舊回應隔離、建檔與畫面更新分開回報、舊附件核對 | 已實作，自動測試使用隔離館藏 |
 | [搜尋後端實作紀錄](backend-search-implementation.md) | 已實作 schema、API、搜尋行為與遷移驗證 | 早期實作紀錄，管理頁現況見本機匯入與編輯規格 |

@@ -53,7 +53,7 @@ docker buildx imagetools inspect nginxinc/nginx-unprivileged:1.30.6-alpine
 docker buildx imagetools inspect cloudflare/cloudflared:2026.10.0
 ```
 
-使用輸出最上層的映像索引 digest 更新 Dockerfile／`deploy/Dockerfile.nginx`／Compose，不以單一 CPU 架構的子 manifest 取代。Python 版本變更時須重產鎖檔。若 `.env` 明確設定 `CLOUDFLARED_VERSION`，它會覆寫 Compose 預設，值也應使用 `版本@sha256:已查證的digest`。本次不提供映像位元組完全一致的保證；固定的是基底內容與套件安裝輸入。
+使用輸出最上層的映像索引 digest 更新 Dockerfile／`deploy/Dockerfile.nginx`／Compose，不以單一 CPU 架構的子 manifest 取代。Python 版本變更時須重產鎖檔。Dependabot 每月檢查基底映像、cloudflared 與 GitHub Actions 並開 PR（保留 digest 鎖定）；Python 套件鎖檔不交給 Dependabot。CI 與部署 workflow 的測試 Python 版本直接從 Dockerfile 基底映像讀取，目前為 3.15。若 `.env` 明確設定 `CLOUDFLARED_VERSION`，它會覆寫 Compose 預設，值也應使用 `版本@sha256:已查證的digest`。本次不提供映像位元組完全一致的保證；固定的是基底內容與套件安裝輸入。
 
 依據：[pip 雜湊驗證](https://pip.pypa.io/en/stable/topics/secure-installs/)、[pip-tools 鎖檔](https://pip-tools.pypa.io/en/stable/#using-hashes)、[Docker 固定基底 digest](https://docs.docker.com/build/building/best-practices/#pin-base-image-versions)。
 
