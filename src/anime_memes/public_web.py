@@ -10,7 +10,7 @@ from threading import Lock
 from flask import Flask, abort, g, jsonify, request
 
 from . import settings
-from .public_data import open_readonly, search, serialize, validate_schema
+from .public_data import open_readonly, search, search_index, serialize, validate_schema
 from .releases import ReleaseMissing, current_version, release_path, version_name
 
 
@@ -56,6 +56,7 @@ def create_public_app(release_root=None):
                     validate_schema(g.db, g.version)
                 except ValueError as exc:
                     raise RuntimeError("公開資料結構不相容") from exc
+                search_index(g.db)  # 新版本先建好搜尋索引（通常由健康檢查觸發），訪客搜尋不必等
                 validated_snapshot = snapshot
 
     @app.teardown_request
