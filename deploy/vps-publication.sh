@@ -29,6 +29,13 @@ container=(/usr/bin/docker run --rm --network none --read-only --tmpfs /tmp
     --pids-limit 64 --memory 256m --cpus 1)
 runtime=(python -m src.anime_memes.runtime)
 
+# 啟用成功後清理舊版本：保留最新三版與啟用版，服務不需停止。
+# 輸出導到 stderr，stdout 只留給呼叫端解析的 JSON；清理失敗不影響已完成的啟用。
+prune_old() {
+    "${container[@]}" -v "$root:/releases" "$image" "${runtime[@]}" prune --root /releases --keep-recent 3 >&2 \
+        || echo "warning: prune failed; release is active, old versions kept" >&2
+}
+
 case "$action" in
     check-version)
         "${container[@]}" -v "$root:/releases:ro" "$image" python -c '
@@ -47,6 +54,7 @@ print(json.dumps({"installed": installed, "manifest": validate(root, version) if
         ;;
     activate)
         "${container[@]}" -v "$root:/releases" "$image" "${runtime[@]}" activate --root /releases "$version"
+        prune_old
         ;;
     install|install-and-activate)
         bundle=$(mktemp /var/tmp/memedatabase-publication.XXXXXXXX)
@@ -60,5 +68,6 @@ print(json.dumps({"installed": installed, "manifest": validate(root, version) if
         if [[ $action == install-and-activate ]]; then flags+=(--activate); fi
         "${container[@]}" -v "$root:/releases" -v "$bundle:/bundle.tar.gz:ro" "$image" \
             "${runtime[@]}" install-bundle --root /releases "${flags[@]}" /bundle.tar.gz
+        if [[ $action == install-and-activate ]]; then prune_old; fi
         ;;
 esac

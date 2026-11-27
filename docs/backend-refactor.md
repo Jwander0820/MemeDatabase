@@ -146,15 +146,13 @@ validate 核對 schema／搜尋規則版本、完整性、白名單、ID／網�
 
 管理資料／報告與公開資料分開；Nginx **只掛載 media**，不可供應 versions、reports 或 DB。對外 API 每個回應帶版本號，分頁可用 `version=VERSION` 固定版本；已移除版本回傳 410 version_expired。沒有啟用版本時 readiness 503、liveness 200。
 
-版本清理先停止公開服務，再執行；明確旗標是操作者對已停服務的宣告，CLI 不會替你停止程序：
+版本清理可在服務執行中進行：公開 API 每個請求只讀目前啟用版，其他版本一律回 410，因此刪掉沒被保留的舊版不影響服務：
 
 ```powershell
-docker compose --profile public stop
-.venv\Scripts\python.exe -m src.anime_memes.runtime prune --root data/releases --service-stopped
-docker compose --profile public up -d
+.venv\Scripts\python.exe -m src.anime_memes.runtime prune --root data/releases
 ```
 
-保留最新三個版本及目前啟用版本，其餘版本與不再引用的媒體才刪除。檢查報告另行保留。不要在服務啟動時自動清理，也不建立午夜排程。
+保留最新三個版本及目前啟用版本，其餘版本與不再引用的媒體才刪除。檢查報告另行保留。VPS 的受限發布指令會在啟用成功後自動清理；本機不自動清理，也不建立排程。
 
 ### 推送到 VPS
 
