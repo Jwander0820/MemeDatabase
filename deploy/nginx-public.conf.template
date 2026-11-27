@@ -71,6 +71,12 @@ server {
         include /etc/nginx/snippets/security-headers.conf;
         try_files /index.html =404;
     }
+    # 建置時加了內容雜湊的檔名（deploy/hash-assets.sh），內容變動就換檔名，可永久快取。
+    location ~ "^/assets/(?<hashed_asset>[A-Za-z0-9_-]+\.[0-9a-f]{12}\.(js|css|svg))$" {
+        alias /usr/share/nginx/gallery/$hashed_asset;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        include /etc/nginx/snippets/security-headers.conf;
+    }
     location /assets/ {
         alias /usr/share/nginx/gallery/;
         add_header Cache-Control no-cache;
