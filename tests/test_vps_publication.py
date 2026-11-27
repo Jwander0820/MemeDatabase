@@ -67,6 +67,7 @@ class VpsPublicationTest(unittest.TestCase):
         self.assertEqual(restored['status'], 'succeeded')
         self.assertTrue(any('rm -f' in args[-1] for args in self.commands))
         self.assertTrue(all('StrictHostKeyChecking=yes' in args for args in self.commands))
+        self.assertTrue(any(' prune --root /releases --keep-recent 3' in args[-1] for args in self.commands))
 
     def test_install_only_does_not_activate(self):
         manager = self.manager()
@@ -74,6 +75,7 @@ class VpsPublicationTest(unittest.TestCase):
         job = self.finish(manager)
         self.assertEqual(job['status'], 'succeeded')
         self.assertFalse(job['result']['activated'])
+        self.assertFalse(any(' prune ' in args[-1] for args in self.commands))
 
     def test_restricted_publish_streams_bundle_through_fixed_ssh_actions(self):
         manager = self.manager(restricted=True)
