@@ -275,7 +275,7 @@ class SingleScoreTest(unittest.TestCase):
                 calls, patcher = self.counting(pd, "field_scorer")
                 with patcher:
                     result = pd.search(conn, {**args, "page_size": 4, "page": 2})
-                    self.assertEqual(len(calls), self.N if "tag" not in args else self.N // 2)
+                    self.assertEqual(len(calls), self.N)  # 記憶體索引每列計分一次，篩選交給 SQL
                 self.assertEqual(result["total"], len(expected))
                 self.assertEqual([r["id"] for r in result["items"]], [f"{i:032x}" for i in expected[4:8]])
                 self.assertNotIn("score", result["items"][0])

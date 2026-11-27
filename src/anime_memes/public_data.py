@@ -144,12 +144,11 @@ def search(conn: sqlite3.Connection, args) -> dict:
         raise ValueError("page 或 page_size 超出範圍")
     q = args.get("q") or ""
     field = search_field(args.get("field") or None)
-    score_sql = "meme_score(e.id)"
     where, params = ["1=1"], []
     if q:
-        # 分數條件不放進 where：有查詢字時在下方 CTE 外層以 score>0 過濾，每列只計分一次。
-        score_fields, index = field_scorer(q, field), search_index(conn)
-        conn.create_function("meme_score", 1, lambda key: score_fields(*index[key]), deterministic=True)
+        # 計分全在記憶體索引上做完，SQL 只拿命中的 id（通常只佔少數）去套篩選、排序與分頁。
+        score_fields = field_scorer(q, field)
+        hits = {key: value for key, entry in search_index(conn).items() if (value := score_fields(*entry)) > 0}
     if args.get("tag"):
         where.append("EXISTS(SELECT 1 FROM entry_tags t WHERE t.entry_id=e.id AND t.tag=?)")
         params.append(args["tag"])
@@ -169,21 +168,21 @@ def search(conn: sqlite3.Connection, args) -> dict:
         if not q and not args.get("tag") and "ids" not in args:
             where.append("e.home_random=1")  # 首頁隨機：沒有任何篩選時才排除；主動篩選仍找得到
     orders = {"updated": "e.updated_at DESC,e.id", "created": "e.created_at DESC,e.id", "random": "shuffle_key(e.id),e.id", "title": "e.anime_title COLLATE NOCASE,e.id",
-              "relevance": (score_sql + " DESC,e.updated_at DESC,e.id") if q else "e.updated_at DESC,e.id"}
+              "relevance": "score DESC,e.updated_at DESC,e.id" if q else "e.updated_at DESC,e.id"}
     if sort not in orders:
         raise ValueError("不支援的排序")
     if q:
-        # 有查詢字：每列只計分一次（具體化的 CTE）。總數放在單列子查詢再 LEFT JOIN 該頁資料，
-        # 頁碼超出範圍時仍拿得到總數，不必再算一次分數。
+        # 有查詢字：命中的 id 與分數以 JSON 傳入。總數放在單列子查詢再 LEFT JOIN 該頁資料，
+        # 頁碼超出範圍時仍拿得到總數，不必再查一次。
         condition = " AND ".join(where)
-        order = re.sub(r"\be\.", "", orders[sort].replace(score_sql, "score"))
+        order = re.sub(r"\be\.", "", orders[sort])
         offset = (page - 1) * size
         rows = conn.execute(
-            f"WITH scored AS MATERIALIZED (SELECT e.*, {score_sql} AS score FROM entries e WHERE {condition}), "
-            f"hits AS (SELECT * FROM scored WHERE score>0) "
+            f"WITH hits AS MATERIALIZED (SELECT e.*, h.value AS score FROM json_each(?) h "
+            f"JOIN entries e ON e.id=h.key WHERE {condition}) "
             f"SELECT p.*, c.total_count FROM (SELECT count(*) AS total_count FROM hits) c LEFT JOIN "
             f"(SELECT *, row_number() OVER (ORDER BY {order}) AS rn FROM hits ORDER BY {order} LIMIT ? OFFSET ?) p "
-            f"ON 1 ORDER BY p.rn", [*params, size, offset]).fetchall()
+            f"ON 1 ORDER BY p.rn", [json.dumps(hits), *params, size, offset]).fetchall()
         total = rows[0]["total_count"]
         items = [serialize(r) for r in rows if r["id"] is not None]
         return {"items": items, "total": total, "page": page, "page_size": size}
