@@ -11,6 +11,10 @@ RUN mkdir -p src/anime_memes && touch src/__init__.py src/anime_memes/__init__.p
 COPY src/anime_memes/settings.py src/anime_memes/text.py src/anime_memes/search.py src/anime_memes/urls.py src/anime_memes/public_data.py src/anime_memes/releases.py src/anime_memes/release_bundle.py src/anime_memes/public_web.py src/anime_memes/runtime.py ./src/anime_memes/
 
 FROM base AS public
+# 部署版號：/api/v1/meta（未帶 version 時）會回傳，用來確認上線的是哪個 commit。
+ARG BUILD_REVISION=
+ARG BUILD_TIME=
+ENV MEMEDB_BUILD_REVISION=$BUILD_REVISION MEMEDB_BUILD_TIME=$BUILD_TIME
 USER 10001
 CMD ["python", "-m", "src.anime_memes.runtime", "public", "--host", "0.0.0.0"]
 

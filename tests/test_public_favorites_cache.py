@@ -71,3 +71,22 @@ class PublicFavoritesCacheTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublicBuildInfoTest(PublicFavoritesCacheTest):
+    """部署版號：只出現在不快取的 meta 回應，避免長期快取留住舊版號。"""
+
+    def test_meta_reports_build_only_when_uncached(self):
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        with patch.dict(os.environ, {"MEMEDB_BUILD_REVISION": sha, "MEMEDB_BUILD_TIME": "2026-11-27T09:30:00Z"}):
+            response = self.get("/api/v1/meta")
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            self.assertEqual(response.get_json()["build"], {"revision": sha, "short": sha[:7], "built_at": "2026-11-27T09:30:00Z"})
+            cached = self.get(f"/api/v1/meta?version={self.version}")
+            self.assertIn("immutable", cached.headers["Cache-Control"])
+            self.assertNotIn("build", cached.get_json())
+
+    def test_meta_build_is_null_without_valid_revision(self):
+        for value in ("", "not-a-sha"):
+            with self.subTest(value=value), patch.dict(os.environ, {"MEMEDB_BUILD_REVISION": value}):
+                self.assertIsNone(self.get("/api/v1/meta").get_json()["build"])
