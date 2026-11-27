@@ -35,6 +35,10 @@ class ResolveLocalTests(unittest.TestCase):
         with clean_env():
             self.assertEqual(paths.resolve_local("data/attachments/a.png"), paths.ROOT / "data/attachments/a.png")
 
+    def test_反斜線路徑在任何平台都拆成目錄層級(self):
+        with clean_env():
+            self.assertEqual(paths.resolve_local("data\\attachments\\a.png"), paths.ROOT / "data" / "attachments" / "a.png")
+
     def test_未設定根目錄時絕對路徑原樣(self):
         absolute = Path(tempfile.gettempdir()).resolve() / "a.png"
         with clean_env():
