@@ -18,6 +18,8 @@ map $arg_q $keyword_all_key {
 }
 limit_req_zone $keyword_key zone=keyword:8m rate=${SEARCH_KEYWORD_RATE};
 limit_conn_zone $keyword_all_key zone=keyword_all:1m;
+# 縮圖由 VPS 直接送出，佔流量最多；寬鬆的單一訪客上限只擋大量抓取，正常捲動多半命中 Cloudflare 快取、不會到這裡。
+limit_req_zone $search_key zone=media:8m rate=30r/s;
 map "$uri:$arg_q" $log_keyword_search {
     default 0;
     ~^/api/v1/entries:.+ 1;
@@ -74,7 +76,11 @@ server {
         proxy_pass http://public-api:8765;
         proxy_hide_header X-Content-Type-Options;
     }
+    # 縮圖與帶雜湊的靜態檔網址從不帶查詢字串；加上隨機參數（?r=1）會讓 Cloudflare 當成新檔回源、消耗 VPS 流量，一律回 404。
     location ~ "^/media/[0-9a-f]{64}\.webp$" {
+        if ($args) { return 404; }
+        limit_req zone=media burst=120 nodelay;
+        limit_req_status 429;
         root /srv;
         add_header Cache-Control "public, max-age=31536000, immutable";
         include /etc/nginx/snippets/security-headers.conf;
@@ -88,11 +94,13 @@ server {
     }
     # 建置時加了內容雜湊的檔名（deploy/hash-assets.sh），內容變動就換檔名，可永久快取。
     location ~ "^/assets/(?<hashed_asset>[A-Za-z0-9_-]+\.[0-9a-f]{12}\.(js|css|svg))$" {
+        if ($args) { return 404; }
         alias /usr/share/nginx/gallery/$hashed_asset;
         add_header Cache-Control "public, max-age=31536000, immutable";
         include /etc/nginx/snippets/security-headers.conf;
     }
     location /assets/ {
+        if ($args) { return 404; }
         alias /usr/share/nginx/gallery/;
         add_header Cache-Control no-cache;
         include /etc/nginx/snippets/security-headers.conf;

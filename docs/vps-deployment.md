@@ -423,7 +423,7 @@ dc logs --since 1h --timestamps public-nginx | grep 'search status='
 | Cloudflare 邊緣 | — | HTTPS、HSTS、最低 TLS 1.2（3.4）；WAF、邊緣限流、Bot（3.5）；快取規則（3.3） |
 | 網路 | Tunnel 只連出，VPS IP 不公開；所有 port 只綁 127.0.0.1 | 防火牆只開 SSH（4.2） |
 | VPS 主機 | — | SSH 只允許金鑰、自動安全更新（4.2）；合併 Dependabot 映像更新 PR（6.2） |
-| Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；有關鍵字的搜尋每秒 1 次、可瞬間多 8 次，且全站同時最多 3 個，超過立刻回 429，多個 IP 一起灌搜尋也不會拖垮瀏覽；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
+| Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；有關鍵字的搜尋每秒 1 次、可瞬間多 8 次，且全站同時最多 3 個，超過立刻回 429，多個 IP 一起灌搜尋也不會拖垮瀏覽；縮圖每 IP 每秒 30 次、可瞬間多 120 次；縮圖與 `/assets/` 帶查詢字串一律回 404，避免隨機參數穿透 Cloudflare 快取消耗 VPS 流量；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
 | 公開 API | 只接受讀取；參數白名單；分頁、查詢長度（256 字／16 詞）、收藏數（200）上限；資料庫唯讀且只含已發布欄位 | — |
 | 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；Python／Nginx 基底與預設 cloudflared 固定版本及 digest，三種 Python 部署使用完整版本與 SHA-256 鎖檔 | 合併 Dependabot PR 或重產鎖檔後部署，才能取得安全修補 |
 

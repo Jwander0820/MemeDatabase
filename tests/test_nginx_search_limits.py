@@ -1,4 +1,4 @@
-"""公開 Nginx 的關鍵字搜尋限制：只計有 q 的請求、全站同時上限，且映像內有預設值。"""
+"""公開 Nginx 的濫用與流量防護：關鍵字搜尋限制、靜態檔拒絕查詢字串、縮圖限流。"""
 from pathlib import Path
 import re
 import unittest
@@ -36,6 +36,23 @@ class NginxSearchLimitTests(unittest.TestCase):
                 self.assertRegex(dockerfile, r"ENV .*\b" + var + r"=", var)
             self.assertIn(f"{var}: ${{{var}:-", compose, var)
 
+
+    def _location(self, head):
+        return self.conf.split(head, 1)[1].split("    location ", 1)[0]
+
+    def test_static_files_reject_query_strings(self):
+        # 縮圖與靜態檔網址從不帶參數；隨機參數會讓 Cloudflare 回源，消耗 VPS 流量。
+        heads = ('location ~ "^/media/', 'location ~ "^/assets/(?<hashed_asset>', "location /assets/ {")
+        for head in heads:
+            self.assertIn("if ($args) { return 404; }", self._location(head), head)
+        # 首頁不擋：分享到社群時常被加上 ?fbclid 之類的追蹤參數。
+        self.assertNotIn("$args", self._location("location = / {"))
+
+    def test_media_has_lenient_per_visitor_limit(self):
+        self.assertIn("limit_req_zone $search_key zone=media:8m rate=30r/s;", self.conf)
+        media = self._location('location ~ "^/media/')
+        self.assertIn("limit_req zone=media burst=120 nodelay;", media)
+        self.assertIn("limit_req_status 429;", media)
 
 if __name__ == "__main__":
     unittest.main()
