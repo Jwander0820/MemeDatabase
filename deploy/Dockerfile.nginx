@@ -12,6 +12,11 @@ COPY src/anime_memes/web_static/catalog.css src/anime_memes/web_static/favicon.s
 # 靜態檔加內容雜湊副本並改寫 index.html，讓 Nginx 對帶雜湊的檔名長期快取（見 deploy/hash-assets.sh）。
 COPY deploy/hash-assets.sh /tmp/hash-assets.sh
 RUN sh /tmp/hash-assets.sh /usr/share/nginx/gallery && rm /tmp/hash-assets.sh
+# 部署版號寫進 index.html（頁尾與 meta）；放在最後，版號每次不同也不會讓前面的層失效。
+ARG BUILD_REVISION=
+ARG BUILD_TIME=
+COPY deploy/stamp-build.sh /tmp/stamp-build.sh
+RUN sh /tmp/stamp-build.sh /usr/share/nginx/gallery/index.html "$BUILD_REVISION" "$BUILD_TIME" && rm /tmp/stamp-build.sh
 # 確保 UID 101 可讀（建置主機的檔案權限不一定一致）。
 RUN chmod -R a+rX /etc/nginx/snippets /etc/nginx/templates /usr/share/nginx
 USER 101

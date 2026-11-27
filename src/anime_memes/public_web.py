@@ -1,6 +1,7 @@
 """公開唯讀 WSGI app；沒有管理、OCR 或模板 import。"""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -11,6 +12,14 @@ from flask import Flask, abort, g, jsonify, request
 from . import settings
 from .public_data import open_readonly, search, serialize, validate_schema
 from .releases import ReleaseMissing, current_version, release_path, version_name
+
+
+def build_info():
+    """映像建置時寫入的部署版號（Dockerfile 的 BUILD_REVISION／BUILD_TIME）；本機執行為 None。"""
+    revision = os.environ.get("MEMEDB_BUILD_REVISION", "").strip()
+    if not re.fullmatch(r"[0-9a-f]{7,40}", revision):
+        return None
+    return {"revision": revision, "short": revision[:7], "built_at": os.environ.get("MEMEDB_BUILD_TIME", "").strip() or None}
 
 
 def create_public_app(release_root=None):
@@ -91,7 +100,7 @@ def create_public_app(release_root=None):
 
     @app.get("/health/ready")
     def ready():
-        return jsonify(status="ok", version=g.version)
+        return jsonify(status="ok", version=g.version, build=build_info())
 
     @app.get("/api/v1/entries")
     def entries():
@@ -111,6 +120,8 @@ def create_public_app(release_root=None):
         if set(request.args) - {"version"}:
             raise ValueError("不支援的查詢參數")
         tags = [dict(r) for r in g.db.execute("SELECT tag AS name,count(*) AS count FROM entry_tags GROUP BY tag ORDER BY count DESC,tag")]
-        return jsonify(version=g.version, tags=tags)
+        # 帶 version 的回應會被長期快取，程式更新後可能仍是舊值，所以版號只放在不快取的回應。
+        extra = {} if request.args.get("version") else {"build": build_info()}
+        return jsonify(version=g.version, tags=tags, **extra)
 
     return app

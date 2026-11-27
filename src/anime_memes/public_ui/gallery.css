@@ -288,6 +288,9 @@
 
 .site-footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .site-footer a:hover { color: var(--ink); }
+/* 部署版號（建置時由 deploy/stamp-build.sh 填入）：低調顯示，本機未填時隱藏。 */
+.site-footer .build-version { margin-left: 0.6em; opacity: 0.45; font-size: 11px; font-variant-numeric: tabular-nums; }
+.site-footer .build-version:empty { display: none; }
 
 /* ---------- 詳情檢視 ---------- */
 .viewer {
