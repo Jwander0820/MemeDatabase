@@ -3,6 +3,7 @@ from contextlib import closing
 from io import BytesIO
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -110,7 +111,12 @@ class ContainerTest(unittest.TestCase):
                     # 公開縮圖由本地原圖（800x600）產生 480P，不可超過 640x480。
                     self.assertLessEqual(im.width, 640)
                     self.assertLessEqual(im.height, 480)
-                self.assertIn("/assets/gallery.js", http("/")[2].decode())
+                # 首頁引用帶內容雜湊的檔名，Nginx 以 immutable 長期快取；原檔名仍可取得但不快取。
+                hashed = re.search(r'"(/assets/gallery\.[0-9a-f]{12}\.js)"', http("/")[2].decode()).group(1)
+                self.assertIn("immutable", http(hashed)[1]["Cache-Control"])
+                self.assertEqual(http(hashed)[2], http("/assets/gallery.js")[2])
+                self.assertEqual(http("/assets/gallery.js")[1]["Cache-Control"], "no-cache")
+                self.assertIn("Content-Security-Policy", http(hashed)[1])
                 # 安全標頭：頁面、靜態檔與 API 都要有，API 的 nosniff 不可重複。
                 page_headers = http("/")[1]
                 self.assertIn("frame-ancestors 'none'", page_headers["Content-Security-Policy"])
