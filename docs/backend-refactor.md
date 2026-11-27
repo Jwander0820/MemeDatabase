@@ -230,7 +230,7 @@ docker compose -p memedatabase-frontend-qa --profile public up -d --build --wait
 4. 在私人頁取消選取後再檢查、匯出，此時重新搜尋仍可找到該圖。啟用新版，再按公開頁「搜尋」，確認結果更新。後續換版可直接在頁面操作。
 5. 結束測試可執行 `docker compose -p memedatabase-frontend-qa --profile public --profile private down`。測試館藏保留於上述主機目錄。
 
-Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 次／秒、burst 10，SEARCH_RATE／SEARCH_BURST 可覆寫。未信任任意 X-Forwarded-For；公開設定已從本機／私有網段的 Cloudflare Tunnel 來源讀取 `CF-Connecting-IP`，其安全前提是公開 port 只綁 localhost，外部請求僅透過受控 Tunnel。若改成其他入口或信任來源，須重新檢查真實 IP 與限流設定。
+Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 次／秒、burst 10，SEARCH_RATE／SEARCH_BURST 可覆寫。有關鍵字（`q`）的搜尋另外限制：每 IP 1 次／秒、burst 8，全站同時最多 3 個，超過回 429（SEARCH_KEYWORD_RATE／SEARCH_KEYWORD_BURST／SEARCH_KEYWORD_CONCURRENCY 可覆寫，預設值也寫在 Nginx 映像裡）。未信任任意 X-Forwarded-For；公開設定已從本機／私有網段的 Cloudflare Tunnel 來源讀取 `CF-Connecting-IP`，其安全前提是公開 port 只綁 localhost，外部請求僅透過受控 Tunnel。若改成其他入口或信任來源，須重新檢查真實 IP 與限流設定。
 
 | 環境變數 | 預設／用途 |
 |---|---|
@@ -238,6 +238,7 @@ Nginx 代理 API、健康檢查及 media，停用目錄列表；預設每 IP 2 �
 | RELEASE_ROOT | ./data/releases，發布資料掛載 |
 | PRIVATE_PORT／PUBLIC_PORT | 3636／3637，主機 loopback port（`web` 指令直接執行時預設 3638） |
 | SEARCH_RATE／SEARCH_BURST | 2r/s／10 |
+| SEARCH_KEYWORD_RATE／SEARCH_KEYWORD_BURST／SEARCH_KEYWORD_CONCURRENCY | 1r/s／8／3，只計有關鍵字的搜尋 |
 | PRIVATE_URL | http://127.0.0.1:3636，MCP 回傳給呼叫端的媒體基址 |
 | MEMES_MCP_TOKEN | 無預設，至少 32 ASCII 字元、無空白 |
 

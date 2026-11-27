@@ -41,7 +41,7 @@ async function readApi(path, params) {
   const response = await fetch("/api/v1/" + path + "?" + params);
   if (!response.ok) {
     const messages = {404: "此圖已下架或不存在", 410: "館藏版本已過期",
-      429: "查詢過於頻繁，請稍後再試", 503: "館藏暫時無法使用"};
+      429: "搜尋人數較多或查詢過於頻繁，請稍後再試", 503: "館藏暫時無法使用"};
     const error = new Error(messages[response.status] || "讀取失敗，請重試");
     error.status = response.status;
     throw error;
