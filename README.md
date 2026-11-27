@@ -1,29 +1,43 @@
 # 動畫迷因資料庫
 
-本地優先的動畫梗圖整理工具。
+把平常在 Discord 收集的動畫梗圖整理成可以搜尋的圖庫，挑選後發布成一個公開的小網站，方便自己和朋友找圖、分享。
 
-- **本機管理端**：從 Discord 匯入梗圖到 SQLite，下載附件、產生縮圖、OCR 輔助校驗、整理標籤，用 Web UI 搜尋、編輯、收藏與清理。
-- **公開搜尋站**：只含管理端勾選發布的梗圖，提供搜尋、預覽、分享與取圖；訪客收藏與「我的梗圖」只存在自己的瀏覽器。
-- **私人 MCP（選用）**：在本機提供唯讀查詢，公開站不含。
+<!-- 截圖：之後可放公開站搜尋畫面，例如 docs/images/screenshot.png -->
 
-## 架構與資料流
+## 可以做什麼
+
+- **用文字找梗圖**：圖上的台詞經過 OCR 辨識再人工校對，可以直接搜台詞或作品名。
+- **標籤分類**：每張圖有情緒、情境、用途等標籤，AI 會先給候選標籤，人工確認後才寫入。
+- **公開搜尋站**：只放挑選過的梗圖，可以搜尋、預覽、複製或下載圖片、分享連結。
+- **不用註冊**：訪客的收藏只存在自己的瀏覽器裡。
+- **本地優先**：完整館藏和原圖都留在自己的電腦，公開站只拿到發布的那一份。
+
+## 運作方式
 
 ```text
-Discord ──DiscordChatExporter──> fixed JSON ──> SQLite（本機主庫）
-                                                   │  附件、縮圖、OCR、標籤審核
-                                                   ▼
-                                  本機管理頁（3636，只綁 localhost）
-                                                   │  選圖 → 檢查 → 匯出發布版本
-                                                   ▼
-                              發布包（公開 SQLite＋480P 縮圖；720P 大圖上 R2）
-                                                   │  受限 SSH 推送、驗證後原子切換版本
-                                                   ▼
-訪客 ─HTTPS─> Cloudflare ─Tunnel─> VPS：public-nginx ─> public-api（唯讀）
+Discord ─匯出─> SQLite（本機主庫）
+                  │  下載附件、縮圖、OCR、標籤審核
+                  ▼
+           本機管理頁（只綁 localhost）
+                  │  挑選 → 檢查 → 匯出發布版本
+                  ▼
+           發布包（公開 SQLite + 縮圖；720P 大圖放 R2）
+                  │  SSH 推送，驗證後切換版本
+                  ▼
+訪客 ─> Cloudflare ─Tunnel─> VPS：Nginx ─> 唯讀 API
 ```
 
-- 管理端與原圖永遠留在本機；VPS 只跑公開 profile 與 Tunnel，不開連入 port。
-- 程式與館藏分開更新：程式由 GitHub Actions 建置映像並部署；館藏由本機管理頁推送版本。
-- 搜尋支援名稱、替代詞、繁簡／標點正規化、多詞跨欄位、`-排除`、`作品:詞`、引號片語與相關度排序。
+---
+
+## 技術重點
+
+**技術棧**：Python、Flask、SQLite、原生 JavaScript、Docker、Nginx、Cloudflare Tunnel、Cloudflare R2、GitHub Actions。
+
+- **管理端和公開站分開**：管理頁與原圖只在本機；VPS 只跑唯讀的公開服務，容器以 `read_only` 執行，也不對外開連入 port，流量全部經 Cloudflare Tunnel 進來。
+- **程式和館藏分開更新**：程式由 CI 建置映像部署；館藏由本機管理頁推送版本，驗證通過才原子切換，保留最近幾版可以回復。
+- **CI/CD**：PR 會跑測試；合併到 `main` 後先測試、再建置映像推到 GHCR，最後部署到 VPS，失敗會恢復上一版。
+- **搜尋**：支援繁簡與標點正規化、多詞跨欄位、`-排除`、`作品:詞`、引號片語和相關度排序。
+- **基本防護**：Nginx 對搜尋與圖片請求限流，限制搜尋併發數，靜態圖片走 Cloudflare 快取。
 
 ## 快速開始（本機）
 
@@ -33,38 +47,21 @@ python -m venv .venv
 .venv\Scripts\python.exe -m src.anime_memes --db data\anime_memes.sqlite3 web
 ```
 
-開啟 <http://127.0.0.1:3638>。增量同步 Discord：`src\commands\sync_discord.cmd`（需在 `.env` 設定 `DISCORD_BOT_TOKEN`）。所有指令見 `python -m src.anime_memes --help`。
+開啟 <http://127.0.0.1:3638>。所有指令見 `python -m src.anime_memes --help`；用 Docker 啟動見[本機 Docker 啟動](docs/backend-refactor.md#dockernginx-本機啟動)。
 
-用 Docker 時，私人管理頁在 <http://localhost:3636>、模擬公開頁在 <http://localhost:3637>，啟動方式見[本機 Docker 啟動](docs/backend-refactor.md#dockernginx-本機啟動)。
-
-`data/`、`exports/`、`models/`、`.env`、`.venv/` 不提交到 Git。
-
-## 部署概要
-
-| 項目 | 方式 |
-|---|---|
-| 程式 | PR 跑 CI 測試；合併到 `main` 後 Actions 建置公開映像推到 GHCR，經受限 SSH 部署到 VPS，失敗自動恢復上一版 |
-| 館藏 | 本機管理頁「發布管理 → 推送到 VPS」，增量傳縮圖；啟用後 VPS 自動清理舊版本，保留最新 3 版 |
-| 依賴 | Python 版本以 `Dockerfile` 基底映像為準（目前 3.15，CI 也從這裡讀）；Docker 用含 SHA-256 的鎖檔；Dependabot 每月更新映像與 Actions |
-| VPS 腳本 | 從 `raw.githubusercontent.com` 以 `curl` 下載後 `install`；VPS 上的 `/opt/memedatabase` 不是 git checkout |
-
-## 文件
-
-| 文件 | 內容 |
-|---|---|
-| [本機操作手冊](docs/local-operations.md) | 安裝、Web UI、CLI、批次發布、圖片尺寸與 R2、徹底撤回、測試 |
-| [雙版本後端與發布操作](docs/backend-refactor.md) | 模組架構、發布包與熱更新、依賴鎖檔、Docker、私人 MCP |
-| [VPS 部署手冊](docs/vps-deployment.md) | Cloudflare、VPS 首次部署、程式與館藏更新、回復與疑難排解 |
-| [文件索引](docs/README.md) | 所有規格、操作手冊與歷史文件 |
-
-## 測試
+測試：
 
 ```bat
 .venv\Scripts\python.exe -m unittest discover -s tests
 node --test tests/*.cjs
 ```
 
-Docker 整合與 GPU 測試需另外開啟，見[本機操作手冊](docs/local-operations.md#測試)。
+## 文件
+
+- [本機操作手冊](docs/local-operations.md)：安裝、Web UI、CLI、發布、R2、測試
+- [雙版本後端與發布操作](docs/backend-refactor.md)：模組架構、發布包、Docker、私人 MCP
+- [VPS 部署手冊](docs/vps-deployment.md)：Cloudflare、首次部署、更新與回復
+- [文件索引](docs/README.md)：所有規格與歷史文件
 
 ## 授權
 
