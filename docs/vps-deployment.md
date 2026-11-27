@@ -72,7 +72,7 @@ Caching → Cache Rules → Create rule，條件全部成立（AND）：
 - Cache eligibility：Eligible for cache
 - Edge TTL：Use cache-control header if present
 
-沒有 `version` 參數的請求不可快取（來源本來就回 `no-store`），所以條件一定要包含查詢字串這一項。`/` 與 `/assets/` 來源是 `no-cache`，維持預設即可。
+沒有 `version` 參數的請求不可快取（來源本來就回 `no-store`），所以條件一定要包含查詢字串這一項。`/` 與未加雜湊的 `/assets/` 檔案來源是 `no-cache`；首頁引用的 JS、CSS、SVG 在 Nginx 映像建置時改為帶內容雜湊的檔名（`deploy/hash-assets.sh`），來源回 `immutable` 長期快取。兩者都維持預設即可。
 
 換版當下，來源 API 只接受目前啟用的版本。緊急下架時，啟用新版後可用 `-Activate -Prune -KeepRecent 0` 的發布流程清除舊版及其獨佔縮圖。已快取的舊版 API 與縮圖須清除 Cloudflare 快取，涵蓋舊版查詢字串與所有受影響的 URL。若原圖存於 R2，也須刪除對應物件並清除 CDN 快取。訪客瀏覽器已下載的內容無法遠端撤回。
 
