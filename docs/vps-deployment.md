@@ -103,7 +103,7 @@ Caching → Cache Rules → Create rule，條件全部成立（AND）：
 - 門檻：每 10 秒 50 個請求
 - 動作：Block，持續 10 秒
 
-門檻刻意比 Nginx 寬（Nginx 為每秒 2 次、可瞬間多 10 次，約等於 10 秒 30 次）：邊緣只擋明顯的大量請求，正常使用時的細部限流交給 Nginx，避免一般訪客快速翻頁時先被 Cloudflare 擋下。帶 `version` 參數的請求若命中邊緣快取，不會到達 VPS，但仍會被這條規則計數。
+門檻刻意比 Nginx 寬（Nginx 為每秒 2 次、可瞬間多 10 次，約等於 10 秒 30 次；有關鍵字的搜尋更嚴，見第 8 節）：邊緣只擋明顯的大量請求，正常使用時的細部限流交給 Nginx，避免一般訪客快速翻頁時先被 Cloudflare 擋下。帶 `version` 參數的請求若命中邊緣快取，不會到達 VPS，但仍會被這條規則計數。
 
 本站是公開網站，不需要 Cloudflare Access（登入保護）；只有想限定特定人瀏覽時才需要。
 
@@ -218,6 +218,10 @@ COMPOSE_PROFILES=public,tunnel
 # 以下可選
 # SEARCH_RATE=2r/s
 # SEARCH_BURST=10
+# 有關鍵字的搜尋：每 IP 頻率、瞬間額度、全站同時上限（預設值已在 Nginx 映像內）
+# SEARCH_KEYWORD_RATE=1r/s
+# SEARCH_KEYWORD_BURST=8
+# SEARCH_KEYWORD_CONCURRENCY=3
 # PUBLIC_PORT=3637
 # CLOUDFLARED_VERSION=版本@sha256:已查證的映像索引digest（預設使用 compose.yaml 的固定值）
 EOF
@@ -404,7 +408,7 @@ dc logs --since 1h --timestamps public-nginx | grep 'search status='
 
 - cloudflared 無法連線：看 `dc logs cloudflared`。token 空白或錯誤、VPS 無法連出，都會在這裡顯示。確認 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 正確且沒有多餘空白或引號。
 - 網站 502／1033 等：先在 VPS 用 `curl http://127.0.0.1:3637/health/live` 確認 public-nginx 正常，再確認控制台 Public Hostname 的 Service 是 `HTTP` 與 `public-nginx:8080`。
-- 429：搜尋限流依訪客 IP 計算。Nginx 只信任私有網段與 127.0.0.1 來源的 `CF-Connecting-IP` 作為真實 IP。若所有人都被一起限流，表示 Nginx 看到的是同一個來源 IP（例如沒有取到 `CF-Connecting-IP`），請檢查請求是否真的經過 Cloudflare／cloudflared，必要時暫時調高 `SEARCH_RATE`、`SEARCH_BURST` 並重建。
+- 429：搜尋限流依訪客 IP 計算。Nginx 只信任私有網段與 127.0.0.1 來源的 `CF-Connecting-IP` 作為真實 IP。若所有人都被一起限流，表示 Nginx 看到的是同一個來源 IP（例如沒有取到 `CF-Connecting-IP`），請檢查請求是否真的經過 Cloudflare／cloudflared，必要時暫時調高 `SEARCH_RATE`、`SEARCH_BURST` 並重建。若只有搜尋常出現 429、瀏覽正常，可能是全站搜尋同時上限（`SEARCH_KEYWORD_CONCURRENCY`）被占滿；要調整這三個 `SEARCH_KEYWORD_*` 變數，需先依 4.4 重新下載 `compose.yaml`，舊版 Compose 不會把它們傳給容器（容器會用映像內的預設值）。
 - 首次部署報目錄不存在（類似 `bind source path does not exist`）：`create_host_path: false` 的設計，代表 `RELEASE_ROOT` 或其下的 `media` 目錄還沒建立，或 `.env` 的路徑有誤。依 4.5 建立後再 `up`。
 - `install-bundle` 權限錯誤：發布目錄需由 UID 10001 擁有（`chown -R 10001:10001`）。
 - `/health/ready` 一直 503：尚未啟用任何版本，或版本與目前程式的 schema 不相容；用 `activate` 或重新匯出推送。
@@ -419,7 +423,7 @@ dc logs --since 1h --timestamps public-nginx | grep 'search status='
 | Cloudflare 邊緣 | — | HTTPS、HSTS、最低 TLS 1.2（3.4）；WAF、邊緣限流、Bot（3.5）；快取規則（3.3） |
 | 網路 | Tunnel 只連出，VPS IP 不公開；所有 port 只綁 127.0.0.1 | 防火牆只開 SSH（4.2） |
 | VPS 主機 | — | SSH 只允許金鑰、自動安全更新（4.2）；合併 Dependabot 映像更新 PR（6.2） |
-| Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
+| Nginx | 依訪客真實 IP 限流（每秒 2 次、可瞬間多 10 次）；有關鍵字的搜尋每秒 1 次、可瞬間多 8 次，且全站同時最多 3 個，超過立刻回 429，多個 IP 一起灌搜尋也不會拖垮瀏覽；只開放必要路徑；請求上限 1 MB；CSP、X-Frame-Options、Referrer-Policy 等安全標頭；隱藏版本、不列目錄 | — |
 | 公開 API | 只接受讀取；參數白名單；分頁、查詢長度（256 字／16 詞）、收藏數（200）上限；資料庫唯讀且只含已發布欄位 | — |
 | 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；Python／Nginx 基底與預設 cloudflared 固定版本及 digest，三種 Python 部署使用完整版本與 SHA-256 鎖檔 | 合併 Dependabot PR 或重產鎖檔後部署，才能取得安全修補 |
 

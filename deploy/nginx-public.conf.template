@@ -5,6 +5,19 @@ map $binary_remote_addr $search_key {
 }
 limit_req_zone $search_key zone=search:8m rate=${SEARCH_RATE};
 limit_conn_zone $search_key zone=search_connections:1m;
+# 關鍵字搜尋（有 q）每次都回源且耗 CPU，另外加兩道限制；鍵為空字串時 Nginx 不計數，瀏覽與詳情不受影響。
+#   keyword：單一訪客的搜尋頻率，比一般瀏覽嚴。
+#   keyword_all：全站同時進行的搜尋數，後端 4 條執行緒留 1 條給瀏覽；超過立刻回 429，不讓請求在後端排隊。
+map $arg_q $keyword_key {
+    "" "";
+    default $search_key;
+}
+map $arg_q $keyword_all_key {
+    "" "";
+    default all;
+}
+limit_req_zone $keyword_key zone=keyword:8m rate=${SEARCH_KEYWORD_RATE};
+limit_conn_zone $keyword_all_key zone=keyword_all:1m;
 map "$uri:$arg_q" $log_keyword_search {
     default 0;
     ~^/api/v1/entries:.+ 1;
@@ -44,8 +57,10 @@ server {
 
     location /api/v1/ {
         limit_req zone=search burst=${SEARCH_BURST} nodelay;
+        limit_req zone=keyword burst=${SEARCH_KEYWORD_BURST} nodelay;
         limit_req_status 429;
         limit_conn search_connections 20;
+        limit_conn keyword_all ${SEARCH_KEYWORD_CONCURRENCY};
         limit_conn_status 429;
         proxy_pass http://public-api:8765;
         proxy_set_header Host $host;
