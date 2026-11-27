@@ -1,4 +1,4 @@
-"""共用搜尋規則；即時計算避免匯入或 OCR 更新後出現過期投影。
+"""共用搜尋規則。管理端即時正規化，避免編輯後出現過期投影；公開站快照不可變，每版預先正規化一次。
 
 查詢語法（以空白分隔，可混用）：
     詞            任一欄位包含即可；多詞為 AND
@@ -142,17 +142,36 @@ def match_quality(term: str, text: str, weight: int) -> float:
     return 60 + 40 * (0.4 * importance + 0.3 * prefix + 0.3 * coverage)
 
 
-def scorer(query: str, field: str | None = None):
+def normalized_fields(title, speaker, work, quote, tags, aliases, norm=normalize):
+    """把一列的原始欄位轉成 ((欄位, 正規化文字), ...)；公開站每個發布版本只算一次（見 public_data）。"""
+    fields = [("title", norm(title or "")), ("speaker", norm(speaker or "")),
+              ("work", norm(work or "")), ("quote", norm(quote or ""))]
+    fields += [("tag", norm(v)) for v in json.loads(tags or "[]")]
+    fields += [("alias", norm(v)) for v in json.loads(aliases or "[]")]
+    return tuple(fields)
+
+
+def search_blob(fields) -> str:
+    """整列正規化文字以換行串接；normalize 會移除空白，所以詞不會跨欄位誤中。"""
+    return "\n".join(text for _, text in fields)
+
+
+def field_scorer(query: str, field: str | None = None):
+    """回傳 score(fields, blob=None)：對 normalized_fields 的結果計分，不再重複正規化。
+
+    blob 為 search_blob(fields)；有給時先用整列字串快速排除不可能命中的列，結果不變。
+    """
     parsed = parse_query(query, field)
     positives, negatives, free, scope = parsed.positives, parsed.negatives, parsed.free, parsed.scope
+    required = tuple(t.text for t in positives if t.field)
+    free_texts = tuple(t.text for t in free)
 
-    @lru_cache(maxsize=4096)  # 同列在 WHERE 與 ORDER BY 各算一次
-    def score(title, speaker, work, quote, tags, aliases):
-        fields = [("title", normalize(title or "")), ("speaker", normalize(speaker or "")),
-                  ("work", normalize(work or "")), ("quote", normalize(quote or ""))]
-        fields += [("tag", normalize(v)) for v in json.loads(tags or "[]")]
-        fields += [("alias", normalize(v)) for v in json.loads(aliases or "[]")]
-
+    def score(fields, blob=None):
+        # 必要條件：有前綴的詞都要出現在某處；一般詞要全部出現，或整句（片語）出現。
+        if blob is not None and positives and not (
+                all(t in blob for t in required)
+                and (all(t in blob for t in free_texts) or (len(free) > 1 and parsed.whole in blob))):
+            return 0
         def scoped(term):
             return [text for name, text in fields if text and term.field in (None, name)]
 
@@ -175,6 +194,17 @@ def scorer(query: str, field: str | None = None):
                      if parsed.whole and text == parsed.whole and scope in (None, name)), default=0)
         # 整句與某欄位完全相等時置頂；其餘為各詞最佳欄位加總（每詞只算一次）＋片語加成。
         return exact * 10000 + sum(scores.values()) + phrase
+
+    return score
+
+
+def scorer(query: str, field: str | None = None):
+    """管理端用：直接吃原始欄位（資料可能剛被編輯，不能預先正規化）。"""
+    score_fields = field_scorer(query, field)
+
+    @lru_cache(maxsize=4096)  # 同列在 WHERE 與 ORDER BY 各算一次
+    def score(title, speaker, work, quote, tags, aliases):
+        return score_fields(normalized_fields(title, speaker, work, quote, tags, aliases))
 
     return score
 

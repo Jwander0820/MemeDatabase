@@ -207,14 +207,41 @@ class QuerySyntaxTest(unittest.TestCase):
                 parse_query("烈海王", bad)
 
 
+class PrecomputedScoreTest(unittest.TestCase):
+    """公開站的預先正規化＋快速排除，分數必須與管理端逐列正規化完全相同。"""
+
+    def test_same_scores_as_raw_scorer(self):
+        import json
+        import random
+        from src.anime_memes.search import field_scorer, normalized_fields, search_blob
+        r = random.Random(7)
+        words = ["烈海王", "復活", "刃牙", "我又回來了", "Re:ゼロ", "ＡＢＣ", "进击", "進擊的巨人", "這樣", "回來", "中文", "abc"]
+        rows = []
+        for _ in range(300):
+            pick = lambda k: "".join(r.sample(words, k))
+            rows.append((r.choice([None, pick(1), pick(2)]), r.choice([None, pick(1)]), r.choice([None, pick(1)]),
+                         pick(r.randint(1, 3)), json.dumps(r.sample(words, r.randint(0, 3)), ensure_ascii=False),
+                         json.dumps(r.sample(words, r.randint(0, 2)), ensure_ascii=False)))
+        rows.append(("烈海王", None, None, "烈海王", "[]", "[]"))
+        queries = ["烈海王", "復活 刃牙", "回來 我又", '"我又回來了"', "-刃牙", "烈海王 -作品:刃牙", "作品:刃牙 復活",
+                   "標籤:復活", "abc", "進擊 的巨人", "Re:ゼロ", "这样", "-復活 -abc", "烈海王 復活 回來"]
+        for q in queries:
+            for scope in (None, "title", "quote", "tag"):
+                with self.subTest(q=q, scope=scope):
+                    raw, fast = scorer(q, scope), field_scorer(q, scope)
+                    for row in rows:
+                        fields = normalized_fields(*row)
+                        self.assertEqual(fast(fields, search_blob(fields)), raw(*row), row)
+
+
 class SingleScoreTest(unittest.TestCase):
     """有查詢字時每列只計分一次，且總數、順序與逐列計分的舊寫法一致。"""
 
     N = 30
 
-    def counting(self, module):
+    def counting(self, module, name="scorer"):
         calls = []
-        real = module.scorer
+        real = getattr(module, name)
 
         def wrapped(q, field):
             inner = real(q, field)
@@ -223,7 +250,7 @@ class SingleScoreTest(unittest.TestCase):
                 calls.append(args)
                 return inner(*args)
             return fn
-        return calls, patch.object(module, "scorer", wrapped)
+        return calls, patch.object(module, name, wrapped)
 
     def test_public_single_score_and_same_results(self):
         from src.anime_memes import public_data as pd
@@ -245,7 +272,7 @@ class SingleScoreTest(unittest.TestCase):
         ]
         for args, _, expected in cases:
             with self.subTest(args=args):
-                calls, patcher = self.counting(pd)
+                calls, patcher = self.counting(pd, "field_scorer")
                 with patcher:
                     result = pd.search(conn, {**args, "page_size": 4, "page": 2})
                     self.assertEqual(len(calls), self.N if "tag" not in args else self.N // 2)
@@ -269,6 +296,30 @@ class SingleScoreTest(unittest.TestCase):
             self.assertEqual((result["items"], result["total"]), ([], len(matched)))
         with self.subTest("無符合"):
             self.assertEqual(pd.search(conn, {"q": "不存在詞"})["total"], 0)
+
+    def test_public_index_cached_per_snapshot(self):
+        import tempfile
+        from src.anime_memes import public_data as pd
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+        def make(name, quote):
+            path = tmp / name
+            with closing(sqlite3.connect(path)) as conn:
+                conn.executescript(pd.SCHEMA)
+                conn.execute("INSERT INTO metadata VALUES(?,?,?)", (pd.SCHEMA_VERSION, 1, name))
+                conn.execute("INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                             ("0" * 32, None, None, None, quote, "[]", "[]", "t", None, "2026", 1, 1, "2026", 1))
+                conn.commit()
+            return pd.open_readonly(path)
+
+        self.enterContext(patch.dict(pd._INDEX_CACHE, clear=True))
+        a, b = self.enterContext(closing(make("a", "烈海王"))), self.enterContext(closing(make("b", "刃牙")))
+        builds, real = [], pd._build_index
+        with patch.object(pd, "_build_index", lambda conn: builds.append(1) or real(conn)):
+            self.assertEqual(pd.search(a, {"q": "烈海王"})["total"], 1)
+            self.assertEqual(pd.search(a, {"q": "刃牙"})["total"], 0)
+            self.assertEqual(pd.search(b, {"q": "刃牙"})["total"], 1)
+        self.assertEqual(len(builds), 2)  # 每個快照只正規化一次
 
     def test_admin_single_score_and_same_results(self):
         import tempfile

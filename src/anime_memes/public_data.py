@@ -5,9 +5,11 @@ import hashlib
 import json
 import re
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 
-from .search import NORMALIZATION_VERSION, SCORE_ARGS, scorer, search_field
+from .search import NORMALIZATION_VERSION, field_scorer, normalize, normalized_fields, search_blob, search_field
 
 # 第 2 版：entries 新增縮圖寬高，前端可在圖片載入前預留版面並依高度排列。
 # 第 3 版：移除 ocr_text；OCR 不參與搜尋，也不回傳，沒有理由放進公開快照。
@@ -99,6 +101,40 @@ def read_seed(args) -> str:
     return str(seed)
 
 
+# 搜尋索引：發布快照不可變，每個版本只把搜尋欄位正規化一次（id → normalized_fields），
+# 之後每次搜尋只做字串比對。以檔案路徑、版本與檔案狀態為鍵，只保留最近兩版（切版時新舊並存一下）。
+_INDEX_CACHE: dict[tuple, dict[str, tuple]] = {}  # 值：id → (fields, blob)
+_INDEX_LOCK = Lock()
+_INDEX_KEEP = 2
+
+
+def _build_index(conn: sqlite3.Connection) -> dict[str, tuple]:
+    norm = lru_cache(maxsize=None)(normalize.__wrapped__)  # 本次建置內去重（作品、角色、標籤重複很多）
+    index = {}
+    for row in conn.execute("SELECT id,display_title,speaker,anime_title,quote_text,tags_json,aliases_json FROM entries"):
+        fields = normalized_fields(*row[1:], norm=norm)
+        index[row[0]] = (fields, search_blob(fields))
+    return index
+
+
+def search_index(conn: sqlite3.Connection) -> dict[str, tuple]:
+    """取得此連線所屬快照的搜尋索引；記憶體或暫存資料庫（沒有檔案路徑）不快取。"""
+    path = next((r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), "")
+    if not path:
+        return _build_index(conn)
+    stat = Path(path).stat()
+    version = conn.execute("SELECT version FROM metadata").fetchone()[0]
+    key = (path, version, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+    with _INDEX_LOCK:  # 同時多個請求遇到新版本時只建一次
+        index = _INDEX_CACHE.get(key)
+        if index is None:
+            index = _build_index(conn)
+            _INDEX_CACHE[key] = index
+            while len(_INDEX_CACHE) > _INDEX_KEEP:
+                _INDEX_CACHE.pop(next(iter(_INDEX_CACHE)))
+        return index
+
+
 def search(conn: sqlite3.Connection, args) -> dict:
     unknown = set(args) - ALLOWED_ARGS
     if unknown:
@@ -108,11 +144,12 @@ def search(conn: sqlite3.Connection, args) -> dict:
         raise ValueError("page 或 page_size 超出範圍")
     q = args.get("q") or ""
     field = search_field(args.get("field") or None)
-    score_sql = "meme_score(e.display_title,e.speaker,e.anime_title,e.quote_text,e.tags_json,e.aliases_json)"
+    score_sql = "meme_score(e.id)"
     where, params = ["1=1"], []
     if q:
         # 分數條件不放進 where：有查詢字時在下方 CTE 外層以 score>0 過濾，每列只計分一次。
-        conn.create_function("meme_score", SCORE_ARGS, scorer(q, field), deterministic=True)
+        score_fields, index = field_scorer(q, field), search_index(conn)
+        conn.create_function("meme_score", 1, lambda key: score_fields(*index[key]), deterministic=True)
     if args.get("tag"):
         where.append("EXISTS(SELECT 1 FROM entry_tags t WHERE t.entry_id=e.id AND t.tag=?)")
         params.append(args["tag"])
@@ -136,20 +173,20 @@ def search(conn: sqlite3.Connection, args) -> dict:
     if sort not in orders:
         raise ValueError("不支援的排序")
     if q:
-        # 有查詢字：每列只計分一次（具體化的 CTE），同時以視窗函式取得總數與該頁資料。
+        # 有查詢字：每列只計分一次（具體化的 CTE）。總數放在單列子查詢再 LEFT JOIN 該頁資料，
+        # 頁碼超出範圍時仍拿得到總數，不必再算一次分數。
         condition = " AND ".join(where)
-        order = orders[sort].replace(score_sql, "score")
-        cte = f"WITH scored AS MATERIALIZED (SELECT e.*, {score_sql} AS score FROM entries e WHERE {condition})"
+        order = re.sub(r"\be\.", "", orders[sort].replace(score_sql, "score"))
         offset = (page - 1) * size
-        rows = conn.execute(f"{cte} SELECT *, COUNT(*) OVER () AS total_count FROM scored WHERE score>0 "
-                            f"ORDER BY {re.sub(r'\be\.', '', order)} LIMIT ? OFFSET ?", [*params, size, offset]).fetchall()
-        if rows:
-            total = rows[0]["total_count"]
-        elif page == 1:
-            total = 0
-        else:  # 頁碼超出範圍：外層沒有任何列可取總數，另算一次
-            total = conn.execute(f"{cte} SELECT count(*) FROM scored WHERE score>0", params).fetchone()[0]
-        return {"items": [serialize(r) for r in rows], "total": total, "page": page, "page_size": size}
+        rows = conn.execute(
+            f"WITH scored AS MATERIALIZED (SELECT e.*, {score_sql} AS score FROM entries e WHERE {condition}), "
+            f"hits AS (SELECT * FROM scored WHERE score>0) "
+            f"SELECT p.*, c.total_count FROM (SELECT count(*) AS total_count FROM hits) c LEFT JOIN "
+            f"(SELECT *, row_number() OVER (ORDER BY {order}) AS rn FROM hits ORDER BY {order} LIMIT ? OFFSET ?) p "
+            f"ON 1 ORDER BY p.rn", [*params, size, offset]).fetchall()
+        total = rows[0]["total_count"]
+        items = [serialize(r) for r in rows if r["id"] is not None]
+        return {"items": items, "total": total, "page": page, "page_size": size}
     condition = " AND ".join(where)
     total = conn.execute(f"SELECT count(*) FROM entries e WHERE {condition}", params).fetchone()[0]
     rows = conn.execute(f"SELECT e.* FROM entries e WHERE {condition} ORDER BY {orders[sort]} LIMIT ? OFFSET ?",
