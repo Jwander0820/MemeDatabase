@@ -48,12 +48,13 @@ test('骰子清除篩選並換種子，阻擋連點且後續分頁維持同一�
   assert.equal(rerolled.get('page'), '1');
 });
 
-function gallery(withObserver = false, storage = undefined) {
+function gallery(withObserver = false, storage = undefined, {globals = {}, setup} = {}) {
   const nodes = new Map();
   const pending = [];
   const created = [];
   function element(tag) {
-    const made = {tag, value: '', childElementCount: 0, addEventListener() {},
+    const made = {tag, value: '', childElementCount: 0, listeners: {},
+      addEventListener(type, fn) { this.listeners[type] = fn; },
       setAttribute(name, value) { this[name] = value; },
       replaceChildren() { this.childElementCount = 0; },
       append(...items) { this.childElementCount += items.length; },
@@ -76,8 +77,10 @@ function gallery(withObserver = false, storage = undefined) {
     document: {getElementById: node, createElement: element},
     window: {addEventListener() {}}, location: {hash: ''},
     clearTimeout() {}, URLSearchParams, Option: class {},
-    fetch(url) { return new Promise(resolve => pending.push({url, resolve})); }
+    fetch(url) { return new Promise(resolve => pending.push({url, resolve})); },
+    ...globals
   });
+  if (setup) setup(node);
   // 與 HTML 相同的載入順序；各檔共用同一個全域作用域。
   for (const name of ['infinite-scroll.js', 'gallery.js', 'gallery-favorites.js', 'gallery-usage.js', 'gallery-detail.js', 'gallery-init.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/anime_memes/public_ui', name), 'utf8'), context, {filename: name});
@@ -314,4 +317,98 @@ test('localStorage 拋出例外時首頁與使用紀錄不會壞', async () => {
   await g.respond(g.pending.shift(), {version: 'v1', page: 1, total: 1, items: [entry('a')]});
   await g.respond(g.pending.shift(), {version: 'v1', tags: []});
   assert.equal(g.node('status').textContent, '已顯示 1／1 張');
+});
+
+test('注音組字期間不搜尋，選字完成才送出一次', () => {
+  const g = gallery();
+  g.pending.length = 0;
+  g.run('var __timers = []; setTimeout = fn => __timers.push(fn);');
+  const query = g.node('query');
+  query.listeners.compositionstart();
+  query.value = 'ㄅㄨˋ';
+  query.oninput({isComposing: true});
+  query.oninput({});
+  assert.equal(g.run('__timers.length'), 0, '組字中不排程搜尋');
+  query.value = '不';
+  query.listeners.compositionend();
+  query.oninput({isComposing: false});
+  g.run('__timers.forEach(fn => fn())');
+  // 兩次排程的計時器都會跑，但舊的被 listRequest 作廢；這裡只確認送出的查詢字是選好的字。
+  const sent = g.pending.map(r => new URLSearchParams(r.url.split('?')[1]).get('q'));
+  assert.ok(sent.length >= 1);
+  assert.ok(sent.every(q => q === '不'));
+});
+
+test('換條件時舊結果保留到新結果回來才替換', async () => {
+  const g = gallery();
+  await g.respond(g.pending.shift(), {version: 'v1', page: 1, total: 1, items: [entry('a')]});
+  await g.respond(g.pending.shift(), {version: 'v1', tags: []});
+  const before = g.node('results').childElementCount;
+  assert.ok(before > 0);
+  g.node('query').value = '烈海王';
+  g.search(true);
+  assert.equal(g.node('results').childElementCount, before, '等待回應時不清空');
+  await g.respond(g.pending.shift(), {version: 'v1', page: 1, total: 1, items: [entry('b')]});
+  assert.equal(g.node('results').childElementCount, 1, '回應後只剩新結果');
+  g.node('query').value = '查不到';
+  g.search(true);
+  await g.respond(g.pending.shift(), null, 503);
+  assert.equal(g.node('results').childElementCount, 0, '新條件失敗時不留舊結果');
+});
+
+test('搜尋條件寫進網址，重新載入與上一頁都能還原', async () => {
+  const listeners = {};
+  const location = {pathname: '/', search: '?q=%E7%83%88%E6%B5%B7%E7%8E%8B&in=speaker&tag=%E5%90%90%E6%A7%BD&sort=created&fav=1&x=1', hash: ''};
+  const calls = [];
+  const apply = (kind) => (state, title, url) => {
+    calls.push([kind, url]);
+    const parsed = new URL(url, 'http://h');
+    location.pathname = parsed.pathname; location.search = parsed.search; location.hash = parsed.hash;
+  };
+  const history = {state: null, pushState: apply('push'), replaceState: apply('replace')};
+  const g = gallery(false, undefined, {
+    globals: {location, history, window: {addEventListener(type, fn) { listeners[type] = fn; }, scrollY: 0}},
+    setup: node => { node('sort').options = [{value: ''}, {value: 'relevance'}, {value: 'created'}]; },
+  });
+  const first = new URLSearchParams(g.pending.shift().url.split('?')[1]);
+  assert.equal(first.get('q'), '烈海王');
+  assert.equal(first.get('field'), 'speaker');
+  assert.equal(first.get('tag'), '吐槽');
+  assert.equal(first.get('sort'), 'created');
+  assert.equal(g.run('favoritesOnly'), true);
+  // 初次載入只把網址整理成標準格式（去掉未知參數），不新增歷史。
+  assert.deepEqual(calls.map(c => c[0]), ['replace']);
+  assert.equal(location.search, '?q=%E7%83%88%E6%B5%B7%E7%8E%8B&in=speaker&tag=%E5%90%90%E6%A7%BD&sort=created&fav=1');
+
+  // 選其他標籤：新增一筆歷史。
+  calls.length = 0;
+  g.run('activeTag = "傻眼"; favoritesOnly = false;');
+  g.search(true);
+  assert.deepEqual(calls.map(c => c[0]), ['push']);
+  assert.match(location.search, /tag=%E5%82%BB%E7%9C%BC/);
+  g.pending.length = 0;
+
+  // 連續打字：第一次新增歷史，之後原地更新。
+  calls.length = 0;
+  for (const text of ['芙', '芙莉', '芙莉蓮']) {
+    g.node('query').value = text;
+    g.run('urlMode = "typing"');
+    g.search(true);
+  }
+  assert.deepEqual(calls.map(c => c[0]), ['push', 'replace', 'replace']);
+  g.pending.length = 0;
+
+  // 上一頁：網址回到先前的條件時重新查詢，且不再寫網址。
+  calls.length = 0;
+  location.search = '?tag=%E5%82%BB%E7%9C%BC&sort=created';
+  listeners.popstate();
+  assert.equal(calls.length, 0);
+  const back = new URLSearchParams(g.pending.shift().url.split('?')[1]);
+  assert.equal(back.get('tag'), '傻眼');
+  assert.equal(back.has('q'), false);
+  assert.equal(g.node('query').value, '');
+  // 只有詳情的 hash 變動（條件相同）時不重查。
+  location.hash = '#/m/abc';
+  listeners.popstate();
+  assert.equal(g.pending.length, 0);
 });

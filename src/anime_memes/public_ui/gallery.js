@@ -284,15 +284,75 @@ function setScope(value) {
   if (byId("query").value.trim()) search(true);
 }
 
+// 移除舊卡片並回到列表頂端；星號同步記錄一併清掉，詳情每次開啟都會重新登記。
+function clearResults() {
+  favoriteButtons.clear();
+  if (masonry) masonry.reset();
+  else results.replaceChildren();
+  results.classList?.remove("is-stale");
+  // 先前捲到很下面時，新結果從頂端開始看（頂欄是 sticky，扣掉它的高度）。
+  const top = results.getBoundingClientRect?.().top;
+  if (top < 0) window.scrollTo?.({top: Math.max(0, window.scrollY + top - (topbar?.offsetHeight || 0)), behavior: "instant"});
+}
+
+// ---------- 搜尋條件寫進網址 ----------
+// 重新整理、上一頁／下一頁都能回到同一個搜尋；首頁推薦（沒有任何條件）維持乾淨網址。
+// q：查詢字、in：搜尋範圍、tag：標籤、sort：排序、fav=1：只看收藏。詳情仍用 #/m/id。
+// urlMode：push 新增一筆歷史；typing 連續打字時只在第一次新增、之後原地更新；replace 原地更新；none 不寫。
+let urlMode = "replace";
+let typingEntry = false;
+
+function urlParams() {
+  const params = new URLSearchParams();
+  const query = byId("query").value.trim();
+  if (query) params.set("q", query);
+  if (query && activeScope) params.set("in", activeScope);
+  if (activeTag) params.set("tag", activeTag);
+  if (byId("sort").value) params.set("sort", byId("sort").value);
+  if (favoritesOnly) params.set("fav", "1");
+  return params.toString();
+}
+
+function writeUrl() {
+  const mode = urlMode;
+  urlMode = "push";
+  if (mode === "none" || typeof history === "undefined" || !history.replaceState) return;
+  const qs = urlParams();
+  const target = location.pathname + (qs ? "?" + qs : "") + location.hash;
+  const typingAgain = mode === "typing" && typingEntry;
+  typingEntry = mode === "typing";
+  if ((location.search || "").replace(/^\?/, "") === qs) return;
+  if (mode === "replace" || typingAgain) history.replaceState(history.state, "", target);
+  else history.pushState(null, "", target);
+}
+
+// 由網址還原搜尋條件；回傳條件是否與目前畫面不同。
+function readUrl() {
+  const params = new URLSearchParams(location.search || "");
+  const query = (params.get("q") || "").slice(0, 256);
+  const scope = SCOPES.some(item => item.value === params.get("in")) ? params.get("in") : "";
+  const sortSelect = byId("sort");
+  const sortValue = [...(sortSelect.options || [])].some(option => option.value === params.get("sort")) ? params.get("sort") : "";
+  const tag = (params.get("tag") || "").slice(0, 128);
+  const fav = params.get("fav") === "1";
+  const changed = query !== byId("query").value.trim() || scope !== activeScope || sortValue !== sortSelect.value
+    || tag !== activeTag || fav !== favoritesOnly;
+  byId("query").value = query;
+  activeScope = scope;
+  sortSelect.value = sortValue;
+  activeTag = tag;
+  favoritesOnly = fav;
+  return changed;
+}
+
 async function search(reset, seed = localDate()) {
   clearTimeout(timer);
   const request = ++listRequest;
   let requestedPins = [];
   if (reset) {
-    // 舊卡片已移除，清掉它們的星號同步記錄；詳情每次開啟都會重新登記。
-    favoriteButtons.clear();
-    if (masonry) masonry.reset();
-    else results.replaceChildren();
+    // 舊卡片先留在畫面上（淡化），等新結果回來才替換，避免打字時整片清空又出現。
+    results.classList?.add("is-stale");
+    writeUrl();
     shown = 0;
     fetched = 0;
     page = 0;
@@ -358,6 +418,7 @@ async function search(reset, seed = localDate()) {
     fetched += data.items.length;
     for (const item of pinnedItems) pinnedIds.add(item.id);
     pinnedShown += pinnedItems.length;
+    if (reset) clearResults();
     // 隨機列表剔除已放在最前面的「常用」圖片。
     const items = [...pinnedItems, ...data.items.filter(item => !pinnedIds.has(item.id))];
     const cards = items.map((item, index) => card(item, {
@@ -392,6 +453,8 @@ async function search(reset, seed = localDate()) {
     retryFromStart = false;
   } catch (error) {
     if (request !== listRequest) return;
+    // 新條件查詢失敗時不留下舊條件的結果，以免誤以為是這次的搜尋結果。
+    if (reset) clearResults();
     statusLine.textContent = error.message;
     retryFromStart = page === 0 || error.status === 410;
     loadFailed = true;

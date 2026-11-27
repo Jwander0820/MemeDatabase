@@ -204,6 +204,8 @@ function renderDetail(item, request) {
   tags.className = "detail-tags";
   tags.append(...item.tags.map(tag => {
     const chip = button(tag, () => {
+      // 先拿掉詳情的 hash，關閉時就不會回上一頁（否則會與接著新增的搜尋紀錄互相干擾）。
+      detailPushed = false;
       activeTag = tag;
       byId("query").value = "";
       renderTags();
@@ -218,6 +220,10 @@ function renderDetail(item, request) {
     facts([["作品", item.anime_title], ["角色", item.speaker], ["台詞", item.quote_text]]),
     tags, actions);
 }
+
+// 詳情是從列表點開（新增了一筆 #/m/id 歷史）時為 true；關閉時用上一頁移除那筆，
+// 才不會留下重複的紀錄，害「上一頁」要按兩次。直接開啟分享連結時為 false，關閉只改網址。
+let detailPushed = false;
 
 async function showRoute(useLatest = false) {
   const request = ++detailRequest;
@@ -261,7 +267,15 @@ dialog.addEventListener("click", event => {
 dialog.addEventListener("close", () => {
   if (dialog.open) return;
   ++detailRequest;
-  history.replaceState(null, "", location.pathname + location.search);
+  const pushed = detailPushed;
+  detailPushed = false;
+  if (!/^#\/m\//.test(location.hash)) return;
+  if (pushed) history.back();
+  else history.replaceState(null, "", location.pathname + location.search);
 });
-window.addEventListener("hashchange", () => showRoute());
+window.addEventListener("hashchange", () => {
+  const opening = !dialog.open && /^#\/m\//.test(location.hash);
+  showRoute();
+  if (opening) detailPushed = true;
+});
 

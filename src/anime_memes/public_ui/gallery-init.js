@@ -8,6 +8,11 @@ byId("home").onclick = event => {
     history.replaceState(null, "", location.pathname + location.search);
     if (dialog.open) dialog.close();
   }
+  // 回首頁時網址也回到沒有條件的樣子（會新增一筆歷史，按上一頁可回到剛才的搜尋）。
+  if (location.search) {
+    history.pushState(null, "", location.pathname);
+    typingEntry = false;
+  }
   const needsSearch = !isHomeMode();
   byId("query").value = "";
   byId("sort").value = "";
@@ -41,11 +46,29 @@ byId("rollMemes").onclick = async () => {
   finally { button.disabled = false; }
 };
 byId("filters").onsubmit = event => { event.preventDefault(); search(true); };
-byId("query").oninput = () => {
+// 注音、倉頡等輸入法組字期間不搜尋（否則會拿「ㄅㄨˋ」這類半成品去查），選字完成才送出。
+let composing = false;
+function scheduleSearch() {
   ++listRequest;
   clearTimeout(timer);
   more.hidden = true;
-  timer = setTimeout(() => search(true), 300);
+  timer = setTimeout(() => {
+    urlMode = "typing";
+    search(true);
+  }, 300);
+}
+// 組字事件沒有 oncomposition* 屬性可用，必須用 addEventListener。
+byId("query").addEventListener("compositionstart", () => {
+  composing = true;
+  clearTimeout(timer);
+});
+byId("query").addEventListener("compositionend", () => {
+  composing = false;
+  scheduleSearch();
+});
+byId("query").oninput = event => {
+  if (composing || event?.isComposing) return;
+  scheduleSearch();
 };
 // 排序改變時，「最近新增」chip 要跟著同步。
 byId("sort").onchange = () => { renderTags(); search(true); };
@@ -58,6 +81,17 @@ scroller = window.MemeInfiniteScroll?.create(byId("sentinel"), {
 });
 // 詳情彈窗開啟時不載入；關閉後哨兵若仍在視窗內就補載。
 dialog.addEventListener("close", () => scroller?.check());
+// 上一頁／下一頁：搜尋條件不同才重查；只有 #/m/id 變動（開關詳情）時交給 hashchange 處理。
+window.addEventListener("popstate", () => {
+  if (!readUrl()) return;
+  clearTimeout(timer);
+  renderScope();
+  renderTags();
+  urlMode = "none";
+  typingEntry = false;
+  search(true);
+});
+readUrl();
 renderScope();
 search(true);
 showRoute();

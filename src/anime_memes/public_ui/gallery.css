@@ -504,3 +504,8 @@
 .load-row { min-height: 72px; flex-direction: column; align-items: center; }
 .load-hint { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .load-hint:empty { display: none; }
+
+/* 換條件查詢時，舊結果淡化並暫停點擊，等新結果回來再替換。 */
+#results { transition: opacity .15s ease; }
+#results.is-stale { opacity: .45; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { #results { transition: none; } }
