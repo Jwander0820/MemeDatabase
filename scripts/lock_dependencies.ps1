@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  在與部署相同的 Linux／Python 3.12 基底中，產生含 SHA-256 的 pip 依賴鎖檔。
+  在與部署相同的 Linux／Python 基底（版本取自 Dockerfile）中，產生含 SHA-256 的 pip 依賴鎖檔。
   預設沿用既有鎖定版本；-Upgrade 才更新符合 requirements*.txt 的間接依賴。
   僅修改 requirements-locks/，不安裝套件到本機 .venv，不讀取 .env 或館藏。
 #>
@@ -19,9 +19,9 @@ $Compile = @'
 set -eu
 python -m pip install --disable-pip-version-check --quiet pip==26.3 pip-tools==7.7.0
 mkdir -p requirements-locks
-python -m piptools compile --quiet --generate-hashes --strip-extras --allow-unsafe --no-emit-index-url --no-emit-trusted-host --pip-args='--only-binary=:all:' $LOCK_UPGRADE --output-file=requirements-locks/public-py312-linux.txt requirements.txt
+python -m piptools compile --quiet --generate-hashes --strip-extras --allow-unsafe --no-emit-index-url --no-emit-trusted-host --pip-args='--only-binary=:all:' $LOCK_UPGRADE --output-file=requirements-locks/public-linux.txt requirements.txt
 for profile in admin mcp; do
-  python -m piptools compile --quiet --generate-hashes --strip-extras --allow-unsafe --no-emit-index-url --no-emit-trusted-host --pip-args='--only-binary=:all:' $LOCK_UPGRADE --constraint=requirements-locks/public-py312-linux.txt --output-file="requirements-locks/$profile-py312-linux.txt" "requirements-$profile.txt"
+  python -m piptools compile --quiet --generate-hashes --strip-extras --allow-unsafe --no-emit-index-url --no-emit-trusted-host --pip-args='--only-binary=:all:' $LOCK_UPGRADE --constraint=requirements-locks/public-linux.txt --output-file="requirements-locks/$profile-linux.txt" "requirements-$profile.txt"
 done
 '@
 

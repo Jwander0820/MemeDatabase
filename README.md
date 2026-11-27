@@ -63,7 +63,7 @@ python -m venv .venv
 - `requirements-ocr.txt`：管理＋既有 PaddleOCR GPU，僅本機資料準備時選裝，需相容 Python／CUDA。
 - `requirements-mcp.txt`：基礎＋官方 MCP SDK，私人 MCP 選裝。
 
-OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。`requirements*.txt` 宣告直接依賴；Docker 另使用 `requirements-locks/*-py312-linux.txt` 鎖定完整間接依賴與 SHA-256，安裝時同時驗證宣告與鎖檔。Python、Nginx 與預設 cloudflared 映像固定 digest；更新方式見[建置鎖檔與映像更新](docs/backend-refactor.md#建置鎖檔與映像更新)。鎖檔適用 Linux／Python 3.12，本機 OCR／GPU 環境維持選用。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
+OCR 與 MCP 不需日常使用時不必安裝；EasyOCR 僅保留呼叫入口，未納入預設清單。`requirements*.txt` 宣告直接依賴；Docker 另使用 `requirements-locks/*-linux.txt` 鎖定完整間接依賴與 SHA-256，安裝時同時驗證宣告與鎖檔。Python、Nginx 與預設 cloudflared 映像固定 digest；更新方式見[建置鎖檔與映像更新](docs/backend-refactor.md#建置鎖檔與映像更新)。鎖檔適用 Linux 與 Dockerfile 基底映像的 Python 版本（CI 測試也從 Dockerfile 讀取同一版本），本機 OCR／GPU 環境維持選用。所有 Docker target 都不安裝 OCR，公開 target 也不含管理原始碼與圖片處理。
 
 本機 Docker 的[私人管理頁](http://localhost:3636)（`/browse` 為本機簡潔瀏覽）與[模擬公開頁](http://localhost:3637)使用獨立入口；不走 Docker 的 `web` 指令預設在 3638。首次啟動、隔離資料與換版驗收見[本機操作說明](docs/backend-refactor.md#dockernginx-本機啟動)。
 

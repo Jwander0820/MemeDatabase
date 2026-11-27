@@ -5,7 +5,7 @@
 #   requirements-admin.txt  本機／私人管理與發布
 #   requirements-mcp.txt    私人唯讀 MCP
 #   requirements-ocr.txt    本機 OCR（GPU）
-# Docker 另外使用 requirements-locks/*-py312-linux.txt 的完整版本與 SHA-256；更新見 scripts/lock_dependencies.ps1。
+# Docker 另外使用 requirements-locks/*-linux.txt 的完整版本與 SHA-256；更新見 scripts/lock_dependencies.ps1。
 [project]
 name = "meme-database"
 version = "0.1.0"
