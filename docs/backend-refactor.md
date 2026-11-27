@@ -33,7 +33,7 @@
 
 ## 建置鎖檔與映像更新
 
-`requirements-locks/public-py312-linux.txt`、`admin-py312-linux.txt`、`mcp-py312-linux.txt` 分別對應三種 Python Docker target，包含完整直接／間接依賴及 SHA-256。Docker 仍用 pip，搭配 `--require-hashes --only-binary=:all:`；同時讀取直接依賴與鎖檔，宣告有變更但鎖檔未同步時會因衝突或缺少雜湊而失敗，不會悄悄裝入其他版本。管理與 MCP 的鎖檔沿用公開基礎的版本限制。
+`requirements-locks/public-linux.txt`、`admin-linux.txt`、`mcp-linux.txt` 分別對應三種 Python Docker target，包含完整直接／間接依賴及 SHA-256。Docker 仍用 pip，搭配 `--require-hashes --only-binary=:all:`；同時讀取直接依賴與鎖檔，宣告有變更但鎖檔未同步時會因衝突或缺少雜湊而失敗，不會悄悄裝入其他版本。管理與 MCP 的鎖檔沿用公開基礎的版本限制。
 
 更新直接依賴後，從 repo 根目錄執行：
 
@@ -43,12 +43,12 @@
 .\scripts\lock_dependencies.ps1 -Upgrade
 ```
 
-腳本從 Dockerfile 取得固定的 Python 基底，在暫存 Linux／Python 3.12 容器使用 `pip==26.3`、`pip-tools==7.7.0` 產生鎖檔；不改動本機 `.venv`，也不匯入館藏或執行同步。預設沿用鎖檔既有版本，需更新間接依賴時才加 `-Upgrade`。產出需與來源宣告一同檢查，並重建相關 target、執行測試。Linux 鎖檔不宣稱涵蓋其他作業系統、Python 版本或 OCR／CUDA；這些環境仍依各自的 requirements 清單安裝或另外產生鎖檔。
+腳本從 Dockerfile 取得固定的 Python 基底，在同一基底的暫存 Linux 容器使用 `pip==26.3`、`pip-tools==7.7.0` 產生鎖檔；不改動本機 `.venv`，也不匯入館藏或執行同步。預設沿用鎖檔既有版本，需更新間接依賴時才加 `-Upgrade`。產出需與來源宣告一同檢查，並重建相關 target、執行測試。Linux 鎖檔不宣稱涵蓋其他作業系統、Python 版本或 OCR／CUDA；這些環境仍依各自的 requirements 清單安裝或另外產生鎖檔。
 
 Python、Nginx 基底及預設 cloudflared 都固定「版本標籤＋多架構 digest」。單純 `build --pull` 只會拉回相同內容，不會自動取得安全修補。更新時先從原映像 registry 查證 digest，例如：
 
 ```powershell
-docker buildx imagetools inspect python:3.12.15-slim-bookworm
+docker buildx imagetools inspect python:3.15.1-slim-bookworm
 docker buildx imagetools inspect nginxinc/nginx-unprivileged:1.30.6-alpine
 docker buildx imagetools inspect cloudflare/cloudflared:2026.10.0
 ```

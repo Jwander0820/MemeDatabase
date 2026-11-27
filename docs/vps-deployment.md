@@ -439,7 +439,7 @@ docker compose logs --since 1h --timestamps public-nginx | grep 'search status='
 | 公開 API | 只接受讀取；參數白名單；分頁、查詢長度（256 字／16 詞）、收藏數（200）上限；資料庫唯讀且只含已發布欄位 | — |
 | 容器 | Python 服務以 UID 10001、Nginx 以 UID 101（nginx-unprivileged）執行；所有服務 `cap_drop: ALL`、禁止提權、根檔案系統唯讀（僅 tmpfs 與必要掛載可寫）；記憶體、CPU、程序數上限；日誌輪替；Python／Nginx 基底與預設 cloudflared 固定版本及 digest，三種 Python 部署使用完整版本與 SHA-256 鎖檔 | 明確更新 digest／鎖檔並重建，才能取得安全修補 |
 
-建置鎖檔適用 Linux／Python 3.12，未包含本機 OCR／CUDA。固定 digest 與雜湊不等於已完成安全更新或主機負載驗收；更新與還原仍依維運流程執行。
+建置鎖檔適用 Linux 與 Dockerfile 基底映像的 Python 版本，未包含本機 OCR／CUDA。固定 digest 與雜湊不等於已完成安全更新或主機負載驗收；更新與還原仍依維運流程執行。
 
 ### 其他提醒
 
