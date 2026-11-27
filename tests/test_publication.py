@@ -235,16 +235,29 @@ class PublicationTest(unittest.TestCase):
         old = self.publish()
         for _ in range(4):
             export_release(self.db, self.releases)
-        with self.assertRaises(ValueError):
-            prune(self.releases, service_stopped=False)
-        self.assertEqual(len(prune(self.releases, service_stopped=True)), 1)
+        self.assertEqual(len(prune(self.releases)), 1)
         validate(self.releases, old)
         orphan = self.releases / "media" / ("0" * 64 + ".webp")
         orphan.touch()
-        self.assertEqual(len(prune(self.releases, service_stopped=True, keep_recent=0)), 3)
+        self.assertEqual(len(prune(self.releases, keep_recent=0)), 3)
         self.assertEqual([path.name for path in (self.releases / "versions").iterdir()], [old])
         self.assertFalse(orphan.exists())
         validate(self.releases, old)
+
+    def test_prune_while_public_service_runs(self):
+        first = self.publish()
+        self.assertEqual(self.client.get("/api/v1/entries").status_code, 200)
+        for _ in range(4):
+            version = export_release(self.db, self.releases)["version"]
+            activate(self.releases, version)
+            self.assertEqual(self.client.get("/api/v1/entries").get_json()["version"], version)
+        removed = prune(self.releases)
+        self.assertIn(first, removed)
+        response = self.client.get("/api/v1/entries")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["version"], current_version(self.releases))
+        self.assertEqual(self.client.get("/api/v1/meta").status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/entries", query_string={"version": first}).status_code, 410)
 
     def test_public_schema_validation_is_reused_and_invalid_ids_need_no_database(self):
         old = self.publish()

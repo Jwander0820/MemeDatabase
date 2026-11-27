@@ -21,7 +21,8 @@ def main(argv=None):
         cmd.add_argument("--root", default=settings.release_root())
         if name == "prune":
             cmd.add_argument("--keep-recent", type=int, choices=range(21), default=3)
-            cmd.add_argument("--service-stopped", action="store_true")
+            # 舊版需要先停服務；旗標保留給既有腳本，現已不需要。
+            cmd.add_argument("--service-stopped", action="store_true", help=argparse.SUPPRESS)
         else:
             cmd.add_argument("version")
     default_root = settings.release_root()
@@ -64,7 +65,7 @@ def main(argv=None):
         from .releases import activate, validate, prune
         root = Path(args.root).resolve()
         if args.command == "prune":
-            result = prune(root, service_stopped=args.service_stopped, keep_recent=args.keep_recent)
+            result = prune(root, keep_recent=args.keep_recent)
         elif args.command == "validate":
             result = validate(root, args.version)
         else:

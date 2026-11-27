@@ -313,13 +313,13 @@ restrict,command="/usr/bin/sudo -n -- /usr/local/sbin/memedatabase-publication \
 
 改文字／標籤只更新資料快照；新增或換圖只傳新雜湊圖片。刪除資料／取消公開在啟用新 DB 後生效，舊縮圖先保留供回滾，後續依 `-Prune` 清理未被保留版本引用的檔案。增量包依賴目標 VPS 的既有縮圖；離線完整備份請使用 `-Full`。此清理不會刪除 R2 或清除 CDN 快取。
 
-加上 `-Prune` 會在安裝後自動清理舊版本（見 6.4），保留最新三版與目前啟用版本，避免 VPS 上累積太多版本：
+從管理頁發布並啟用時，VPS 會在啟用成功後自動清理舊版本（見 6.4）。用上傳腳本時，加上 `-Prune` 會在安裝後清理，保留最新三版與目前啟用版本，避免 VPS 上累積太多版本：
 
 ```powershell
 .\scripts\push_release.ps1 -Version NEW_VERSION -SshHost myvps -RemoteReleaseRoot /srv/memedatabase/releases -Activate -Prune
 ```
 
-清理時會短暫停止公開服務（約數秒），不論 prune 成功與否都會重新啟動。compose 目錄不是 `/opt/memedatabase` 時以 `-RemoteComposeDir` 指定。
+清理不需停止公開服務。
 
 ### 6.2 程式更新
 
@@ -385,19 +385,22 @@ docker run --rm --user 10001:10001 \
 
 ### 6.4 清理舊版本
 
-`prune` 需要先停公開服務，保留最新三個版本與目前啟用版本：
+`prune` 保留最新三個版本與目前啟用版本，其餘版本與不再被引用的縮圖才刪除。服務執行中即可清理：公開 API 每個請求只讀目前啟用版，指定其他版本一律回 410，被刪的版本不會再被讀到。
+
+受限發布指令（`/usr/local/sbin/memedatabase-publication`）在 `activate` 或 `install-and-activate` 成功後會自動執行清理；清理失敗只記警告，不影響已完成的啟用。這支指令不會隨程式自動更新，改版後需由 root 重新安裝：
 
 ```bash
-cd /opt/memedatabase
-docker compose --profile public --profile tunnel stop
+cd /opt/memedatabase && sudo install -o root -g root -m 0755 deploy/vps-publication.sh /usr/local/sbin/memedatabase-publication
+```
+
+舊版公開映像的 `prune` 仍要求停服務，在映像更新前自動清理會失敗並只留下警告。手動清理：
+
+```bash
 docker run --rm --user 10001:10001 \
   -v /srv/memedatabase/releases:/releases \
   memedatabase-public-api \
-  python -m src.anime_memes.runtime prune --root /releases --service-stopped
-docker compose --profile public --profile tunnel up -d --wait
+  python -m src.anime_memes.runtime prune --root /releases
 ```
-
-停機期間，Cloudflare 快取中已版本化的 API 回應與縮圖仍可能被繼續提供；未快取的請求會失敗（Tunnel 離線）。不要在服務執行中清理。
 
 ## 7. 檢查與疑難排解
 

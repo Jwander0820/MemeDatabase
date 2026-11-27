@@ -192,6 +192,15 @@ class VpsPublication:
                 def runtime(*args, **kwargs):
                     return container(['python', '-m', 'src.anime_memes.runtime', *args], **kwargs)
 
+                def prune_old():
+                    # 受限模式由 VPS 端指令在啟用後自行清理；清理失敗不影響已完成的啟用。
+                    if restricted:
+                        return
+                    try:
+                        runtime('prune', '--root', '/releases', '--keep-recent', '3', writable=True)
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        log.warning('VPS old release prune failed')
+
                 try:
                     self._update('驗證本機發布包')
                     manifest = validate(self.root, self.job['version'])
@@ -215,6 +224,7 @@ class VpsPublication:
                                                    runtime('activate', '--root', '/releases', self.job['version'], writable=True))
                             if not isinstance(activated, dict) or activated.get('version') != self.job['version']:
                                 raise ValueError('VPS 啟用結果不符')
+                            prune_old()
                         result = {'version': self.job['version'], 'count': manifest['count'],
                                   'activated': self.job['activate'], 'already_installed': True}
                         self._update('VPS 已啟用此版' if self.job['activate'] else 'VPS 已安裝相同版本，無須重傳',
@@ -243,6 +253,8 @@ class VpsPublication:
                         result = json.loads(runtime(*args, '/bundle.tar.gz', writable=True, bundle=True))
                     if not isinstance(result, dict) or result.get('version') != self.job['version'] or result.get('activated') is not self.job['activate']:
                         raise ValueError('VPS 回傳的發布結果不符，請確認遠端版本')
+                    if self.job['activate']:
+                        prune_old()
                     self._update('VPS 已啟用此版' if self.job['activate'] else 'VPS 安裝完成，尚未啟用',
                                  status='succeeded', finished_at=now(), result=result)
                 finally:

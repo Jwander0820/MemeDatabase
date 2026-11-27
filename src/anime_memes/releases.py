@@ -109,9 +109,10 @@ def activate(root: Path, version: str) -> dict:
     return manifest
 
 
-def prune(root: Path, *, service_stopped: bool, keep_recent: int = 3) -> list[str]:
-    if not service_stopped:
-        raise ValueError("請先停止搜尋服務，並明確指定 --service-stopped")
+def prune(root: Path, *, keep_recent: int = 3) -> list[str]:
+    # 可在服務執行中清理：公開 API 每個請求只讀 current.json 指向的版本，
+    # 指定其他版本一律回 410；啟用版與最新幾版永遠保留，被刪的只有沒人會讀的舊版。
+    # Linux 上刪除仍被開啟的檔案不會中斷進行中的讀取。
     if not 0 <= keep_recent <= 20:
         raise ValueError("keep_recent 必須介於 0 到 20")
     active = current_version(root)
