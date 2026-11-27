@@ -9,5 +9,7 @@
 | [視覺標籤階段規格](vision-tagging-stage-spec.md) | 2026-07 階段設計；保留候選審核與資料模型的設計依據，原狀態文字不再維護 |
 | [視覺標籤工作紀錄](vision-tagging-worklog.md) | 該階段實作與當時驗證紀錄 |
 | [2026-09-24 維護紀錄](maintenance-2026-09-24.md) | 同步、圖片、審核等修正與當時測試 |
+| [2026-11-23 搜尋後端實作紀錄](backend-search-implementation-2026-11-23.md) | 名稱／替代詞 schema、搜尋 API 與主庫遷移驗證；現況見 DB 與搜尋規格 |
+| [2026-11-26 手動新增與匯入修正](manual-upload-import-fixes-2026-11-26.md) | 中文檔名上傳、舊回應隔離、舊附件核對等四項修正，已完成並有自動測試 |
 | [2026-11-23 專案評估](personal-meme-assessment-2026-11-23.md) | 當次資料量、資源估算與程式盤點，方向已整合至整體規格 |
 | [2026-11-23 外部研究](personal-meme-research-2026-11-23.md) | 同類工具與 R2／PostgreSQL 官方來源，時效資訊須重新查證 |

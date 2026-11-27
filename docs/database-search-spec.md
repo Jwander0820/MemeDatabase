@@ -2,7 +2,7 @@
 
 - 版本：1.1
 - 更新日期：2026-11-26
-- 狀態：本地 schema、管理 API、搜尋核心及公開快照後端已實作；管理詳情已整合名稱與替代詞，索引效能可依館藏規模再評估。詳見 [搜尋紀錄](backend-search-implementation.md) 及 [雙版本發布操作](backend-refactor.md)。
+- 狀態：本地 schema、管理 API、搜尋核心及公開快照後端已實作；管理詳情已整合名稱與替代詞，索引效能可依館藏規模再評估。詳見 [搜尋實作紀錄](archive/backend-search-implementation-2026-11-23.md) 及 [雙版本發布操作](backend-refactor.md)。
 - 範圍：沿用 SQLite，補充梗圖名稱、單圖替代搜尋詞與共用搜尋契約。主庫已完成備份與加法式遷移，詳細證據見實作紀錄。
 
 ## 1. 設計邊界
